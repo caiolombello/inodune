@@ -2,6 +2,7 @@
   import { Folder, ChevronRight, LockKeyhole } from '@lucide/svelte';
   import { formatBytes, isLocallyEligible, type Candidate } from './model';
   import RiskBadge from './RiskBadge.svelte';
+  import { protectionReason } from './protection';
   import VirtualList from './VirtualList.svelte';
   import { t } from './i18n.svelte';
   let {
@@ -58,6 +59,10 @@
           >
           <div>
             <RiskBadge risk={item.risk} />
+            {#if item.risk === 'protected'}<small
+                class="item-policy-note"
+                title={item.reason}>{t(protectionReason(item.reason))}</small
+              >{/if}
             {#if localMode && item.risk === 'review' && isSelectable(item)}<small
                 class="item-policy-note">{t('Revisão individual')}</small
               >{:else if !isSelectable(item)}<small class="item-policy-note"

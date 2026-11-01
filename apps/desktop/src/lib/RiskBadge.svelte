@@ -5,7 +5,14 @@
   let { risk }: { risk: Risk } = $props();
 </script>
 
-<span class="badge {risk}">
+<span
+  class="badge {risk}"
+  title={risk === 'protected'
+    ? t(
+        'Protegido é uma política de segurança. O inodune não detecta se o item está em uso.',
+      )
+    : undefined}
+>
   {#if risk === 'low'}<ShieldCheck
       size={13}
     />{:else if risk === 'protected'}<Shield size={13} />{:else}<CircleAlert
