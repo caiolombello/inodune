@@ -1,0 +1,35 @@
+# Fase 4 — implementação e aceite local
+
+01/11/2026. Build local 0.1.0. Nenhuma limpeza, scan de teste ou deleção sobre dados ativos do usuário. Operações destrutivas do executor ficaram exclusivamente nas fixtures recém-criadas por cada teste. Os documentos normativos originais são preservados.
+
+## Entregas
+
+PT-BR/EN-US explícito com preferências persistidas, paths/IDs/nomes do usuário verbatim, formatos numéricos locais e diálogos de confirmação/picker localizados. Histórico local reabre JSON privado, mostra erros em registros inválidos e exporta manualmente para novo arquivo, com sucesso só depois do backend. Lista de outcomes paginada em 100 arquivos. Um botão no cabeçalho permite retornar à execução depois de navegar para outra página.
+
+Exclusões relativas literais por escopo são limites de leitura e revogam snapshots/planos. A CLI aceita `--exclude REL` repetido em scan e clean. Escopo protegido pode ser escolhido explicitamente; dados de IA nunca ganham ação de limpeza. Novas execuções param quando a capacidade de histórico/journal não pode ser reservada. Marcadores locais de panic Rust não guardam payload, conteúdo inspecionado ou caminhos completos do código, e nunca enviam nada.
+
+Pacotes DEB/RPM e tarball com instalador sem root, GUI/CLI, licença, ícone e launcher. Compilação em Debian 12 rootless sem rede, versões Rust/npm fixadas, build de release sem fábrica de fixtures. Empacotador recebe cópias dos binários. SPDX dos grafos e SHA256SUMS locais. Workflow manual produz artefatos, sem publicação/assinatura. Detalhes em [packaging](../../packaging-linux.md).
+
+## Evidências executadas
+
+- `cargo fmt --all --check`, `cargo clippy --locked --workspace --all-targets --all-features -- -D warnings`: PASS. `cargo test --locked --workspace --all-features`: **84 testes do projeto** (clean 30, reviewed 7, CLI 9, core 25, scan 13). Dois testes de mount são ignorados no runner comum e foram executados explicitamente por `python3 scripts/mount-fixture-tests.py`: **2 PASS**, somente fixtures em namespaces privados; o processo filho de thumbnail não é contado duas vezes.
+- `npm run typecheck`: zero erros/avisos; lint e format:check PASS; `npm test`: **9 PASS**; build Vite de produção PASS. `npm run test:e2e -- --project=chromium`: **17 PASS**, incluindo teclado em inglês, persistência, estados de falha, consentimento, exclusões, exportação cancelada/confirmada e virtualização. Estes E2E usam demonstração ou IPC sintético, sem autoridade sobre arquivos.
+- Scanner CLI real: [benchmark 100/1.000/10.000](scanner-benchmark.md), somente leitura de fixtures privadas, hashes/ambiente em JSON. Renderer: [benchmark UI](ui-benchmark.md), DOM limitado a 15 linhas no viewport para 1.000/10.000 e paginação acessível, reflow 420 px. Nenhuma amostra headless é promovida a 60 fps em hardware representativo.
+- `cargo build --locked -p inodune-desktop --features fixture-tests,custom-protocol` seguido de `INODUNE_NATIVE_STANDALONE=1 python3 scripts/native-polish-e2e.py`: PASS em WebKitGTK/Tauri real, sem Vite. 77 bytes de provider movidos à Lixeira temporária, somente JSON Cargo de 148 bytes removido; fontes/estado/backend/lock/módulos/hash/artefatos preservados. Histórico reaberto do disco, ID inválido rejeitado, exclusões invalidam o scan e impedem visitar a subárvore. Consentimento automatizado existe somente na fábrica debug; não representa teste humano do diálogo de produção. [Resultado](native/result.json), screenshots em `native/`.
+- `python3 scripts/native-package-smoke.py`: release de produção sem fixtures abre sozinho, assets sob CSP carregam, nenhum escopo aprovado, scan sem aprovação é recusado, histórico vazio e preferências inglesas funcionam; XDG temporários, sem scan/limpeza. [Resultado](production-native/result.json).
+- `python3 scripts/build-linux.py` e `python3 scripts/package-linux.py`: PASS; binários e pacotes em `target/compat/release` e `target/packages`. DEB/RPM extraídos em temporários do packager, dependências/launcher/ícone/executáveis e CLI help conferidos. `sha256sum --check SHA256SUMS`: PASS. `python3 scripts/test-user-install.py`: instalação em prefixo temporário com espaços/caracteres especiais, desktop-file-validate, CLI help e recusa de nova instalação preservando hashes: PASS. Nenhuma instalação em `/usr` no host.
+- Revisão independente estática de exclusões, reserva de execução, histórico e exportação não confirmou novo defeito acionável. Não é aprovação humana nem certificação de segurança. [Auditoria de dependências e avisos abertos](dependency-audit.md).
+
+## Falhas encontradas e corrigidas
+
+A revisão dos testes encontrou uma regressão de navegação para a execução depois de abrir histórico; foi adicionado acesso explícito no cabeçalho. A jornada em inglês revelou ternários renderizados sem tradução e um teste que tentava focar botão ainda desabilitado durante o scan: cópias foram localizadas e o teste espera o estado habilitado real. O seletor de erro do histórico era ambíguo e foi tornado exato. O instalador tinha TryExec como linha de comando entre aspas: reprodução falhou antes da correção; agora TryExec é caminho e Exec segue as duas camadas de escape Desktop Entry.
+
+O primeiro WebKit/Xvfb acelerado perdeu conexão na captura após resize. Log preservado em `native-failure-accelerated/`; a causa exata não foi provada. O harness passou depois com `WEBKIT_DISABLE_COMPOSITING_MODE=1`, fallback oficial [Tauri](https://v2.tauri.app/develop/debug/linux-graphics/). Esse fallback é restrito aos testes; não desligamos aceleração global do aplicativo. Screenshots aguardam frames de render antes da captura.
+
+## Pendências e limites
+
+Instalação limpa e abertura renderizada passaram em Ubuntu 24.04.5 e Fedora 44 isolados: [matriz de plataformas](platforms.md). Os hashes coincidem com os pacotes finais. Debian 12 teve compilação/extração/CLI, sem GUI instalada testada. Testes nativos em Xvfb não provam sessão KDE/Wayland interativa, GPU, 60 fps, leitor de tela real ou zoom 200%. Usabilidade com 3 desenvolvedores e 2 pessoas não técnicas não ocorreu por ausência de participantes, conforme alternativa de documentação do plano.
+
+Cache incremental persistente de scan não foi ativado: a alternativa segura usa memoização reativa da apresentação e reconstrói as provas do filesystem a cada análise. Ganho entre scans não foi alegado. Scanner tem limites de entradas/profundidade/manifesto; plano tem no máximo 10.000 folhas/2 MiB de caminhos e não fraciona candidato gigante. Histórico tem capacidade finita, sem poda automática. Recuperação pós-crash é inspeção manual do journal, sem replay ou rollback automático. Hook de panic Rust não cobre crash de subprocesso GTK/WebKit.
+
+Git remove/prune, módulos Terraform e formatos opacos continuam protegidos. Não há garantia contra código hostil com o mesmo UID na última janela compare/unlink. Assinatura, publicação, CI remoto, revisão humana pré-release e dados reais permanecem NÃO EXECUTADOS. O build local é usável e verificável; não é uma declaração de “100% certificado” ou de ausência de riscos.

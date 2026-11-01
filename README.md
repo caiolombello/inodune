@@ -2,11 +2,25 @@
 
 Liberte espaço. Preserve o essencial.
 
-Aplicativo Linux open source (MIT), com Rust + Tauri 2 + Svelte/TypeScript. **Desktop local com análise e limpeza controlada de caches reconhecidos.** Escolha pastas específicas no diálogo nativo, revise os itens, simule o impacto e confirme o plano no sistema. Fases 0–3 verificadas localmente: providers com h1 e metadados Cargo conhecidos têm revisão individual. Git e formatos incertos permanecem protegidos. Demonstração sintética disponível separadamente.
+Aplicativo Linux open source (MIT), com Rust + Tauri 2 + Svelte/TypeScript. **Desktop local com análise e limpeza controlada de caches reconhecidos.** Escolha pastas específicas no diálogo nativo, revise os itens, simule o impacto e confirme o plano no sistema. Fases 0–4 implementadas com validação local e pendências de release explícitas: providers com h1 e metadados Cargo conhecidos têm revisão individual. Git e formatos incertos permanecem protegidos. Demonstração sintética disponível separadamente.
 
-![Protótipo claro — valores fictícios](docs/evidence/chromium-overview-light.png)
+![Desktop nativo — somente fixtures temporárias](docs/evidence/f4/native/local-results.png)
 
-## Executar o protótipo
+## Usar o app desktop
+
+Build local **0.1.0**, Linux x86_64. Os artefatos em `target/packages/` incluem DEB, RPM e tarball sem root, com CLI, ícone e atalho de aplicativos. São builds locais sem assinatura, sem publicação externa. [Instalação, dependências e baseline](docs/packaging-linux.md).
+
+```sh
+python3 target/packages/install-user.py \
+  --archive target/packages/Inodune_0.1.0_linux_x86_64.tar.gz \
+  --prefix "$HOME/.local"
+# Abra Inodune pelo menu do desktop ou:
+"$HOME/.local/lib/inodune/0.1.0/bin/inodune-desktop"
+```
+
+O instalador recusa destinos existentes. As bibliotecas GTK3/WebKitGTK 4.1 são fornecidas pela distribuição; instalar dependências de sistema pode exigir o administrador. O aplicativo e sua instalação no prefixo do usuário não elevam privilégios. A aprovação das pastas dura somente a sessão.
+
+## Desenvolvimento da interface
 
 Node **24.18.0** e npm (versão usada: 11.16.0). Sem conta, API key, CDN ou telemetria. Rede necessária para instalar dependências; o protótipo funciona localmente depois do build.
 
@@ -25,9 +39,9 @@ npm run preview -w @inodune/desktop
 
 O onboarding é dispensável. Explore análise pausável/cancelável, revisão por item, busca/risco/ordenação, detalhes do detector, Projetos (Project Lens), Itens protegidos (Protection Ledger), simulador de impacto, confirmação e relatório parcial. Configurações permite reproduzir cenário vazio, erro de permissão e itens alterados/falhas. O catálogo mostra componentes e estados. Tema claro/escuro/automático e redução manual de movimento; a preferência do OS também prevalece.
 
-No modo Demonstração, paths `/demo/` são texto de fixture. No desktop local, scan e executor compartilham o core Rust. A interface envia somente IDs de escopos/candidatos e o ID/hash de um plano efêmero; paths não conferem autoridade. Não há API FS/shell/rede genérica. A confirmação final é nativa e a limpeza aceita somente caches de baixo risco reconhecidos. A simulação TypeScript continua restrita à demonstração.
+No modo Demonstração, paths `/demo/` são texto de fixture. No desktop local, scan e executor compartilham o core Rust. A interface envia somente IDs de escopos/candidatos e o ID/hash de um plano efêmero; paths não conferem autoridade. Não há API FS/shell/rede genérica. A confirmação final é nativa. Caches de baixo risco reconhecidos podem ser agrupados; JSON Cargo e providers Terraform verificados exigem revisão individual. A simulação TypeScript continua restrita à demonstração.
 
-Relatórios e journals locais privados ficam em `XDG_STATE_HOME/inodune/reports`; registram paths, intenções e resultados, sem conteúdos nem uploads. Preferências visuais ficam no armazenamento local. Pastas/seleção de scan ficam na memória da sessão. Arquivos alterados são preservados; resultados parciais e localizações de recuperação aparecem no relatório. Veja [protocolo e limites reais](docs/cleanup-protocol.md).
+Relatórios e journals locais privados ficam em `XDG_STATE_HOME/inodune/reports`; registram paths, intenções e resultados, sem conteúdos nem uploads. Histórico persistido pode ser consultado e exportado manualmente para um novo arquivo local. Exclusões literais relativas bloqueiam a leitura e invalidam planos antigos. Preferências de idioma PT-BR/EN-US, tema e motion ficam no armazenamento local. Pastas/seleção de scan ficam na memória da sessão. Arquivos alterados são preservados; resultados parciais e localizações de recuperação aparecem no relatório. Veja [protocolo e limites reais](docs/cleanup-protocol.md).
 
 ## Workspace e CLI
 
@@ -44,7 +58,7 @@ docs                  arquitetura, ameaças, UX, checklist e evidências
 Com Rust **1.93.0** e compilador/linker C instalados:
 
 ```sh
-cargo run --locked -p inodune-cli -- scan --root /pasta/aprovada --json
+cargo run --locked -p inodune-cli -- scan --root /pasta/aprovada --exclude dados-privados --json
 cargo run --locked -p inodune-cli -- clean --root /pasta/aprovada --dry-run --json
 # Demonstração sem filesystem:
 cargo run --locked -p inodune-cli -- scan --demo --json
@@ -100,7 +114,7 @@ npm ci
 npm run desktop
 ```
 
-O app roda com UID comum; `sudo` não é usado no aplicativo. Abertura nativa e jornada WebKitGTK/IPC foram verificadas em Fedora/X11 virtual. Ubuntu e Wayland interativo seguem pendentes. O standalone debug já foi verificado sem Vite; os pacotes ainda estão por implementar. O bundle continua desabilitado; `.deb`/`.rpm` são alvos futuros, sem releases publicados. Não há suporte declarado a Flatpak/AppImage nesta fase.
+O app roda com UID comum; `sudo` não é usado no aplicativo. Abertura nativa e jornada WebKitGTK/IPC foram verificadas em Fedora/X11 virtual. Instalação e abertura também passaram em Ubuntu 24.04.5 e Fedora 44 isolados, com Xvfb e software rendering; sessão Wayland interativa segue pendente. O release standalone já foi verificado sem Vite; DEB/RPM e instalador sem root foram gerados e testados em temporários. Não há release publicado. A matriz atual está na evidência F4. Não há suporte declarado a Flatpak/AppImage nesta fase.
 
 Neste ambiente Fedora 44, Rust e Zig foram instalados **apenas em `.tools/`**, ignorado pelo Git. GCC também já está instalado. Para repetir os checks com o Rust local desta cópia, use:
 
@@ -119,8 +133,8 @@ O wrapper alternativo `.tools/cc` chama Zig 0.17.0, mas não é necessário com 
 - [Jornadas](docs/ux-personas-and-journeys.md), [wireframes](docs/ux-wireframes.md), [design system](docs/design-system.md), [motion](docs/motion-spec.md) e [inovações](docs/innovation-backlog.md).
 - Fase 1 implementada: scanner read-only, roots por diálogo nativo, limites/cancelamento, inventário protegido, GUI/CLI compartilhados, Project Lens/Ledger/Explainability e Simulator com metadados de fixtures reais. [Regras e fontes](docs/detectors.md), [evidências](docs/evidence/f1/acceptance.md). Git agora recebe inspeção de estado em sandbox F3 e permanece protegido; locais não documentados também.
 - Fase 2: planos backend, executor de folhas de caches, Lixeira, exclusão permanente, journal e relatórios implementados; [verificação da fase](docs/evidence/f2/acceptance.md) registrada. [Protocolo e risco residual do mesmo UID](docs/cleanup-protocol.md). Fase 3 implementada conservadoramente: [regras](docs/f3-detector-policy.md), [evidência](docs/evidence/f3/acceptance.md); remoção/prune Git, módulos e formatos desconhecidos ficam bloqueados por incerteza. Idade não comprova desuso. Estado, sessões/memória e toda incerteza permanecem protegidos.
-- Pendentes: Pacotes distribuíveis, testes de usabilidade com participantes, leitor de tela real, zoom 200%, desempenho nativo/60 fps (virtualização e baseline sintético de 10.000 itens já verificados), EN-US, empacotamento e revisão humana antes de release destrutivo. Nenhum desses gates é considerado aprovado.
-- Auditoria npm: sem vulnerabilidades de produção na consulta registrada; 14 registros de build/dev (2 low e 12 moderate), principalmente `deepmerge` (prototype poisoning) e `minimatch` (DoS por glob). Sem patch compatível indicado pelo npm; não se considera o tooling livre de vulnerabilidades. Consulte `docs/evidence/npm-audit.json`; não foi usado downgrade automático/forçado.
+- Fase 4: PT-BR/EN-US, histórico/exportação, exclusões, diagnósticos de panic locais limitados, benchmarks de scanner/UI e pacotes locais. [Evidências e limitações](docs/evidence/f4/acceptance.md). Pendentes: participantes, leitor de tela real, zoom 200%, compositor Wayland e 60 fps em hardware representativo, assinatura/publicação e revisão humana pré-release. Cache de apresentação é reativo; o scanner relê o filesystem e não reutiliza provas de exclusão de scans antigos.
+- Auditoria npm: sem vulnerabilidades de produção na consulta registrada; 14 registros de build/dev (2 low e 12 moderate), principalmente `deepmerge` (prototype poisoning) e `minimatch` (DoS por glob). Sem patch compatível indicado pelo npm; não se considera o tooling livre de vulnerabilidades. RustSec também reporta avisos da cadeia GTK3, sem upgrade compatível no grafo atual; consulte [auditoria F4](docs/evidence/f4/dependency-audit.md). Consulte `docs/evidence/f4/npm-audit.json`; não foi usado downgrade automático/forçado.
 
 Os documentos originais `INODUNE_PLAN.md`, `INODUNE_BRAND.md` e `UX_MOTION_INNOVATION.md` seguem normativos. O PNG conceitual não é evidência da implementação. Fonte de sistema sem distribuição de Inter; ícones Lucide sob ISC, dependências com suas próprias licenças. Verificar exclusividade do nome antes de lançamento público.
 
@@ -146,3 +160,17 @@ INODUNE_NATIVE_STANDALONE=1 python3 scripts/native-cleanup-e2e.py
 Esse harness cria e limpa somente arquivos temporários da própria aplicação e usa consentimento exclusivo da fábrica de fixtures. A feature é proibida em release. Não há bypass de confirmação no binário normal. O smoke CLI equivalente é `python3 scripts/cli-fixture-smoke.py`, também com XDG e dados temporários.
 
 Revisão específica no CLI: `clean --root /pasta/aprovada --review terraform.provider-package --dry-run --json` (ou `cargo.fingerprint-json`). Exige exatamente um item elegível; não implica apply. `--help` e `--version` estão disponíveis. Para repetir a jornada nativa de revisão somente sobre fixtures: `INODUNE_NATIVE_STANDALONE=1 python3 scripts/native-reviewed-e2e.py`, após o build debug com `fixture-tests`.
+
+
+Verificação F4 do desktop standalone (somente fixtures temporárias):
+
+```sh
+npm run build
+cargo build --locked -p inodune-desktop --features fixture-tests,custom-protocol
+INODUNE_NATIVE_STANDALONE=1 python3 scripts/native-polish-e2e.py
+# Binário de produção sem fixtures; teste com XDG vazio, sem scan/limpeza:
+python3 scripts/native-package-smoke.py
+python3 scripts/test-user-install.py
+```
+
+Os scripts usam somente Xvfb/processos próprios. O harness F4 desativa compositing acelerado no Xvfb conforme a documentação Tauri; isto não valida GPU ou Wayland. `cargo fmt --all --check`, `cargo clippy --locked --workspace --all-targets --all-features -- -D warnings` e `cargo test --locked --workspace --all-features` incluem o desktop. `python3 scripts/mount-fixture-tests.py` executa separadamente os dois testes de bind mount em namespaces privados.

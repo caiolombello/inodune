@@ -1,0 +1,34 @@
+Traceback (most recent call last):
+  File "/home/user/inodune/scripts/native-polish-e2e.py", line 177, in <module>
+    screenshot('report-narrow.png')
+    ~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^
+  File "/home/user/inodune/scripts/native-polish-e2e.py", line 76, in screenshot
+    data=request('GET',prefix+'/screenshot');(out/name).write_bytes(base64.b64decode(data))
+  File "/home/user/inodune/scripts/native-polish-e2e.py", line 53, in request
+    with urllib.request.urlopen(urllib.request.Request(base+path,data=body,headers={'Content-Type':'application/json'},method=method),timeout=35) as response:result=json.load(response)
+         ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib64/python3.14/urllib/request.py", line 187, in urlopen
+    return opener.open(url, data, timeout)
+           ~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib64/python3.14/urllib/request.py", line 487, in open
+    response = self._open(req, data)
+  File "/usr/lib64/python3.14/urllib/request.py", line 504, in _open
+    result = self._call_chain(self.handle_open, protocol, protocol +
+                              '_open', req)
+  File "/usr/lib64/python3.14/urllib/request.py", line 464, in _call_chain
+    result = func(*args)
+  File "/usr/lib64/python3.14/urllib/request.py", line 1362, in http_open
+    return self.do_open(http.client.HTTPConnection, req)
+           ~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib64/python3.14/urllib/request.py", line 1337, in do_open
+    r = h.getresponse()
+  File "/usr/lib64/python3.14/http/client.py", line 1478, in getresponse
+    response.begin()
+    ~~~~~~~~~~~~~~^^
+  File "/usr/lib64/python3.14/http/client.py", line 343, in begin
+    version, status, reason = self._read_status()
+                              ~~~~~~~~~~~~~~~~~^^
+  File "/usr/lib64/python3.14/http/client.py", line 312, in _read_status
+    raise RemoteDisconnected("Remote end closed connection without"
+                             " response")
+http.client.RemoteDisconnected: Remote end closed connection without response

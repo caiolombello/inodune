@@ -10,3 +10,6 @@ Primeiro uso: boas-vindas → pastas de exemplo (sem acesso nativo nesta fase) �
 Jornada: visão geral → categoria/revisão ou projeto → detalhe Por que apareceu? → seleção → simulador → diálogo com consentimento desmarcado → processamento simulado → relatório. Voltar preserva seleção; novo scan limpa plano/seleção. Cancelar scan preserva só itens já emitidos e os marca parciais; cancelar execução mantém outcomes e registra restante cancelado. Erros persistem no relatório; item alterado é pulado.
 
 Validação futura: observar 3 devs e 2 não técnicos explicarem o que muda, o que se preserva e se há reversão; encontrar TF, entender IA protegida, cancelar e distinguir potencial de livre medido. Meta: todos reconhecem ausência de ganho físico na Lixeira no mesmo volume. Status: pendente, sem participantes.
+
+
+F4: as jornadas de teclado PT/EN, histórico persistido/exportação e exclusões foram verificadas por automação em fixtures; não equivalem a testes com as personas reais. A rodada com participantes continua pendente e não recebeu pontuações de confiança/tempo inventadas.

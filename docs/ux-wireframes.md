@@ -9,3 +9,6 @@ Rotas: visão geral, projetos, desenvolvimento, Git, IA, sistema, revisão, prot
 Estados: inicial, carregando/pausado/cancelado, resultados parciais, vazio, erro de permissão, filtro vazio; item desmarcado/selecionado/protegido; confirmação com política; execução pendente/processando/simulado/pulado/falhou/cancelado. Cenários explícitos no onboarding/configurações permitem reproduzir os estados sem falhas artificiais ocultas.
 
 Evidências reais do protótipo serão ligadas em [evidence/phase0.md](evidence/phase0.md); PNG original continua sendo só referência.
+
+
+F4 implementada: Histórico → lista persistida → detalhe por arquivo → picker Exportar JSON (novo destino); registro inválido → alerta e detalhe indisponível. Configurações → escopos → exclusões relativas/retirar aprovação → inventário e seleção invalidados → nova análise. Durante/apos execução, o cabeçalho oferece retorno ao relatório. EN-US mantém os mesmos estados, foco e controles. Evidência em `evidence/f4`.

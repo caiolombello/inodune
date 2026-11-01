@@ -1,0 +1,48 @@
+
+> inodune-workspace@0.1.0 test:e2e
+> npm run test:e2e -w @inodune/desktop -- --project=chromium
+
+
+> @inodune/desktop@0.1.0 test:e2e
+> playwright test --project=chromium
+
+[WebServer] (node:348987) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+
+Running 17 tests using 8 workers
+
+(node:349036) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node-24 --trace-warnings ...` to show where the warning was created)
+(node:349035) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node-24 --trace-warnings ...` to show where the warning was created)
+(node:349056) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node-24 --trace-warnings ...` to show where the warning was created)
+(node:349050) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node-24 --trace-warnings ...` to show where the warning was created)
+(node:349038) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node-24 --trace-warnings ...` to show where the warning was created)
+(node:349044) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node-24 --trace-warnings ...` to show where the warning was created)
+(node:349037) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node-24 --trace-warnings ...` to show where the warning was created)
+(node:349062) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node-24 --trace-warnings ...` to show where the warning was created)
+  ✓   4 [chromium] › tests/history-scopes.spec.ts:180:1 › scope exclusions send only opaque scope ID and literal relative prefixes, then revoke approval (1.6s)
+  ✓   3 [chromium] › tests/history-scopes.spec.ts:3:1 › history presents persisted reports and exports only after explicit selection (1.7s)
+  ✓   7 [chromium] › tests/journey.spec.ts:53:1 › pause and cancel never suggests incomplete results (1.6s)
+  ✓   1 [chromium] › tests/cleanup.spec.ts:14:1 › local cleanup reports every fixture file and never attributes volume delta (2.7s)
+  ✓   6 [chromium] › tests/journey.spec.ts:120:1 › empty and error states remain truthful across innovation screens (4.6s)
+  ✓  12 [chromium] › tests/virtual-list-f4.spec.ts:16:3 › F4 UI synthetic IPC list 100: bounded DOM, reflow, keyboard and frame sample (3.0s)
+  ✓  10 [chromium] › tests/journey.spec.ts:215:1 › cancellation between items keeps completed outcomes and report estimate frozen (4.5s)
+  ✓   5 [chromium] › tests/journey.spec.ts:14:1 › complete journey: protect, explain, review, simulate and report with no real recovery (6.3s)
+  ✓   2 [chromium] › tests/i18n.spec.ts:3:1 › English keyboard journey translates the interface and preserves visual preferences (6.4s)
+  ✓  11 [chromium] › tests/journey.spec.ts:232:1 › project drill-down, keyboard focus and local-only renderer (5.0s)
+  ✓  15 [chromium] › tests/virtual-list.spec.ts:12:3 › renderer keeps 100 synthetic IPC candidates bounded and keyboard reachable (1.6s)
+  ✓  16 [chromium] › tests/virtual-list.spec.ts:12:3 › renderer keeps 1000 synthetic IPC candidates bounded and keyboard reachable (2.1s)
+  ✓   8 [chromium] › tests/journey.spec.ts:79:1 › partial execution preserves failures and changed items (8.4s)
+  ✓  13 [chromium] › tests/virtual-list-f4.spec.ts:16:3 › F4 UI synthetic IPC list 1000: bounded DOM, reflow, keyboard and frame sample (4.1s)
+  ✓   9 [chromium] › tests/journey.spec.ts:154:1 › screenshots, contrast, reflow, keyboard and reduced motion (7.3s)
+  ✓  17 [chromium] › tests/virtual-list.spec.ts:12:3 › renderer keeps 10000 synthetic IPC candidates bounded and keyboard reachable (2.9s)
+  ✓  14 [chromium] › tests/virtual-list-f4.spec.ts:16:3 › F4 UI synthetic IPC list 10000: bounded DOM, reflow, keyboard and frame sample (5.2s)
+
+  17 passed (12.8s)

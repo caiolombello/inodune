@@ -7,3 +7,6 @@ CSS em apps/desktop/src/styles/tokens.css: ink #14202B, deepTeal #164F52, teal #
 Primitivos: button nativo (primary/secondary/quiet), badge de risco com ícone/texto, card categoria, lista selecionável, anel com legenda, dialog nativo, campo de busca e status anunciado. Estados hover/focus-visible/active/disabled/loading/error; sem sucesso optimista. Catálogo interno exercita loading/empty/error/partial/paused e controles.
 
 Metas: contraste texto ≥4.5:1, UI/foco ≥3:1; alvos ≥36px (44px em viewport estreito), foco visível; leitor de tela e teclado. Auditoria automática é evidência parcial, não certificação WCAG. Listas grandes/virtualização pertencem à F1/F4; corpus limitado da F0 não demonstra escala.
+
+
+F4: idioma PT-BR/EN-US acompanha valores numéricos e datas, preservando caminhos e nomes definidos pelo usuário. Histórico usa os mesmos tokens de superfície/stroke/texto/erro/focus; lista de outcomes pagina 100 arquivos e não cria linhas fictícias. Exclusões têm estados editing/saving/error/disabled e feedback após backend. Screenshots desktop/reflow estão em `evidence/f4`; controles nativos seguem o tema/idioma do sistema além do título localizado do app.

@@ -23,3 +23,10 @@ Risco residual: a Fase 0 NÃO demonstra segurança TOCTOU nem integridade em Lin
 O quadro acima preserva o estado histórico da Fase 0. O scanner agora usa descritores/openat2 e limites reais; o protocolo F2 está em [cleanup-protocol.md](cleanup-protocol.md). Testes temporários cobrem troca de folha/pai, symlinks, hardlinks posteriores ao scan, escrita por descritor aberto, cancelamento parcial, arquivos novos, fonte Python removida e armazenamento privado. Bind mounts são exercitados somente em namespace user/mount privado. Resultados exatos e integração nativa são registrados na evidência de cada fase, sem herdar PASS da F0.
 
 A área privada não é uma sandbox contra outro processo do mesmo UID. A comparação pós-captura previne apagar substitutos observados; a última janela compare/unlink não pode ser eliminada pela API Linux. Aprovação de GUI resolve apenas IDs; confirmação nativa e revalidação continuam no Rust. Journals com intenções sem resultado são UNKNOWN após interrupção; não há rollback automático.
+
+
+## Atualização F4
+
+Exclusões são limites de leitura, não apenas filtros visuais. Trava de operações serializa sua alteração/revogação com reserva de limpeza e invalida planos anteriores. Relatórios persistidos são JSON não confiável: namespace restrito, schema versionado, limite de tamanho, arquivo 0600/UID correto/link único, open NOFOLLOW/NONBLOCK e ancestrais confiáveis. Nenhum relatório reconstitui autoridade de exclusão. Exportar usa somente destino de picker nativo e NOREPLACE. Capacidade de histórico/journal é verificada antes de executar; não há retenção por deleção silenciosa. Panic hooks não registram payloads que possam conter segredos.
+
+Dependências nativas são uma superfície residual: avisos RustSec do GTK3 e tooling npm estão registrados na [auditoria F4](evidence/f4/dependency-audit.md), sem supressão que os transforme em corrigidos. Sem rede obrigatória/CSP não prova ausência de todos os bugs do WebKit/GTK. Testes automatizados e revisão de IA não substituem revisão humana pré-release, hardware representativo ou certificação de segurança.

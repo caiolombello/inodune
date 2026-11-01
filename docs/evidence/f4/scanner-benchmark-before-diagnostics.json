@@ -1,0 +1,62 @@
+{
+  "schema_version": 1,
+  "kind": "read_only_scanner_fixture_benchmark",
+  "generated_utc": "2026-11-01T11:27:20Z",
+  "environment": {
+    "os": "Linux-7.2.13-200.fc44.x86_64-x86_64-with-glibc2.43",
+    "kernel": "7.2.13-200.fc44.x86_64",
+    "machine": "x86_64",
+    "python": "3.14.8",
+    "rustc": "rustc 1.93.0 (254b59607 2026-01-19)",
+    "binary": "target/debug/inodune-cli",
+    "binary_sha256": "c3e85de86e43787d5ffd8eea6c58a8f2a010a5c6a979e373d6bc6c05e6e97dfb",
+    "scanner_source_sha256": {
+      "crates/inodune-cli/src/main.rs": "5b327ca13cfa2e441de12b8a5b9cfad6487893162150a93d216dc271fd45b421",
+      "crates/inodune-core/src/scan.rs": "9b41d3e5cfee4d4c760454ec5b7600a3a0e005de0a5d870e7631a5d619ed69db",
+      "crates/inodune-core/src/lib.rs": "50b3e016afcd0ffd21be4792f13fb43894160b3ab9259a6079df926a602629fe"
+    },
+    "git_head": "6608f481ba2bae25254cdf1c8561c07b0da0dd7d",
+    "fixture_parent": "private TemporaryDirectory; exact path intentionally omitted"
+  },
+  "runs": [
+    {
+      "fixture_candidates": 100,
+      "candidates_found": 100,
+      "visited_entries": 500,
+      "skipped_entries": 0,
+      "coverage_complete": true,
+      "wall_seconds_time(1)": 0.01,
+      "wall_seconds_python(2)": 0.014144,
+      "max_rss_kib": 4916,
+      "exit_code": 0
+    },
+    {
+      "fixture_candidates": 1000,
+      "candidates_found": 1000,
+      "visited_entries": 5000,
+      "skipped_entries": 0,
+      "coverage_complete": true,
+      "wall_seconds_time(1)": 0.11,
+      "wall_seconds_python(2)": 0.117083,
+      "max_rss_kib": 8500,
+      "exit_code": 0
+    },
+    {
+      "fixture_candidates": 10000,
+      "candidates_found": 10000,
+      "visited_entries": 50000,
+      "skipped_entries": 0,
+      "coverage_complete": true,
+      "wall_seconds_time(1)": 1.1,
+      "wall_seconds_python(2)": 1.122153,
+      "max_rss_kib": 43340,
+      "exit_code": 0
+    }
+  ],
+  "safety": "Only task-created temporary directories were scanned. No cleanup command ran.",
+  "limitations": [
+    "Measures CLI scanner traversal, not Svelte rendering or representative desktop hardware.",
+    "Wall time includes process startup and JSON serialization.",
+    "Not a 60 fps claim; UI frame budget requires a representative GPU/CPU and native UI capture."
+  ]
+}

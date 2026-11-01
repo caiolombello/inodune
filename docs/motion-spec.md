@@ -7,3 +7,6 @@ Mapa: hover/pressed 100ms; estado/filtro 160ms; entrada de tela 220ms; dialog 30
 prefers-reduced-motion OU preferência manual `reduce` eliminam translados, animações e efeitos contínuos. Preferência manual não pode desativar redução do OS. Mantém status textual/aria-live. Indicador sem rotação obrigatória.
 
 Gates futuros: <100ms de bloqueio em interações e alvo 60fps em desktop mediano, medir WebKitGTK/Wayland e Chromium, listas 100/1000/10000. F0 verifica CSS computado e fluxo com e sem redução; não anuncia benchmark 60fps sem medição.
+
+
+F4: histórico/exportação/exclusões só exibem sucesso após resposta do backend; cancelamento do picker não anuncia exportação. Entrada no relatório continua acessível durante execução. Capturas esperam frames de render, sem alterar números. Manual reduced motion e `prefers-reduced-motion` continuam globais. Samples rAF em Chromium headless são apenas observação local: 60 fps no compositor/hardware representativo permanece pendente.

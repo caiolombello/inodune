@@ -1,6 +1,6 @@
 # Checklist de implementação
 
-Fases 0–3 implementadas com proteção conservadora e verificadas localmente; Fase 4 é o próximo incremento — 01/11/2026. Os documentos normativos originais são preservados.
+Fases 0–4 implementadas conservadoramente; código e builds locais verificados, com gates de release e validação externa abertos — 01/11/2026. Os documentos normativos originais são preservados.
 
 ## Fase 0
 
@@ -15,7 +15,7 @@ Fases 0–3 implementadas com proteção conservadora e verificadas localmente; 
 - [x] cargo fmt/clippy/test dos default-members; frontend typecheck/lint/format/test/build; 7 E2E Chromium, axe e screenshots.
 - [x] Build Tauri nativo e smoke visual WebKitGTK: [evidência](evidence/native/acceptance.md).
 - [ ] E2E Playwright WebKit: fallback requer libicu74/libjpeg-turbo8. Não confundir com o smoke nativo.
-- [x] Abre em Fedora 44 via WebKitGTK em X11/Xvfb isolado; dependências instaladas com autorização expressa posterior. Standalone/pacotes e Wayland interativo pendentes.
+- [x] Abre em Fedora 44 via WebKitGTK em X11/Xvfb isolado; dependências instaladas com autorização expressa posterior. Standalone/pacotes verificados na F4; Wayland interativo pendente.
 
 ## Fases seguintes
 
@@ -23,10 +23,24 @@ Fases 0–3 implementadas com proteção conservadora e verificadas localmente; 
 - [x] F2: executor de folhas baixo risco por dirfd/captura privada, planos efêmeros de uso único, confirmação nativa, Lixeira/permanente, journal/histórico privado, variação observada sem atribuição, relatórios parciais e testes adversariais/CLI PTY/WebKitGTK em temporários. [Evidência e limites](evidence/f2/acceptance.md).
 - [x] F3: Git em sandbox read-only, providers h1 e JSON Cargo conhecidos com revisão individual, witnesses e cobertura particionada. Estado preservado e 73 testes; [evidência/limites](evidence/f3/acceptance.md).
 - [ ] Opcional: remover/prune Git, módulos e formatos opacos permanecem indisponíveis enquanto atividade/publicação/integridade não puderem ser comprovadas; não reduzir a política de proteção para habilitar botões.
-- [ ] F4: i18n EN-US, benchmark 100/1000/10000, 60 fps em hardware representativo, empacotamento deb/rpm, Ubuntu/Fedora/Wayland/X11.
+
+## Fase 4
+
+- [x] PT-BR/EN-US e formatos locais, sem alterar paths/IDs/nomes de projeto; preferências de tema/motion/idioma persistidas.
+- [x] Histórico persistido privado/versionado, erro por registro, outcomes paginados e exportação local sem substituir arquivos.
+- [x] Escopos protegidos explícitos, revogação e exclusões literais antes da leitura; invalidação de snapshots/planos em GUI/CLI.
+- [x] Limites de manifesto/journal/histórico e marcadores locais de panic sem payload ou uploads.
+- [x] Benchmarks scanner e UI 100/1.000/10.000 com versões, hashes, reflow e teclado; cache somente de apresentação, filesystem sempre relido.
+- [x] Release standalone, DEB/RPM/portable com GUI+CLI/launcher, instalador sem root, SPDX/checksums locais e workflow de artefatos sem publicar.
+- [x] fmt/clippy e 84 testes Rust; 2 mounts privados; typecheck/lint/format, 9 unitários frontend, build e 17 E2E Chromium. Native WebKitGTK/IPC e produção sem Vite também verificados. [Evidência F4](evidence/f4/acceptance.md).
+- [x] Falhas encontradas e avisos de dependências registrados; nenhuma supressão transformada em correção.
+- [x] Instalação limpa e GUI renderizada em Ubuntu 24.04.5/Fedora 44 isolados, sem rede, UID 1000 e XDG vazio. [Matriz e hashes](evidence/f4/platforms.md); escopo Xvfb/software rendering.
+- [ ] Sessão interativa Wayland/KDE, leitor de tela real e zoom 200%; Debian 12 GUI instalada também não exercitada. Não herdar PASS de outro sistema/harness.
+- [ ] 60 fps em hardware representativo e usabilidade com participantes; pendência documentada explicitamente conforme o plano.
+- [ ] Assinatura/publicação, CI remoto e revisão humana pré-release. Nenhum release remoto foi publicado.
 
 ## Gates pendentes
 
-Usabilidade com 3 desenvolvedores e 2 pessoas não técnicas: não executada; sem participantes. Segurança real de deleção não certificada. Nenhum release/publicação/PR autorizado por este incremento. Não executar testes sobre dados reais. Próxima fase só após gates aplicáveis, registrando bloqueios de ambiente sem promover pendência a aprovado.
+Usabilidade com 3 desenvolvedores e 2 pessoas não técnicas: não executada; sem participantes. Segurança real de deleção não certificada. Nenhum release/publicação/PR autorizado por este incremento. Não executar testes sobre dados reais. Não promover validações indisponíveis a aprovadas nem chamar este build local de release certificado.
 
-Evidências e comandos exatos: [Fase 0](evidence/phase0.md). Na F0 não houve deleção; na F2 operações reais foram executadas exclusivamente sobre fixtures temporárias criadas pelo teste. Nenhuma limpeza/teste sobre dados reais nem publicação. Provisionamento nativo com sudo foi autorizado expressamente; o app não usa root. 14 registros npm de build/dev (2 low, 12 moderate), sem vulnerabilidade de produção na consulta registrada. Rust 1.93.0 + Zig 0.17.0 isolados em .tools.
+Evidências e comandos exatos: [Fase 0](evidence/phase0.md). Na F0 não houve deleção; na F2 operações reais foram executadas exclusivamente sobre fixtures temporárias criadas pelo teste. Nenhuma limpeza/teste sobre dados reais nem publicação. Provisionamento nativo com sudo foi autorizado expressamente; o app não usa root. 14 registros npm de build/dev (2 low, 12 moderate), sem vulnerabilidade de produção na consulta registrada. Rust 1.93.0 local; GCC no host e builder Debian rootless. [Auditoria atual](evidence/f4/dependency-audit.md) inclui os avisos RustSec GTK3 abertos.

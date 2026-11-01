@@ -1,0 +1,172 @@
+   Compiling inodune-desktop v0.1.0 (/home/user/inodune/apps/desktop/src-tauri)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.26s
+     Running unittests src/lib.rs (target/debug/deps/inodune_clean-0a8793810b442c57)
+
+running 31 tests
+test executor::tests::bind_mount_replacement_is_not_traversed ... ignored, run only in a private user+mount namespace; binds task-created fixtures
+test history::tests::corrupt_report_is_reported_instead_of_empty_history ... ok
+test executor::tests::denied_rename_after_pin_is_reported_without_removal ... ok
+test history::tests::export_is_private_and_cannot_replace_files_or_follow_symlinks ... ok
+test diagnostics::tests::diagnostic_is_private_bounded_and_has_no_full_source_path ... ok
+test history::tests::public_permissions_are_reported_and_not_rewritten ... ok
+test history::tests::report_id_is_strictly_generated_namespace ... ok
+test history::tests::saved_report_is_reread_from_private_disk_boundary ... ok
+test plan::tests::expired_plan_cannot_be_consumed ... ok
+test plan::tests::plan_is_one_use_and_binds_action_inventory_and_manifest ... ok
+test plan::tests::rejects_overlapping_and_non_unicode_paths ... ok
+test plan::tests::rejects_protected_unknown_empty_and_incomplete_snapshots ... ok
+test storage::tests::symlinked_storage_and_public_existing_storage_are_rejected ... ok
+test storage::tests::trashinfo_percent_encodes_paths_and_existing_entries_are_preserved ... ok
+test storage::tests::writable_ancestor_is_rejected_before_creating_private_storage ... ok
+test tests::dry_run_keeps_physical_gain_unknown ... ok
+test history::tests::journal_capacity_refuses_before_creating_a_new_journal ... ok
+test executor::tests::history_rejects_symlinks_without_modifying_the_destination ... ok
+test history::tests::corrupt_unknown_schema_and_linked_reports_remain_visible_as_errors ... ok
+test executor::tests::directory_symlink_swap_before_execution_never_touches_external_sentinel ... ok
+test executor::tests::source_removed_after_scan_is_not_mistaken_for_regenerable_bytecode ... ok
+test executor::tests::permanent_removes_only_manifest_leaves_and_preserves_sources_and_parent ... ok
+test executor::tests::unsafe_or_unavailable_trash_has_no_permanent_fallback ... ok
+test executor::tests::concurrent_writer_after_capture_is_preserved_and_new_source_is_not_overwritten ... ok
+test executor::tests::leaf_symlink_swap_after_pin_never_follows_or_removes_external_file ... ok
+test executor::tests::cancellation_keeps_completed_result_and_preserves_remaining_files ... ok
+test executor::tests::parent_swap_after_capture_quarantines_and_never_follows_link ... ok
+test executor::tests::new_unknown_file_during_cleanup_is_preserved_and_report_is_partial ... ok
+test executor::tests::source_name_swap_after_pin_is_restored_without_deleting_either_inode ... ok
+test executor::tests::changed_file_and_new_hardlink_are_skipped ... ok
+test executor::tests::trash_writes_info_before_move_and_does_not_claim_reclaimed_space ... ok
+
+test result: ok. 30 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/reviewed.rs (target/debug/deps/reviewed-b010da40f46226c5)
+
+running 7 tests
+test unconfirmed_provider_files_and_local_modules_remain_protected ... ok
+test witnesses_writable_by_other_users_do_not_grant_review_actions ... ok
+test real_scan_partitions_verified_leaves_without_double_counting_and_requires_single_review ... ok
+test cargo_json_only_is_removed_and_paired_hash_manifest_and_other_artifacts_stay ... ok
+test changing_lock_between_leaves_yields_real_partial_result_without_rollback ... ok
+test reviewed_provider_cleanup_preserves_state_backend_modules_lock_and_parent_directories ... ok
+test changed_lock_or_provider_never_reuses_the_scan_proof ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/main.rs (target/debug/deps/inodune_cli-3036429973a20e30)
+
+running 6 tests
+test tests::refuses_missing_roots_and_conflicting_apply_modes ... ok
+test tests::requires_exact_confirmation_text ... ok
+test tests::rejects_unknown_review_detector_and_help_is_available ... ok
+test tests::scan_and_clean_apply_repeatable_relative_exclusions ... ok
+test tests::review_selects_one_exact_detector_for_dry_run ... ok
+test tests::review_rejects_multiple_candidates_with_paths ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/scan_cli.rs (target/debug/deps/scan_cli-737b9c2116c95d36)
+
+running 3 tests
+test protected_scope_and_unknown_clean_flags_cannot_select_files ... ok
+test json_scan_is_real_read_only_and_partial_exit_is_not_hidden ... ok
+test clean_defaults_to_dry_run_and_never_touches_the_fixture ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (target/debug/deps/inodune_core-dba1ab6f7ed9653d)
+
+running 25 tests
+test git::tests::malformed_status_and_worktree_records_are_rejected ... ok
+test git::tests::non_utf8_worktree_paths_keep_lossy_display_and_exact_hex_evidence ... ok
+test cache_rules::tests::protects_unknown_paths_content_and_identity ... ok
+test cache_rules::tests::accepts_only_known_cargo_fingerprint_diagnostic_leaf ... ok
+test git::tests::nested_mount_preflight_protects_and_reports_the_sandbox_reason ... ok
+test git::tests::pre_cancelled_inventory_stops_before_git ... ok
+test cache_rules::tests::protects_missing_duplicate_hardlink_and_symlink_leaves ... ok
+test terraform::tests::classifies_only_installed_linux_provider_package_paths ... ok
+test terraform::tests::hashes_names_and_content_with_go_dirhash_h1_contract ... ok
+test terraform::tests::rejects_unknown_and_script_entries ... ok
+test terraform::tests::parses_generated_lock_subset_and_uses_only_h1_for_directories ... ok
+test tests::rejects_protected_unknown_and_overlapping ... ok
+test tests::deduplicates_and_never_claims_reclaimed_bytes ... ok
+test tests::corpus_is_explicit_and_conservative ... ok
+test terraform::tests::verifies_only_locked_package_contents_and_returns_lock_witness ... ok
+test git::tests::missing_bubblewrap_protects_without_falling_back_to_host_git ... ok
+test git::tests::outside_gitfile_target_is_protected_before_git_runs ... ok
+[main (root-commit) 8310221] fixture
+ 1 file changed, 1 insertion(+)
+ create mode 100644 file.txt
+[main (root-commit) dd1b8ab] fixture
+ 1 file changed, 1 insertion(+)
+ create mode 100644 tracked.txt
+[main (root-commit) dd1b8ab] fixture
+ 1 file changed, 1 insertion(+)
+ create mode 100644 tracked.txt
+[main (root-commit) feeec3d] fixture
+ 2 files changed, 2 insertions(+)
+ create mode 100644 .gitignore
+ create mode 100644 file.txt
+[main (root-commit) d8b3bc7] fixture
+ 1 file changed, 1 insertion(+)
+ create mode 100644 .codex/private.jsonl
+[main (root-commit) bcf734a] fixture
+ 1 file changed, 1 insertion(+)
+ create mode 100644 base.txt
+[main 6dc8157] fixture
+ 1 file changed, 3 insertions(+)
+ create mode 100644 .gitmodules
+test git::tests::sandboxed_git_cannot_follow_stdin_fd_to_an_external_fixture ... ok
+test git::tests::subprocess_timeout_kills_the_child ... ok
+test git::tests::submodule_manifest_is_explicitly_protected_when_status_ignores_submodules ... ok
+test git::tests::outside_include_and_fsmonitor_helper_cannot_read_or_write_sibling_fixtures ... ok
+test git::tests::tracked_agent_payload_is_excluded_from_content_status_checks ... ok
+[ahead-branch 35ef068] fixture
+ 1 file changed, 1 insertion(+)
+ create mode 100644 local-only.txt
+test git::tests::clean_linked_worktree_is_still_protected_for_no_upstream ... ok
+test git::tests::dirty_and_untracked_worktree_is_protected ... ok
+test git::tests::table_fixture_reports_main_locked_detached_clean_tracking_and_unpublished ... ok
+
+test result: ok. 25 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.32s
+
+     Running tests/scan.rs (target/debug/deps/scan-5e825f5d847f0023)
+
+running 14 tests
+test refuses_bind_mounts_in_private_user_namespace ... ignored, requires unprivileged user+mount namespaces; run explicitly in an isolated namespace
+test exclusions_reject_parent_absolute_and_control_paths ... ok
+test rejects_root_replaced_after_approval ... ok
+test ambiguous_control_character_paths_are_inventory_only ... ok
+test directly_approved_agent_descendant_never_exposes_cache_actions ... ok
+test exclusions_are_literal_prefixes_and_skip_before_metadata ... ok
+test rejects_unsafe_roots_overlaps_symlink_roots_and_respects_limits_and_cancel ... ok
+test python_cache_without_matching_source_is_not_suggested ... ok
+test opaque_next_and_package_manager_formats_are_protected_inventory ... ok
+test scans_only_approved_tree_without_following_links_or_modifying_metadata ... ok
+test protects_terraform_agents_unknown_cache_content_and_hardlinks ... ok
+
+running 1 test
+test thumbnail_format_is_checked_independently_of_python_cache_format ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 13 filtered out; finished in 0.00s
+
+test thumbnail_format_is_checked_independently_of_python_cache_format ... ok
+test malformed_bytecode_is_protected_but_real_compiler_output_can_be_suggested ... ok
+test scanner_integrates_sandboxed_git_evidence_without_writing_index ... ok
+
+test result: ok. 13 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.13s
+
+     Running unittests src/main.rs (target/debug/deps/inodune_desktop-a1d2ed41ab789880)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests inodune_clean
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests inodune_core
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s

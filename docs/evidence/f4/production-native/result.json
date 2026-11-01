@@ -1,0 +1,11 @@
+{
+  "production_release": true,
+  "standalone_without_vite": true,
+  "empty_approved_scopes": true,
+  "empty_history": true,
+  "unapproved_scan_rejected": true,
+  "english_preferences": true,
+  "graphics": "Xvfb software compositing fallback",
+  "no_data_scan_or_cleanup": true,
+  "result": "passed"
+}

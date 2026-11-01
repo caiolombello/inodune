@@ -1,0 +1,35 @@
+{
+  "build": "0.1.0",
+  "source_commit": "a61e7cc9be88b1798f11bb8fe3e36d3a351dcd78",
+  "hashes": {
+    "Cargo.toml": "e782b15c361a35850567c79ff2f7007c8d90f0e88fe8df0aed63663639dd2e5f",
+    "Cargo.lock": "66c8e6903221ff27e5e5794fc56d16f0234acc5bd2804f3dcb15aa9b41c966bb",
+    "rust-toolchain.toml": "8bc51ecab82415fddd8489604f2424e137d71856e7f65cbdcfaa48850d794b46",
+    "package.json": "3186f63ba5a849d648c4ea3a2fa167bf39316c9330d194d1b9d511a224ed74a2",
+    "package-lock.json": "ace67357dc47f49f6aad15c933493fe614474198f7b81dc7592af179a704e7e0",
+    "apps/desktop/src-tauri/tauri.conf.json": "25b84e1c3e2b24a91e857d765cee6b5d5d89f4a54bb2b81aec37526eda39eb4d",
+    "apps/desktop/src-tauri/Cargo.toml": "aa7a4066f6990e2e07e91ed9596f1f5e28557a9b62393f520b6173b52fb975a4",
+    "apps/desktop/src/App.svelte": "4646f0f4f1475b65bce6f775f224a358818a5ffcfb2a7fef83079c3e2a1c26ae",
+    "target/compat/release/inodune-desktop": "40d6f1809b63227a6831ac33adc7032334ee0f85bb1df71127722c3de55b58c4",
+    "target/compat/release/inodune-cli": "0eed1b23ee7f76f2ae9d860a9bc93dd8cf968210f683633eff5d6950209e1ac3",
+    "assets/brand/inodune-logo.svg": "ceae2d973c224f8033a5e3d4a838d1c5684088f8cad24144f460002a8c65d2ee",
+    "assets/brand/inodune-icon.svg": "a11999d398dc146c49947ac801bc03b1affc017cdda989cb12c082412820c7c3",
+    "assets/brand/inodune-icon-512.png": "277e7f15539674adcd16853fe266d8a0257af024419c9a7cb8b57c2c4def32d1",
+    "LICENSE": "c02c66b39cc966345acccb132ea6a0dbd6fda07445c8054abcd31e26cf7e0f6c",
+    "apps/desktop/dist/index.html": "3b32b0bc9318bb7b31c7db223ff2e89aff3d1e9649155c56eed620f7ae038300",
+    "apps/desktop/dist/assets/index-C90H6uB1.js": "236294440402019940ddd66126cafaee8cb8d3e8ea9cb9c091b62c4c0f1f3b51",
+    "apps/desktop/dist/assets/index-EP4H6Xnm.css": "cf5e119d9f8a32ec2213bfbfbcf0ef21ccb1c5f6a28997219a4adf1331c9e51b",
+    "apps/desktop/dist/assets/inodune-icon-CLOzr5CO.svg": "a11999d398dc146c49947ac801bc03b1affc017cdda989cb12c082412820c7c3",
+    "apps/desktop/dist/assets/inodune-logo-SSNKPovA.svg": "ceae2d973c224f8033a5e3d4a838d1c5684088f8cad24144f460002a8c65d2ee"
+  },
+  "builder_image": "225eddf5ac577a7aba24012a723da1ae54e9ef34a51f7c9f5f72ad8764eb4031",
+  "packager_image": "3c1166b928dc8e55345e0c7d1a4c00961579bf43100bdfcc6c9356bf932fdbc3",
+  "runtime_glibc_baseline": "2.36",
+  "notes": [
+    "Native release excludes fixture-tests.",
+    "Source commit identifies app/build inputs; later docs/evidence commits do not change these inputs.",
+    "Lockfiles/base image pinned; OS apt repositories and build timestamps are not bit-for-bit reproducibility certified.",
+    "Debian12/glibc2.36 is a tested build baseline; ELF symbol inspection alone does not validate Ubuntu22."
+  ],
+  "highest_observed_glibc_symbol": "2.34"
+}

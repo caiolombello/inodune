@@ -1,0 +1,14 @@
+{
+  "standalone_without_vite": true,
+  "native": true,
+  "backend": "Rust IPC",
+  "provider_review": "77 bytes actually moved to temporary Trash; state/backend/lock/modules retained",
+  "cargo_review": "only diagnostic JSON actually unlinked; hash/source/artifacts retained",
+  "native_confirmation": "fixture-only consent; production GTK dialog not automated",
+  "replay_rejected": true,
+  "history_reread": true,
+  "invalid_report_id_rejected": true,
+  "exclusions_invalidate_scan": true,
+  "native_reflow_light_reduced": true,
+  "result": "passed"
+}

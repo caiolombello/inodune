@@ -13,3 +13,6 @@
 | P2 | Detectores declarativos | Não implementado | Sem código arbitrário |
 
 Todos P0 compartilham estado inicial/loading/empty/error do scan e busca vazia. Integração real só na F1. Usabilidade e métricas de tempo/confiança permanecem pendentes; não atribuir resultados a pessoas inexistentes.
+
+
+F1–F4: os quatro P0 operam também sobre o inventário real de fixtures via core Rust, com cobertura particionada e incerteza preservada. O relatório diferencia bytes processados, Lixeira e delta observado; histórico persistido pode ser reaberto sem gerar um novo plano. P1/P2 continuam fora do MVP. Benchmarks scanner/UI 100/1.000/10.000 estão em `evidence/f4`; validação por participantes permanece pendente.

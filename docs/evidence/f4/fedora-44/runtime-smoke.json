@@ -1,0 +1,38 @@
+{
+  "checkedAtUtc": "2026-11-01T12:07:51.943211+00:00",
+  "distribution": "NAME=\"Fedora Linux\"\nVERSION=\"44 (Container Image)\"\nRELEASE_TYPE=stable\nID=fedora\nVERSION_ID=44\nVERSION_CODENAME=\"\"\nPRETTY_NAME=\"Fedora Linux 44 (Container Image)\"\nANSI_COLOR=\"0;38;2;60;110;180\"\nLOGO=fedora-logo-icon\nCPE_NAME=\"cpe:/o:fedoraproject:fedora:44\"\nDEFAULT_HOSTNAME=\"fedora\"\nHOME_URL=\"https://fedoraproject.org/\"\nDOCUMENTATION_URL=\"https://docs.fedoraproject.org/en-US/fedora/f44/\"\nSUPPORT_URL=\"https://ask.fedoraproject.org/\"\nBUG_REPORT_URL=\"https://bugzilla.redhat.com/\"\nREDHAT_BUGZILLA_PRODUCT=\"Fedora\"\nREDHAT_BUGZILLA_PRODUCT_VERSION=44\nREDHAT_SUPPORT_PRODUCT=\"Fedora\"\nREDHAT_SUPPORT_PRODUCT_VERSION=44\nSUPPORT_END=2027-05-19\nVARIANT=\"Container Image\"\nVARIANT_ID=container\n",
+  "packageVersion": "0.1.0-1",
+  "installedRuntimePackages": {
+    "webkit2gtk4.1": "2.54.2-1.fc44",
+    "gtk3": "3.24.52-2.fc44",
+    "xorg-x11-server-Xvfb": "21.1.25-2.fc44",
+    "xwd": "1.0.9-5.fc44"
+  },
+  "runtimeUser": {
+    "name": "inodune",
+    "uid": 1000,
+    "home": "/home/inodune"
+  },
+  "network": "disabled by Podman (--network=none)",
+  "xdgHome": "empty TemporaryDirectory, removed after app exit",
+  "gui": {
+    "executable": "/usr/bin/inodune-desktop",
+    "visibleWindow": true,
+    "windowTitle": "Inodune",
+    "processRemainedLiveAfterWindowAppeared": true,
+    "screenshot": "inodune-desktop.png",
+    "screenshotColors": 2777,
+    "graphicsMode": "test-only software compositing fallback (WEBKIT_DISABLE_COMPOSITING_MODE=1)"
+  },
+  "dynamicLibraries": "ldd found no unresolved dependencies",
+  "scanRequested": false,
+  "cleanupRequested": false,
+  "platform": "fedora-44",
+  "baseImage": "registry.fedoraproject.org/fedora@sha256:7a04a2f9d11bba3ff8016ae79cc01ba49965578746c930702e141a3be1f8d4de",
+  "localImageId": "f93cc422297cb03fea6ddabfc66c9b4bb733b4b447816faa986e2f11a919c7d9",
+  "packageFile": "Inodune-0.1.0-1.x86_64.rpm",
+  "packageSha256": "6b84dd106e862977118ae8ce6fa4c5f6ad2923c1794ac283d637cbd15996434e",
+  "sourceRevision": "a61e7cc",
+  "hostMounts": [],
+  "hostInstallation": false
+}

@@ -1,0 +1,17 @@
+{
+  "text": "Pular para conte\u00fado\nInodune.\nESPA\u00c7O DE TRABALHO\nVis\u00e3o geral\nProjetos\nDesenvolvimento\nGit Worktrees\nIA & Agentes\nSistema\nItens protegidos\n7\nHist\u00f3rico\nLocal por natureza\nSem conta. Sem telemetria.\nConfigura\u00e7\u00f5es\nINODUNE\nLinux desktop\nMeu computador\n/\nEscopos aprovados \u00b7 limpeza com confirma\u00e7\u00e3o\n100% local\nINODUNE\nRevise com tranquilidade.\n\nDecis\u00f5es claras, com voc\u00ea no controle.\n\nAnalisar novamente\nAn\u00e1lise local \u00b7 Somente pastas aprovadas. Nenhuma remo\u00e7\u00e3o autom\u00e1tica.\nConhecer o fluxo\nRevis\u00e3o de itens\n\n10 itens exibidos \u00b7 1 selecionados no total\n\nAn\u00e1lise encerrada\nFiltrar por riscoTodos os riscos\nBaixo risco\nRevisar\nProtegido\nOrdenar itensMaior tamanho\nNome\nItem / origem\nTamanho l\u00f3gico\nPol\u00edtica\nMetadado de fingerprint Cargo\n/tmp/.tmpIW6pJb/projects/./orbit/target/debug/.fingerprint/fixture-0123456789abcdef/lib-fixture.json\n148 B\nRevisar\nRevis\u00e3o individual\nEstado / configura\u00e7\u00e3o protegida\n/tmp/.tmpIW6pJb/projects/./infra/.terraform.lock.hcl\n133 B\nProtegido\nSomente an\u00e1lise\nProvider Terraform verificado\n/tmp/.tmpIW6pJb/projects/./infra/.terraform/providers/registry.terraform.io/hashicorp/demo/1.2.3/linux_amd64\n77 B\nRevisar\nRevis\u00e3o individual\nMiniaturas XDG\n/tmp/.tmpIW6pJb/cache/thumbnails/./normal\n68 B\nBaixo risco\nArtefatos Cargo\n/tmp/.tmpIW6pJb/projects/./orbit/target\n29 B\nProtegido\nSomente an\u00e1lise\nEstado / configura\u00e7\u00e3o protegida\n/tmp/.tmpIW6pJb/projects/./infra/.terraform/terraform.tfstate\n23 B\nProtegido\nSomente an\u00e1lise\nM\u00f3dulos Terraform\n/tmp/.tmpIW6pJb/projects/./infra/.terraform/modules\n22 B\nProtegido\nSomente an\u00e1lise\nSess\u00f5es e mem\u00f3ria de agentes\n/tmp/.tmpIW6pJb/projects/./.codex\n15 B\nProtegido\nSomente an\u00e1lise\nEstado / configura\u00e7\u00e3o protegida\n/tmp/.tmpIW6pJb/projects/./infra/terraform.tfstate\n13 B\nProtegido\nSomente an\u00e1lise\nProviders Terraform\n/tmp/.tmpIW6pJb/projects/./infra/.terraform/providers\n0 B\nProtegido\nSomente an\u00e1lise\n1 itens selecionados\n68 B \u00b7 estimativa l\u00f3gica, sem recupera\u00e7\u00e3o medida\nDesmarcar todos\nRevisar impacto\nFeito para abrir espa\u00e7o. Projetado para preservar.\nInodune \u00b7 dados locais",
+  "checkboxes": [
+    {
+      "label": "Selecionar Metadado de fingerprint Cargo",
+      "checked": false
+    },
+    {
+      "label": "Selecionar Provider Terraform verificado",
+      "checked": false
+    },
+    {
+      "label": "Selecionar Miniaturas XDG",
+      "checked": true
+    }
+  ]
+}

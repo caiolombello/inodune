@@ -1,0 +1,13 @@
+{
+  "checkedAtUtc": "2026-11-01T12:07:52.628970+00:00",
+  "platforms": [
+    "ubuntu-24.04",
+    "fedora-44"
+  ],
+  "sourceRevision": "a61e7cc",
+  "results": {
+    "ubuntu-24.04": "PASS",
+    "fedora-44": "PASS"
+  },
+  "scope": "installed GUI process and visible window under Xvfb, isolated container, empty XDG home, network disabled"
+}

@@ -1,0 +1,38 @@
+{
+  "checkedAtUtc": "2026-11-01T12:07:24.883305+00:00",
+  "distribution": "PRETTY_NAME=\"Ubuntu 24.04.5 LTS\"\nNAME=\"Ubuntu\"\nVERSION_ID=\"24.04\"\nVERSION=\"24.04.5 LTS (Noble Numbat)\"\nVERSION_CODENAME=noble\nID=ubuntu\nID_LIKE=debian\nHOME_URL=\"https://www.ubuntu.com/\"\nSUPPORT_URL=\"https://help.ubuntu.com/\"\nBUG_REPORT_URL=\"https://bugs.launchpad.net/ubuntu/\"\nPRIVACY_POLICY_URL=\"https://www.ubuntu.com/legal/terms-and-policies/privacy-policy\"\nUBUNTU_CODENAME=noble\nLOGO=ubuntu-logo\n",
+  "packageVersion": "0.1.0",
+  "installedRuntimePackages": {
+    "libgtk-3-0t64:amd64": "3.24.41-4ubuntu1.3",
+    "libwebkit2gtk-4.1-0:amd64": "2.52.6-0ubuntu0.24.04.1",
+    "x11-apps": "7.7+11build3",
+    "xvfb": "2:21.1.12-1ubuntu1.9"
+  },
+  "runtimeUser": {
+    "name": "ubuntu",
+    "uid": 1000,
+    "home": "/home/ubuntu"
+  },
+  "network": "disabled by Podman (--network=none)",
+  "xdgHome": "empty TemporaryDirectory, removed after app exit",
+  "gui": {
+    "executable": "/usr/bin/inodune-desktop",
+    "visibleWindow": true,
+    "windowTitle": "Inodune",
+    "processRemainedLiveAfterWindowAppeared": true,
+    "screenshot": "inodune-desktop.png",
+    "screenshotColors": 3100,
+    "graphicsMode": "test-only software compositing fallback (WEBKIT_DISABLE_COMPOSITING_MODE=1)"
+  },
+  "dynamicLibraries": "ldd found no unresolved dependencies",
+  "scanRequested": false,
+  "cleanupRequested": false,
+  "platform": "ubuntu-24.04",
+  "baseImage": "docker.io/library/ubuntu@sha256:78d4744ead1f5b19b04d0df558ab182a5300903900755e515b2ca4d10eb2044d",
+  "localImageId": "753abf064b3f1b5386690074b89dbd99dd164452665f0bff12cf6cecc5c6a2dd",
+  "packageFile": "Inodune_0.1.0_amd64.deb",
+  "packageSha256": "4e0bdc401b7607803abdf92fe95cbf129fd0be206a7a0eb5631cd4e060622f1f",
+  "sourceRevision": "a61e7cc",
+  "hostMounts": [],
+  "hostInstallation": false
+}
