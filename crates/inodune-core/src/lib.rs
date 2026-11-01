@@ -2,6 +2,8 @@
 #[cfg(target_os = "linux")]
 pub mod cache_rules;
 #[cfg(target_os = "linux")]
+pub mod discovery;
+#[cfg(target_os = "linux")]
 pub mod git;
 #[cfg(target_os = "linux")]
 pub mod scan;

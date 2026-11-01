@@ -70,16 +70,14 @@ impl ApprovedRoot {
         }
         if path == Path::new("/")
             || [
-                "/proc", "/sys", "/dev", "/run", "/etc", "/usr", "/boot", "/bin", "/sbin", "/lib",
+                "/proc", "/sys", "/dev", "/etc", "/usr", "/boot", "/bin", "/sbin", "/lib",
                 "/lib64", "/var",
             ]
             .iter()
             .any(|p| path.starts_with(p))
+            || (path.starts_with("/run") && !path.starts_with("/run/media"))
         {
             return Err("Raiz de sistema não permitida.".into());
-        }
-        if std::env::var_os("HOME").is_some_and(|home| Path::new(&home) == path) {
-            return Err("Escolha pastas específicas, não a home inteira.".into());
         }
         let fd = fs::openat2(
             fs::CWD,
@@ -385,7 +383,7 @@ impl ScanSnapshot {
     }
 }
 static SEQUENCE: AtomicU64 = AtomicU64::new(1);
-fn scan_id() -> String {
+pub(crate) fn scan_id() -> String {
     format!(
         "scan-{:x}-{:x}",
         SystemTime::now()
@@ -1049,11 +1047,11 @@ impl<F: FnMut(ScanProgress)> Walker<'_, F> {
                     }
                     continue;
                 }
-                if root.kind == ScopeKind::Thumbnails
+                if ((root.kind == ScopeKind::Thumbnails && rel == Path::new("."))
+                    || xdg_thumbnail_root().as_deref() == Some(root.path.join(&rel).as_path()))
                     && ["normal", "large", "x-large", "xx-large"].contains(&n.as_ref())
-                    && rel == Path::new(".")
                 {
-                    self.candidate(root,&path,"Cache do usuário",CandidatePolicy{detector:"thumbnails",title:"Miniaturas XDG",category:"Sistema",risk:Risk::Low,reason:"Subpasta documentada da root de thumbnails explicitamente aprovada."});
+                    self.candidate(root,&path,"Cache do usuário",CandidatePolicy{detector:"thumbnails",title:"Miniaturas XDG",category:"Sistema",risk:Risk::Low,reason:"Subpasta de miniaturas na localização XDG confirmada pelo backend."});
                     continue;
                 }
                 if rel.file_name().is_some_and(|n| n == ".terraform")
@@ -1228,7 +1226,11 @@ pub fn scan(
     }
     for (i, a) in roots.iter().enumerate() {
         for b in roots.iter().skip(i + 1) {
-            if a.path.starts_with(&b.path) || b.path.starts_with(&a.path) {
+            if (a.path.starts_with(&b.path)
+                && !b.is_excluded(a.path.strip_prefix(&b.path).unwrap()))
+                || (b.path.starts_with(&a.path)
+                    && !a.is_excluded(b.path.strip_prefix(&a.path).unwrap()))
+            {
                 return Err("Escopos sobrepostos; escolha uma única root para cada árvore.".into());
             }
         }
