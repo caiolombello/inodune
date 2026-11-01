@@ -816,27 +816,14 @@ impl<F: FnMut(ScanProgress)> Walker<'_, F> {
                 if !self.allowed() {
                     break;
                 }
-                let bytes = files
-                    .iter()
-                    .try_fold(0u64, |n, (_, fp)| n.checked_add(fp.size))
-                    .unwrap_or(u64::MAX);
-                if bytes > self.validation_bytes_left {
-                    continue;
-                }
-                self.validation_bytes_left -= bytes;
-                let event = self.progress_event("Verificando checksum de provider local");
-                (self.on_progress)(event);
-                let check = crate::terraform::verify_provider(root, &path, &files, self.control);
-                if !check.eligible {
-                    continue;
-                }
+                let check = crate::terraform::assess_provider(root, &path, &files);
                 let Some(st) = self.metadata(root, &path) else {
                     continue;
                 };
                 let witnesses = check
-                    .lock_relative
-                    .zip(check.lock_fingerprint)
+                    .witnesses
                     .into_iter()
+                    .filter(|(p, _)| p.file_name().is_some_and(|n| n == ".terraform.lock.hcl"))
                     .collect();
                 proposals.push((
                     path,
@@ -844,8 +831,14 @@ impl<F: FnMut(ScanProgress)> Walker<'_, F> {
                     files,
                     witnesses,
                     "terraform.provider-package",
-                    "Provider Terraform verificado",
-                    check.evidence,
+                    "Provider Terraform",
+                    vec!["terraform-provider-metadata-only".into()],
+                    if check.eligible {
+                        Risk::Review
+                    } else {
+                        Risk::Protected
+                    },
+                    check.reason,
                 ));
             }
         } else {
@@ -878,10 +871,12 @@ impl<F: FnMut(ScanProgress)> Walker<'_, F> {
                         "cargo-rust-1.93.0-schema".into(),
                         "json-and-paired-hash-validated".into(),
                     ],
+                    Risk::Review,
+                    "Somente JSON diagnóstico Cargo reconhecido; revisão individual.".into(),
                 ));
             }
         }
-        for (path, fp, files, witnesses, detector, title, evidence) in proposals {
+        for (path, fp, files, witnesses, detector, title, evidence, risk, reason) in proposals {
             if !self.allowed() {
                 break;
             }
@@ -902,7 +897,7 @@ impl<F: FnMut(ScanProgress)> Walker<'_, F> {
                     complete: true,
                 },
             );
-            self.out.candidates.push(Candidate{id,title:title.into(),display_path:root.path.join(path).to_string_lossy().into(),detector_id:detector.into(),detector_version:"f3-v1".into(),scope_id:root.display_path(),category:"Desenvolvimento".into(),project:project.into(),risk:Risk::Review,logical_bytes:bytes,allocated_bytes_estimate:Some(allocated),identity:Some(Identity{dev:fp.dev,ino:fp.ino,mtime_unix:fp.mtime}),coverage_key:Some(format!("{}:{}",fp.dev,fp.ino)),selected_by_default:false,reason:if providers{"Pacote local confere com checksum h1 do lockfile e layout conhecido. Isso não prova assinatura de publicação; revisão individual obrigatória."}else{"Somente JSON diagnóstico Cargo 1.93 reconhecido. Hashes, binários, fontes e demais artefatos permanecem protegidos."}.into(),impact:if providers{"A próxima inicialização Terraform poderá precisar baixar o provider novamente. Não executamos terraform init."}else{"Cargo pode reconstruir artefatos ao perder o metadado de fingerprint; custo não medido."}.into(),rebuild_hint:if providers{"Reinstalação pelo Terraform, conforme lockfile preservado; sem estimativa de tempo/rede."}else{"Cargo regenera metadados; uma recompilação pode ser necessária."}.into(),preserved:"Pastas, manifests, lockfiles, scripts, estado, configuração e conteúdo desconhecido permanecem.".into(),evidence,activity:"Revisão por item; idade não comprova desuso.".into(),supported_action:SupportedAction::ReviewedCacheContents});
+            self.out.candidates.push(Candidate{id,title:title.into(),display_path:root.path.join(path).to_string_lossy().into(),detector_id:detector.into(),detector_version:"f3-v1".into(),scope_id:root.display_path(),category:"Desenvolvimento".into(),project:project.into(),risk:risk.clone(),logical_bytes:bytes,allocated_bytes_estimate:Some(allocated),identity:Some(Identity{dev:fp.dev,ino:fp.ino,mtime_unix:fp.mtime}),coverage_key:Some(format!("{}:{}",fp.dev,fp.ino)),selected_by_default:false,reason,impact:if providers{"A próxima inicialização Terraform poderá precisar baixar o provider novamente. Não executamos terraform init."}else{"Cargo pode reconstruir artefatos ao perder o metadado de fingerprint; custo não medido."}.into(),rebuild_hint:if providers{"Reinstalação pelo Terraform, conforme lockfile preservado; sem estimativa de tempo/rede."}else{"Cargo regenera metadados; uma recompilação pode ser necessária."}.into(),preserved:"Pastas, manifests, lockfiles, scripts, estado, configuração e conteúdo desconhecido permanecem.".into(),evidence,activity:"Revisão por item; idade não comprova desuso.".into(),supported_action:if risk==Risk::Review{SupportedAction::ReviewedCacheContents}else{SupportedAction::None}});
             // Partition coverage: the container now describes only the remainder.
             if let Some(parent) = self
                 .out

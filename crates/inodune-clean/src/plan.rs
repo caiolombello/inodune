@@ -219,6 +219,28 @@ impl PlanSession {
                     );
                 }
             }
+            if candidate.detector_id == "terraform.provider-package" {
+                let check = inodune_core::terraform::assess_provider(
+                    &target.root,
+                    &target.relative,
+                    &target.files,
+                );
+                let locks: Vec<_> = check
+                    .witnesses
+                    .into_iter()
+                    .filter(|(p, _)| p.file_name().is_some_and(|n| n == ".terraform.lock.hcl"))
+                    .collect();
+                if !check.eligible || locks != target.witnesses {
+                    return Err("Locks mudaram desde o scan".into());
+                }
+
+                inodune_core::terraform::verify_unused_provider(
+                    &target.root,
+                    &target.relative,
+                    &target.files,
+                    &Default::default(),
+                )?;
+            }
             ids.push(id.clone());
         }
         if ids.is_empty() {

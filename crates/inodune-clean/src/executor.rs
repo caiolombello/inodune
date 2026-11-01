@@ -470,6 +470,16 @@ fn validate_target(target: &ScannedTarget) -> Result<(), String> {
     validate_witnesses(target)
 }
 fn validate_witnesses(target: &ScannedTarget) -> Result<(), String> {
+    if inodune_core::terraform::is_provider_package_path(&target.relative) {
+        if !inodune_core::terraform::provider_locks_unchanged(
+            &target.root,
+            &target.relative,
+            &target.witnesses,
+        ) {
+            return Err("Locks relevantes mudaram; refaça a análise.".into());
+        }
+    }
+
     for (path, expected) in &target.witnesses {
         if expected.mode & 0o022 != 0 {
             return Err(
@@ -500,18 +510,12 @@ fn validate_policy(
             }
         }
         CacheKind::TerraformProvider => {
-            let check = inodune_core::terraform::verify_provider(
+            inodune_core::terraform::verify_unused_provider(
                 &target.root,
                 &target.relative,
                 &target.files,
                 control,
-            );
-            if !check.eligible {
-                return Err(format!(
-                    "Integridade do provider não comprovada: {}",
-                    check.reason
-                ));
-            }
+            )?;
         }
         CacheKind::PytestNodeIds => {
             if inodune_core::cache_rules::validate_pytest_nodeids_leaf(

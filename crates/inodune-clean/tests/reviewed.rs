@@ -32,7 +32,7 @@ impl Fixture {
         fs::write(provider.join("terraform-provider-demo_v1.2.3"), elf).unwrap();
         fs::write(provider.join("LICENSE.txt"), b"license text\n").unwrap();
         let lock = project.join(".terraform.lock.hcl");
-        fs::write(&lock,b"provider \"registry.terraform.io/hashicorp/demo\" {\n version = \"1.2.3\"\n hashes = [\"h1:sBa6P0Es63rPk400M08oc+n2m1OBbCco8ayvM+ij82c=\"]\n}\n").unwrap();
+        fs::write(&lock,b"provider \"registry.terraform.io/hashicorp/demo\" {\n version = \"1.2.4\"\n hashes = [\"h1:sBa6P0Es63rPk400M08oc+n2m1OBbCco8ayvM+ij82c=\"]\n}\n").unwrap();
         fs::write(project.join("main.tf"), b"terraform {}\n").unwrap();
         fs::write(project.join("terraform.tfstate"), b"private fixture state").unwrap();
         fs::write(
@@ -108,7 +108,7 @@ fn selected(snapshot: &inodune_core::scan::ScanSnapshot, detector: &str) -> Vec<
     snapshot
         .candidates
         .iter()
-        .filter(|c| c.detector_id == detector)
+        .filter(|c| c.detector_id == detector && c.risk == Risk::Review)
         .map(|c| c.id.clone())
         .collect()
 }

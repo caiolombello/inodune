@@ -18,8 +18,8 @@ use std::{
 };
 
 const MAX_LOCK_BYTES: u64 = 1024 * 1024;
-const MAX_FILE_BYTES: u64 = 256 * 1024 * 1024;
-const MAX_PACKAGE_BYTES: u64 = 512 * 1024 * 1024;
+const MAX_FILE_BYTES: u64 = 2 * 1024 * 1024 * 1024;
+const MAX_PACKAGE_BYTES: u64 = 4 * 1024 * 1024 * 1024;
 const MAX_PACKAGE_FILES: usize = 32;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -471,6 +471,313 @@ pub fn verify_provider(
         lock_relative: Some(lock_rel),
         lock_fingerprint: Some(lock_fp),
     }
+}
+
+/// Decisão sem leitura dos binários. Locks considerados: o mais próximo na
+/// subida, até a primeira raiz Git ou raiz aprovada; também todos os locks em
+/// environments/* de cada ancestral dentro desse limite. Não inferimos uso.
+/// Links nunca são seguidos. Locks ilegíveis ou sintaxe desconhecida recusam.
+#[derive(Clone, Debug)]
+pub struct ProviderAssessment {
+    pub eligible: bool,
+    pub reason: String,
+    pub witnesses: Vec<(PathBuf, Fingerprint)>,
+}
+pub fn assess_provider(
+    root: &ApprovedRoot,
+    relative: &Path,
+    files: &[(PathBuf, Fingerprint)],
+) -> ProviderAssessment {
+    let result = assess_inner(root, relative, files);
+    match result {
+        Ok((eligible, reason, witnesses)) => ProviderAssessment {
+            eligible,
+            reason,
+            witnesses,
+        },
+        Err(reason) => ProviderAssessment {
+            eligible: false,
+            reason,
+            witnesses: vec![],
+        },
+    }
+}
+fn directory_names(root: &ApprovedRoot, relative: &Path) -> Result<Vec<String>, String> {
+    let fd = root
+        .open_relative(
+            relative,
+            OFlags::RDONLY | OFlags::DIRECTORY | OFlags::NOATIME,
+        )
+        .map_err(|_| "Diretório relevante inacessível ou symlink")?;
+    let mut buf = [MaybeUninit::uninit(); 8192];
+    let mut entries = RawDir::new(&fd, &mut buf);
+    let mut names = vec![];
+    while let Some(entry) = entries.next() {
+        let entry = entry.map_err(|_| "Enumeração incompleta")?;
+        let bytes = entry.file_name().to_bytes();
+        if bytes == b"." || bytes == b".." {
+            continue;
+        }
+        names.push(
+            std::str::from_utf8(bytes)
+                .map_err(|_| "Nome ambíguo")?
+                .to_owned(),
+        );
+        if names.len() > 4096 {
+            return Err("Enumeração acima do limite".into());
+        }
+    }
+    names.sort();
+    Ok(names)
+}
+fn read_lock(
+    root: &ApprovedRoot,
+    relative: &Path,
+) -> Result<Option<(BTreeMap<String, LockRecord>, Fingerprint)>, String> {
+    let fd = match root.open_relative(
+        relative,
+        OFlags::RDONLY | OFlags::NOATIME | OFlags::NONBLOCK,
+    ) {
+        Ok(fd) => fd,
+        Err(rustix::io::Errno::NOENT | rustix::io::Errno::LOOP) => return Ok(None),
+        Err(_) => return Err("Lock relevante inacessível".into()),
+    };
+    let st = fs::fstat(&fd).map_err(|_| "Metadados do lock indisponíveis")?;
+    if FileType::from_raw_mode(st.st_mode) != FileType::RegularFile
+        || st.st_uid != rustix::process::getuid().as_raw()
+        || st.st_nlink != 1
+        || st.st_mode & 0o022 != 0
+        || st.st_size < 0
+        || st.st_size as u64 > MAX_LOCK_BYTES
+    {
+        return Err("Lock relevante inseguro ou acima do limite".into());
+    }
+    let before = Fingerprint::from_stat(&st);
+    let mut file = std::fs::File::from(fd);
+    let mut bytes = vec![];
+    (&mut file)
+        .take(MAX_LOCK_BYTES + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|_| "Lock ilegível")?;
+    if bytes.len() as u64 != before.size
+        || Fingerprint::from_stat(&fs::fstat(&file).map_err(|_| "Lock indisponível")?) != before
+    {
+        return Err("Lock alterado durante leitura".into());
+    }
+    let text = std::str::from_utf8(&bytes).map_err(|_| "Lock não é UTF-8")?;
+    Ok(Some((parse_lockfile(text)?, before)))
+}
+type AssessmentResult = (bool, String, Vec<(PathBuf, Fingerprint)>);
+fn assess_inner(
+    root: &ApprovedRoot,
+    relative: &Path,
+    files: &[(PathBuf, Fingerprint)],
+) -> Result<AssessmentResult, String> {
+    root.revalidate()?;
+    let pkg = parse_package_path(relative).ok_or("Layout de provider desconhecido")?;
+    crate::scan::cleanup_ancestors_allowed(root, relative)?;
+    let names = directory_names(root, relative)?;
+    let prefix = format!("terraform-provider-{}_v{}", pkg.provider_type, pkg.version);
+    if names.len() != files.len()
+        || names.len() > MAX_PACKAGE_FILES
+        || names
+            .iter()
+            .filter(|n| valid_binary_name(n, &prefix))
+            .count()
+            != 1
+        || names
+            .iter()
+            .filter(|n| n.as_str() == "LICENSE" || n.as_str() == "LICENSE.txt")
+            .count()
+            != 1
+    {
+        return Err("Layout de pacote incompleto ou desconhecido".into());
+    }
+    let mut total = 0u64;
+    for name in &names {
+        if !valid_binary_name(name, &prefix) && name != "LICENSE" && name != "LICENSE.txt" {
+            return Err("Arquivo desconhecido no pacote".into());
+        }
+        let rel = relative.join(name);
+        let fd = root
+            .open_relative(&rel, OFlags::PATH)
+            .map_err(|_| "symlink ou arquivo inacessível")?;
+        let st = fs::fstat(&fd).map_err(|_| "Metadados indisponíveis")?;
+        let fp = Fingerprint::from_stat(&st);
+        if fp.size > MAX_FILE_BYTES {
+            return Err("Provider acima do limite de 2 GiB por arquivo".into());
+        }
+        total = total
+            .checked_add(fp.size)
+            .filter(|n| *n <= MAX_PACKAGE_BYTES)
+            .ok_or("Pacote acima do limite de 4 GiB")?;
+        if FileType::from_raw_mode(st.st_mode) != FileType::RegularFile
+            || st.st_nlink != 1
+            || st.st_uid != rustix::process::getuid().as_raw()
+            || st.st_mode & 0o022 != 0
+            || !files.iter().any(|(p, f)| p == &rel && f == &fp)
+        {
+            return Err("Arquivo alterado, hardlink, permissões ou dono inseguros".into());
+        }
+    }
+    assess_locks(root, &pkg)
+}
+fn assess_locks(root: &ApprovedRoot, pkg: &PackagePath) -> Result<AssessmentResult, String> {
+    let mut witnesses = vec![];
+    let mut locks = BTreeSet::new();
+    let mut nearest = false;
+    let mut current = pkg.project.clone();
+    loop {
+        let dir = if current.as_os_str().is_empty() {
+            Path::new(".")
+        } else {
+            &current
+        };
+        let fd = root
+            .open_relative(dir, OFlags::PATH | OFlags::DIRECTORY)
+            .map_err(|_| "Ancestral inacessível ou symlink")?;
+        witnesses.push((
+            dir.to_path_buf(),
+            Fingerprint::from_stat(&fs::fstat(fd).map_err(|_| "Ancestral indisponível")?),
+        ));
+        if !nearest {
+            let rel = current.join(".terraform.lock.hcl");
+            if let Some((map, fp)) = read_lock(root, &rel)? {
+                locks.insert(rel.clone());
+                witnesses.push((rel, fp));
+                nearest = true;
+                drop(map);
+            }
+        }
+        let envs = current.join("environments");
+        match root.open_relative(&envs, OFlags::PATH | OFlags::DIRECTORY) {
+            Ok(fd) => {
+                witnesses.push((
+                    envs.clone(),
+                    Fingerprint::from_stat(&fs::fstat(fd).map_err(|_| "Ambientes indisponíveis")?),
+                ));
+                for name in directory_names(root, &envs)? {
+                    let path = envs.join(name);
+                    let fd = root
+                        .open_relative(&path, OFlags::PATH | OFlags::DIRECTORY)
+                        .map_err(|_| "Ambiente relevante inacessível ou symlink")?;
+                    witnesses.push((
+                        path.clone(),
+                        Fingerprint::from_stat(
+                            &fs::fstat(fd).map_err(|_| "Ambiente indisponível")?,
+                        ),
+                    ));
+                    let rel = path.join(".terraform.lock.hcl");
+                    if let Some((_, fp)) = read_lock(root, &rel)? {
+                        locks.insert(rel.clone());
+                        witnesses.push((rel, fp));
+                    }
+                }
+            }
+            Err(rustix::io::Errno::NOENT) => {}
+            Err(_) => return Err("Ambientes relevantes inacessíveis ou symlink".into()),
+        }
+        // .git can be a directory or a worktree marker. A symlink marker is a
+        // boundary too, never a reason to traverse outside the approved root.
+        let has_git = match root.open_relative(&current.join(".git"), OFlags::PATH) {
+            Ok(_) | Err(rustix::io::Errno::LOOP) => true,
+            Err(rustix::io::Errno::NOENT) => false,
+            Err(_) => return Err("Limite Git desconhecido".into()),
+        };
+        if has_git || current.as_os_str().is_empty() || current == Path::new(".") {
+            break;
+        }
+        current = current.parent().unwrap_or(Path::new("")).to_path_buf();
+    }
+    if locks.is_empty() {
+        return Err("sem lock relevante dentro da raiz Git/análise".into());
+    }
+    let address = format!("{}/{}/{}", pkg.registry, pkg.namespace, pkg.provider_type);
+    for rel in locks {
+        let (map, _) = read_lock(root, &rel)?.ok_or("Lock desapareceu")?;
+        if map.get(&address).is_some_and(|r| r.version == pkg.version) {
+            return Ok((
+                false,
+                "Versão referenciada por lock relevante; uso não detectado".into(),
+                witnesses,
+            ));
+        }
+    }
+    Ok((
+        true,
+        "Versão não referenciada pelos locks relevantes; hash somente ao preparar o plano".into(),
+        witnesses,
+    ))
+}
+pub fn provider_locks_unchanged(
+    root: &ApprovedRoot,
+    relative: &Path,
+    expected: &[(PathBuf, Fingerprint)],
+) -> bool {
+    let Some(pkg) = parse_package_path(relative) else {
+        return false;
+    };
+    let Ok((true, _, witnesses)) = assess_locks(root, &pkg) else {
+        return false;
+    };
+    let locks: Vec<_> = witnesses
+        .into_iter()
+        .filter(|(p, _)| p.file_name().is_some_and(|n| n == ".terraform.lock.hcl"))
+        .collect();
+    locks == expected
+}
+/// Leitura sob demanda. Não autentica publicação: captura conteúdo/identidade
+/// estável e exige novamente que nenhum lock relevante selecione esta versão.
+pub fn verify_unused_provider(
+    root: &ApprovedRoot,
+    relative: &Path,
+    files: &[(PathBuf, Fingerprint)],
+    control: &ScanControl,
+) -> Result<(), String> {
+    let check = assess_provider(root, relative, files);
+    if !check.eligible {
+        return Err(check.reason);
+    }
+    for (rel, expected) in files {
+        let fd = root
+            .open_relative(rel, OFlags::RDONLY | OFlags::NOATIME | OFlags::NONBLOCK)
+            .map_err(|_| "Provider inacessível")?;
+        if Fingerprint::from_stat(&fs::fstat(&fd).map_err(|_| "Metadados indisponíveis")?)
+            != *expected
+        {
+            return Err("Provider mudou".into());
+        }
+        let mut file = std::fs::File::from(fd);
+        let mut digest = Sha256::new();
+        let mut count = 0u64;
+        let mut buf = [0u8; 65536];
+        loop {
+            if !control.checkpoint() {
+                return Err("Análise cancelada".into());
+            }
+            let n = file.read(&mut buf).map_err(|_| "Provider ilegível")?;
+            if n == 0 {
+                break;
+            }
+            count += n as u64;
+            if count > expected.size {
+                return Err("Provider cresceu".into());
+            }
+            digest.update(&buf[..n]);
+        }
+        let _hash = digest.finalize();
+        if count != expected.size
+            || Fingerprint::from_stat(&fs::fstat(&file).map_err(|_| "Metadados indisponíveis")?)
+                != *expected
+        {
+            return Err("Provider mudou durante hash".into());
+        }
+    }
+    let after = assess_provider(root, relative, files);
+    if !after.eligible || after.witnesses != check.witnesses {
+        return Err("Locks mudaram durante hash".into());
+    }
+    Ok(())
 }
 
 fn valid_binary_name(name: &str, prefix: &str) -> bool {
