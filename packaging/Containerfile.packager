@@ -1,0 +1,8 @@
+FROM localhost/inodune-builder:rust1.93-bookworm
+USER root
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    nodejs rpm cpio \
+    && apt-get clean
+USER 1000:1000
+WORKDIR /workspace
+ENTRYPOINT ["/usr/bin/node"]

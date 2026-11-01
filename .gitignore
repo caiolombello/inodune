@@ -7,3 +7,6 @@ playwright-report/
 test-results/
 apps/desktop/src-tauri/gen/
 *.local
+
+__pycache__/
+*.pyc
