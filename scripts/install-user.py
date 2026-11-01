@@ -39,6 +39,11 @@ APP_FILES = {
 }
 
 
+def app_files(version: str) -> dict[str, int]:
+    # Preserva a validação e a remoção de versões anteriores sem o helper.
+    return {**APP_FILES, **({"bin/inodune-uninstall-helper": 0o755} if version_key(version) >= (0, 1, 5) else {})}
+
+
 class InstallRefused(RuntimeError):
     """The install tree contains a file the installer cannot safely own."""
 
@@ -265,7 +270,7 @@ def launcher_bytes(prefix: Path, version: str) -> bytes:
 
 def create_manifest(prefix: Path, appdir: Path, version: str) -> bytes:
     files = {}
-    for name, mode in APP_FILES.items():
+    for name, mode in app_files(version).items():
         data, info = read_regular(appdir / name, mode=mode, limit=64 * 1024 * 1024)
         files[name] = {"sha256": hashlib.sha256(data).hexdigest(), "size": info.st_size, "mode": mode}
     record = {
@@ -288,11 +293,11 @@ def validate_manifest_record(prefix: Path, version: str, manifest: object) -> di
     if manifest["schema"] != 1 or manifest["version"] != version or manifest["prefix"] != str(prefix):
         raise InstallRefused("Install manifest does not match this version and prefix")
     file_records = manifest["files"]
-    if not isinstance(file_records, dict) or set(file_records) != set(APP_FILES):
+    if not isinstance(file_records, dict) or set(file_records) != set(app_files(version)):
         raise InstallRefused("Install manifest file list is incomplete or contains unexpected paths")
     if not isinstance(manifest["launcher_sha256"], str) or not re.fullmatch(r"[0-9a-f]{64}", manifest["launcher_sha256"]):
         raise InstallRefused("Install manifest launcher checksum is invalid")
-    for name, mode in APP_FILES.items():
+    for name, mode in app_files(version).items():
         record = file_records[name]
         if not isinstance(record, dict) or set(record) != {"sha256", "size", "mode"}:
             raise InstallRefused(f"Install manifest entry is malformed: {name}")
@@ -359,7 +364,7 @@ def read_manifest(
 
     # Inspect the complete small install tree. Never recurse through a link,
     # and never remove a file not explicitly named by the install manifest.
-    expected_tree = {MANIFEST_NAME, "bin", "LICENSE", "inodune-icon-512.png", *APP_FILES}
+    expected_tree = {MANIFEST_NAME, "bin", "LICENSE", "inodune-icon-512.png", *app_files(version)}
     observed_tree: set[str] = set()
     with os.scandir(appdir) as entries:
         for entry in entries:
@@ -370,14 +375,14 @@ def read_manifest(
         with os.scandir(appdir / "bin") as entries:
             for entry in entries:
                 observed_tree.add(f"bin/{entry.name}")
-                if entry.name not in {"inodune-desktop", "inodune-cli"} or entry.is_symlink():
+                if entry.name not in {name.removeprefix("bin/") for name in app_files(version) if name.startswith("bin/")} or entry.is_symlink():
                     raise InstallRefused(f"Unexpected file or link in application directory: {entry.path}")
     except FileNotFoundError:
         if journal is None:
             raise
     if journal is None and observed_tree != expected_tree:
         raise InstallRefused("Installed application tree differs from the manifest")
-    for name, mode in APP_FILES.items():
+    for name, mode in app_files(version).items():
         record = file_records[name]
         try:
             data, info = read_regular(appdir / name, mode=mode, limit=64 * 1024 * 1024)
@@ -512,7 +517,7 @@ def uninstall(prefix: Path, version: str, *, apply: bool = False) -> LifecycleRe
     except FileNotFoundError:
         directory_exists = False
     if directory_exists:
-        for name in ("bin/inodune-cli", "LICENSE", "inodune-icon-512.png", "bin/inodune-desktop"):
+        for name in (*(["bin/inodune-uninstall-helper"] if version_key(version) >= (0,1,5) else []), "bin/inodune-cli", "LICENSE", "inodune-icon-512.png", "bin/inodune-desktop"):
             if (appdir / name).exists() or (appdir / name).is_symlink():
                 lines.append(f"Remove verified file: {appdir / name}")
         lines.append(f"Remove install manifest: {appdir / MANIFEST_NAME}")
@@ -533,14 +538,14 @@ def uninstall(prefix: Path, version: str, *, apply: bool = False) -> LifecycleRe
         if directory_exists:
             # Retain a valid launcher until the executable itself is removed.
             # The journal makes any completed earlier leaf unlink resumable.
-            for name in ("bin/inodune-cli", "LICENSE", "inodune-icon-512.png", "bin/inodune-desktop"):
+            for name in (*(["bin/inodune-uninstall-helper"] if version_key(version) >= (0,1,5) else []), "bin/inodune-cli", "LICENSE", "inodune-icon-512.png", "bin/inodune-desktop"):
                 path = appdir / name
                 try:
                     path.lstat()
                 except FileNotFoundError:
                     continue
                 record = manifest["files"][name]
-                data, original_info = read_regular(path, mode=APP_FILES[name], limit=64 * 1024 * 1024)
+                data, original_info = read_regular(path, mode=app_files(version)[name], limit=64 * 1024 * 1024)
                 if hashlib.sha256(data).hexdigest() != record["sha256"]:
                     raise InstallRefused(f"File changed before removal; preserved: {path}")
                 parent = path.parent
@@ -632,6 +637,7 @@ def archive_payload(path: Path) -> tuple[str, dict[str, bytes]]:
         "bin/inodune-desktop": 32 * 1024 * 1024,
         "bin/inodune-cli": 16 * 1024 * 1024,
         "install-user.py": 256 * 1024,
+        "bin/inodune-uninstall-helper": 32 * 1024 * 1024,
     }
     with tarfile.open(path, mode="r|gz") as archive:
         content: dict[str, bytes] = {}
@@ -649,10 +655,12 @@ def archive_payload(path: Path) -> tuple[str, dict[str, bytes]]:
             if len(data) != member.size or len(data) > limit:
                 raise RuntimeError(f"Archive entry size does not match: {name}")
             content[name] = data
-        if set(content) != set(limits):
+        version = content.get("VERSION", b"").decode("utf-8").strip()
+        expected = set(limits) if version_key(version) >= (0,1,5) else set(limits) - {"bin/inodune-uninstall-helper"}
+        if set(content) != expected:
             raise RuntimeError("Archive is missing required entries")
     version = content["VERSION"].decode("utf-8").strip()
-    for name in ("inodune-desktop", "inodune-cli"):
+    for name in ("inodune-desktop", "inodune-cli", *(["inodune-uninstall-helper"] if version_key(version) >= (0,1,5) else [])):
         elf = content[f"bin/{name}"]
         if len(elf) < 20 or elf[:4] != b"\x7fELF" or int.from_bytes(elf[18:20], "little") != 62:
             raise RuntimeError(f"Archive executable is not x86_64 ELF: {name}")
@@ -679,6 +687,8 @@ def install(prefix: Path, archive: Path | None = None) -> Path:
             "LICENSE": archived["LICENSE"],
             "inodune-icon-512.png": archived["inodune-icon-512.png"],
         }
+        if version_key(version) >= (0,1,5):
+            file_data["inodune-uninstall-helper"] = archived["bin/inodune-uninstall-helper"]
     else:
         file_data = {}
         config_path = ROOT / "apps" / "desktop" / "src-tauri" / "tauri.conf.json"
@@ -688,7 +698,10 @@ def install(prefix: Path, archive: Path | None = None) -> Path:
             version = json.loads(config_path.read_text(encoding="utf-8"))["version"]
         else:
             raise RuntimeError("--archive is required when install-user.py is used outside the source tree")
-        for name, source in SOURCES.items():
+        sources = dict(SOURCES)
+        if version_key(version) >= (0,1,5):
+            sources["inodune-uninstall-helper"] = ROOT / "bin/inodune-uninstall-helper" if PORTABLE_BUNDLE else ROOT / "target/compat/release/inodune-uninstall-helper"
+        for name, source in sources.items():
             file_data[name] = read_source(source, executable=True)
         license_file = ROOT / "LICENSE"
         icon_file = ROOT / "inodune-icon-512.png" if PORTABLE_BUNDLE else ROOT / "assets" / "brand" / "inodune-icon-512.png"
@@ -719,7 +732,7 @@ def install(prefix: Path, archive: Path | None = None) -> Path:
     if existing is not None:
         expected_files = {
             name: {"sha256": hashlib.sha256(data).hexdigest(), "size": len(data), "mode": mode}
-            for name, mode in APP_FILES.items()
+            for name, mode in app_files(version).items()
             for data in (file_data[name.removeprefix("bin/")] if name.startswith("bin/") else file_data[name],)
         }
         if existing["files"] != expected_files:
@@ -745,7 +758,7 @@ def install(prefix: Path, archive: Path | None = None) -> Path:
             bin_identity = (bin_info.st_dev, bin_info.st_ino)
             bin_fd = os.open("bin", os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC, dir_fd=stage_fd)
             try:
-                for name in SOURCES:
+                for name in (key.removeprefix("bin/") for key in app_files(version) if key.startswith("bin/")):
                     create_exclusive_at(bin_fd, name, f"bin/{name}", file_data[name], 0o755, created)
             finally:
                 os.close(bin_fd)

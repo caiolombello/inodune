@@ -3,6 +3,7 @@ compile_error!("fixture-tests is forbidden in release builds");
 mod backend;
 mod cleanup;
 mod history;
+mod uninstall;
 use tauri::Manager;
 #[tauri::command]
 async fn list_installed_apps() -> Result<inodune_apps::Inventory, String> {
@@ -19,6 +20,7 @@ fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .manage(backend)
+        .manage(uninstall::UninstallState::default())
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                 let state = window.state::<backend::Backend>();
@@ -31,6 +33,8 @@ fn main() {
         })
         .invoke_handler(tauri::generate_handler![
             list_installed_apps,
+            uninstall::uninstall_prepare,
+            uninstall::uninstall_execute,
             backend::choose_scope,
             backend::list_scopes,
             backend::forget_scope,

@@ -4,6 +4,9 @@ mod files;
 mod packages;
 mod snap_api;
 mod steam;
+pub mod uninstall;
+mod uninstall_flatpak;
+mod uninstall_snap;
 mod vdf;
 
 pub use packages::{AptDpkg, Flatpak, RpmDnf, Snap};
@@ -11,7 +14,7 @@ use serde::Serialize;
 use std::path::Path;
 pub use steam::Steam;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, serde::Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Source {
     Rpm,

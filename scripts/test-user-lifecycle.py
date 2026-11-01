@@ -32,6 +32,8 @@ def make_archive(path: Path, version: str, marker: bytes) -> Path:
         "bin/inodune-cli": b"\x7fELF" + bytes(14) + (62).to_bytes(2, "little") + marker,
         "install-user.py": b"fixture installer\n",
     }
+    if INSTALLER.version_key(version) >= (0, 1, 5):
+        files["bin/inodune-uninstall-helper"] = b"\x7fELF" + bytes(14) + (62).to_bytes(2, "little") + marker
     with tarfile.open(path, "w:gz") as archive:
         for name, data in files.items():
             member = tarfile.TarInfo(name)

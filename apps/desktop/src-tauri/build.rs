@@ -17,6 +17,8 @@ fn main() {
             "poll_cleanup",
             "cancel_cleanup",
             "list_installed_apps",
+            "uninstall_prepare",
+            "uninstall_execute",
         ]),
     ))
     .expect("failed to build native command permissions");

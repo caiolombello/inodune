@@ -42,6 +42,9 @@ def check_tree(root: Path) -> None:
         raise SystemExit(f"Desktop executable missing or not executable: {gui}")
     if not cli.is_file() or not os.access(cli, os.X_OK):
         raise SystemExit(f"CLI executable missing or not executable: {cli}")
+    helper = root / "usr/bin/inodune-uninstall-helper"
+    if not helper.is_file() or not os.access(helper, os.X_OK):
+        raise SystemExit("Helper de desinstalação ausente ou não executável")
     license_file = root / "usr" / "share" / "licenses" / "inodune" / "LICENSE"
     if not license_file.is_file() or "MIT License" not in license_file.read_text(encoding="utf-8"):
         raise SystemExit("Application license missing from package")

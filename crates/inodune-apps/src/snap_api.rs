@@ -7,6 +7,14 @@ use std::{
 };
 const MAX: usize = 8 * 1024 * 1024;
 pub(crate) fn list() -> Result<Vec<InstalledItem>, String> {
+    parse(&request("GET", "/v2/snaps?select=all", None, false)?)
+}
+pub(crate) fn request(
+    method: &str,
+    path: &str,
+    body: Option<&str>,
+    interactive: bool,
+) -> Result<Vec<u8>, String> {
     // Snapd is local. No URL, path, method or socket supplied by callers.
     let mut socket = UnixStream::connect("/run/snapd.socket").map_err(|e| e.to_string())?;
     socket
@@ -15,10 +23,10 @@ pub(crate) fn list() -> Result<Vec<InstalledItem>, String> {
     socket
         .set_write_timeout(Some(Duration::from_secs(5)))
         .map_err(|e| e.to_string())?;
+    let body = body.unwrap_or("");
+    let message = format!("{method} {path} HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\nContent-Type: application/json\r\nContent-Length: {}\r\nX-Allow-Interaction: {}\r\n\r\n{body}", body.len(), interactive);
     socket
-        .write_all(
-            b"GET /v2/snaps?select=all HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n",
-        )
+        .write_all(message.as_bytes())
         .map_err(|e| e.to_string())?;
     let started = std::time::Instant::now();
     let mut bytes = Vec::new();
@@ -41,7 +49,15 @@ pub(crate) fn list() -> Result<Vec<InstalledItem>, String> {
         .position(|w| w == b"\r\n\r\n")
         .ok_or("HTTP snapd inválido")?;
     let header = std::str::from_utf8(&bytes[..split]).map_err(|_| "HTTP inválido")?;
-    if !header.starts_with("HTTP/1.1 200 ") && !header.starts_with("HTTP/1.0 200 ") {
+    if ![
+        "HTTP/1.1 200 ",
+        "HTTP/1.0 200 ",
+        "HTTP/1.1 202 ",
+        "HTTP/1.0 202 ",
+    ]
+    .iter()
+    .any(|prefix| header.starts_with(prefix))
+    {
         return Err("snapd HTTP erro".into());
     }
     let body = &bytes[split + 4..];
@@ -79,9 +95,9 @@ pub(crate) fn list() -> Result<Vec<InstalledItem>, String> {
             }
             remaining = &remaining[size + 2..];
         }
-        parse(&decoded)
+        Ok(decoded)
     } else {
-        parse(body)
+        Ok(body.to_vec())
     }
 }
 pub(crate) fn parse(bytes: &[u8]) -> Result<Vec<InstalledItem>, String> {

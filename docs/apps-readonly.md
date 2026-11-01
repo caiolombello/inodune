@@ -1,6 +1,6 @@
 # Programas & Jogos — inventário v0.1.4
 
-Este módulo é somente leitura e independente de `inodune-core::Candidate` e do executor. Não há seleção, plano de limpeza, desinstalação, score de desuso ou persistência automática do inventário.
+O inventário é somente leitura e independente de `inodune-core::Candidate` e do executor de caches. Não há score de desuso ou persistência automática do inventário. A desinstalação possui fluxo separado de simulação, plano e confirmação nativa descrito abaixo.
 
 ## Exceção restrita de processos
 
@@ -50,3 +50,21 @@ Base: `a80e5ee`, branch `feat/inodune-apps-readonly`, Rust 1.93.0; fontes novas 
 - Nenhum download foi necessário: crates e node_modules vieram de caches locais copiados para a worktree. Builds Cargo usaram `--offline`. Novas dependências diretas do módulo reutilizam versões do lock: serde, serde_json, rustix, chrono, flate2 e tempfile.
 
 Estes são resultados locais, não aprovação humana, CI, validação Ubuntu nativa ou publicação.
+
+## Desinstalação na 0.1.5
+
+A listagem continua somente leitura. A nova ACL `allow-installed-apps-uninstall` concede somente `uninstall_prepare` e `uninstall_execute` à janela local main. O primeiro recebe fonte e ID estritamente validados; o segundo recebe apenas o ID opaco do plano. Não há plugin de shell ou comando arbitrário. A permissão de inventário continua separada.
+
+O executável `inodune-uninstall-helper`, separado da GUI, recusa UID/EUID root. Não chama sudo, pkexec ou su, não lê nem solicita senhas. APT e RPM usam GIO D-Bus para `Resolve` instalado e `RemovePackages`, primeiro com o bit SIMULATE (1 << 2). `allow_deps` e `autoremove` são sempre false. A execução real permite autorização interativa do serviço pelo polkit. O app não manipula essa autorização.
+
+O helper mantém um único plano em memória por até 120 segundos. A confirmação nativa mostra a lista completa. O plano é consumido inclusive em cancelamento/erro. Após a confirmação, repete Resolve e simulação, compara exatamente IDs e versões e verifica novamente as proteções antes de executar. Lista vazia, duplicada, ambígua, desconhecida, mudança ou expiração recusam a operação inteira. Essential/Priority required/important, protected.d, kernel e pacotes de sessão são bloqueados. Regras protected.d desconhecidas bloqueiam em vez de serem ignoradas.
+
+IDs aceitam somente gramáticas ASCII por fonte, sem espaço, opções iniciadas por hífen, separadores de shell ou caminhos. Não há shell. Steam só abre `steam://uninstall/<appid>` numérico pelo xdg-open; a confirmação e a remoção pertencem ao Steam, e abrir a URI não prova desinstalação.
+
+**Flatpak:** a libflatpak é carregada somente de caminhos absolutos do sistema. A instalação é escolhida como user ou system e o app deve ter branch/arquitetura inequívocas. Uma transação de uninstall é resolvida e sempre abortada em `ready-pre-auth`, antes de autorização/mutação. A lista inclui somente o app e extensões cujo metadado `ExtensionOf/ref` corresponde ao app exato; runtimes base e outros apps recusam o plano inteiro. Capturamos refs completos e commits instalados e re-simulamos antes de executar `/usr/bin/flatpak uninstall --user|--system --noninteractive -- <ref>` por argv. Não usamos unused nem delete-data. Sistema deixa a autorização com polkit. Sem biblioteca, sinal ou metadados suficientes, a preparação é bloqueada com motivo explícito.
+
+**Snap:** consulta `/v2/snaps?select=all` e `/v2/connections?select=all`. Exige app ativo, revisão exata, bases conhecidas de outros apps e nenhum consumidor dos slots content do alvo. Tipos base/core/os/snapd/kernel/gadget, dependentes ou dados ausentes bloqueiam. A lista contém exatamente nome/revisão; após revalidar, faz POST `/v2/snaps/<nome>` com somente `{"action":"remove"}`, permite interação polkit pelo socket e acompanha a mudança até conclusão. Não usa purge. Se o snapd não expuser bases ou conexões completas, informa precisamente essa falta e bloqueia.
+
+Testes usam mocks de transporte e fixtures; não chamam PackageKit/polkit nem removem pacotes reais do host. Um timeout em transação real significa resultado desconhecido, não rollback ou falha sem efeito. Não há retry automático. A re-simulação reduz TOCTOU, mas não fornece um bloqueio global contra outro gerenciador ou processo do mesmo usuário entre chamadas D-Bus. O backend continua responsável por dependências e autorização.
+
+APIs consultadas: [PackageKit RemovePackages/Resolve](https://www.freedesktop.org/software/PackageKit/doc/dbus-org.freedesktop.packagekit1.Transaction.html), [flags de transação](https://www.freedesktop.org/software/PackageKit/doc/enum.TransactionFlagEnum.html), [snapd REST](https://snapcraft.io/docs/reference/development/snapd-rest-api/). GIO 0.18.4 e GLib 0.18.5 (MIT), e libloading 0.7.4 (ISC), já constavam no Cargo.lock; suas bibliotecas de sistema já integram as dependências do Tauri.

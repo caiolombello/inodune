@@ -45,13 +45,15 @@
       "deb": {
         "files": {
           "/usr/bin/inodune-cli": "../../../target/compat/release/inodune-cli",
-          "/usr/share/licenses/inodune/LICENSE": "../../../LICENSE"
+          "/usr/share/licenses/inodune/LICENSE": "../../../LICENSE",
+          "/usr/bin/inodune-uninstall-helper": "../../../target/compat/release/inodune-uninstall-helper"
         }
       },
       "rpm": {
         "files": {
           "/usr/bin/inodune-cli": "../../../target/compat/release/inodune-cli",
-          "/usr/share/licenses/inodune/LICENSE": "../../../LICENSE"
+          "/usr/share/licenses/inodune/LICENSE": "../../../LICENSE",
+          "/usr/bin/inodune-uninstall-helper": "../../../target/compat/release/inodune-uninstall-helper"
         }
       }
     }

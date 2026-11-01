@@ -238,7 +238,7 @@ impl PackageSource for AptDpkg {
         })
     }
 }
-fn parse_dpkg(
+pub(crate) fn parse_dpkg(
     text: &str,
     manual: &BTreeSet<String>,
 ) -> Result<(Vec<InstalledItem>, Vec<String>), String> {

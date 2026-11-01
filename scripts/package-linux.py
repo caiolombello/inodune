@@ -44,7 +44,7 @@ def prepare_snapshot(destination: Path) -> None:
     # The Tauri bundler patches its input binary with bundle metadata. Copy only
     # the two release artifacts into the isolated snapshot so it cannot patch
     # the build output or touch the source checkout.
-    for name in ("inodune-desktop", "inodune-cli"):
+    for name in ("inodune-desktop", "inodune-cli", "inodune-uninstall-helper"):
         shutil.copyfile(BINARY_DIR / name, release / name)
         (release / name).chmod(0o755)
     (destination / "scripts").mkdir()
@@ -184,6 +184,7 @@ def create_portable_archive() -> Path:
         "install-user.py": (ROOT / "scripts" / "install-user.py", 0o755),
         "VERSION": None,
         "bin/inodune-desktop": (BINARY_DIR / "inodune-desktop", 0o755),
+        "bin/inodune-uninstall-helper": (BINARY_DIR / "inodune-uninstall-helper", 0o755),
         "bin/inodune-cli": (BINARY_DIR / "inodune-cli", 0o755),
         "LICENSE": (ROOT / "LICENSE", 0o644),
         "inodune-icon-512.png": (ROOT / "assets" / "brand" / "inodune-icon-512.png", 0o644),

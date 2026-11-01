@@ -2,3 +2,8 @@
 identifier = "allow-installed-apps-readonly"
 description = "Read the local package and game inventory. No install, remove, or shell access."
 commands.allow = ["list_installed_apps"]
+
+[[permission]]
+identifier = "allow-installed-apps-uninstall"
+description = "Prepara simulação verificável e executa um plano de uso único após confirmação nativa. Sem shell, senha ou elevação do helper."
+commands.allow = ["uninstall_prepare", "uninstall_execute"]

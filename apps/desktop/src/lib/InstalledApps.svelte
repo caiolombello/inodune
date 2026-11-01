@@ -22,6 +22,47 @@
   let sources = $state<Report[] | null>(null);
   let loading = $state(false);
   let error = $state('');
+  type UninstallPlan = {
+    id: string;
+    items: { id: string; version: string }[];
+    expires_in_seconds: number;
+    steam_handoff: boolean;
+  };
+  let uninstallPlan = $state<UninstallPlan | null>(null);
+  let uninstallBusy = $state(false);
+  let uninstallMessage = $state('');
+  async function prepareUninstall(item: Item) {
+    uninstallBusy = true;
+    uninstallMessage = '';
+    uninstallPlan = null;
+    try {
+      uninstallPlan = await invoke<UninstallPlan>('uninstall_prepare', {
+        source: item.source,
+        id: item.id,
+      });
+    } catch (e) {
+      uninstallMessage = String(e);
+    } finally {
+      uninstallBusy = false;
+    }
+  }
+  async function executeUninstall() {
+    const plan = uninstallPlan;
+    if (!plan) return;
+    uninstallPlan = null;
+    uninstallBusy = true;
+    uninstallMessage = '';
+    try {
+      uninstallMessage = await invoke<string>('uninstall_execute', {
+        planId: plan.id,
+      });
+      await load();
+    } catch (e) {
+      uninstallMessage = String(e);
+    } finally {
+      uninstallBusy = false;
+    }
+  }
   async function load() {
     loading = true;
     error = '';
@@ -38,10 +79,14 @@
 
 <section aria-label="Inventário de programas e jogos">
   <p>
-    Inventário somente leitura. Tamanhos instalados não representam espaço
-    recuperável. Indícios de atividade não comprovam desuso.
+    A listagem é somente leitura. Desinstalar exige simulação e confirmação
+    nativa. Tamanhos instalados não representam espaço recuperável. Indícios de
+    atividade não comprovam desuso.
   </p>
-  <button class="button primary" disabled={loading || !isDesktop} onclick={load}
+  <button
+    class="button primary"
+    disabled={loading || uninstallBusy || !isDesktop}
+    onclick={load}
     >{loading ? 'Consultando fontes…' : 'Listar programas e jogos'}</button
   >
   {#if !isDesktop}<p role="status">
@@ -52,6 +97,38 @@
   <div aria-live="polite">
     {#if loading}<p>Consultando inventário local…</p>{/if}
   </div>
+  {#if uninstallMessage}<p role="status">{uninstallMessage}</p>{/if}
+  {#if uninstallBusy}<p role="status">
+      Verificando transação; aguarde. Não repita a operação.
+    </p>{/if}
+  {#if uninstallPlan}
+    <section aria-label="Plano de desinstalação">
+      <h2>
+        {uninstallPlan.steam_handoff
+          ? 'Abrir confirmação do Steam'
+          : 'Lista completa simulada'}
+      </h2>
+      <p>
+        Plano de uso único, válido por até 120 segundos. A lista será revalidada
+        antes de executar. Sem autoremove. O app não recebe senhas.
+      </p>
+      <ul>
+        {#each uninstallPlan.items as removal (removal.id)}<li>
+            {removal.id} · {removal.version}
+          </li>{/each}
+      </ul>
+      <button
+        class="button primary"
+        disabled={uninstallBusy}
+        onclick={executeUninstall}>Revisar e confirmar na janela nativa</button
+      >
+      <button
+        class="button"
+        disabled={uninstallBusy}
+        onclick={() => (uninstallPlan = null)}>Cancelar</button
+      >
+    </section>
+  {/if}
   {#each sources ?? [] as source (source.source)}
     <section class="apps-source">
       <h2>
@@ -96,6 +173,17 @@
                   ? 'baixa'
                   : 'média'}
               </p>{:else}<p>Último uso desconhecido.</p>{/each}
+            <button
+              class="button"
+              disabled={!isDesktop ||
+                loading ||
+                uninstallBusy ||
+                item.protected}
+              onclick={() => prepareUninstall(item)}
+              >{item.source === 'steam'
+                ? 'Preparar abertura no Steam'
+                : 'Simular desinstalação'}</button
+            >
             <details>
               <summary>Notas e limites</summary
               >{#each item.notes as note, index (index)}<p>

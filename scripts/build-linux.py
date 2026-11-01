@@ -25,4 +25,5 @@ with tempfile.TemporaryDirectory(prefix='inodune-build-source-') as temporary:
         '--volume',f'{snapshot}:/workspace:rw','--volume',f'{out}:/out:rw','--volume',f'{root}/.tools/cargo/registry:/cache/cargo/registry:ro',image]
     subprocess.run(prefix+['build','--frozen','--release','--target-dir','/out','-p','inodune-desktop','--features','custom-protocol'],check=True)
     subprocess.run(prefix+['build','--frozen','--release','--target-dir','/out','-p','inodune-cli'],check=True)
+    subprocess.run(prefix+['build','--frozen','--release','--target-dir','/out','-p','inodune-apps','--bin','inodune-uninstall-helper'],check=True)
 print(f'Built standalone production binaries in {out}/release (no fixture-tests).')
