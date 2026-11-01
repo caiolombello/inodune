@@ -6,6 +6,7 @@
     defaultRangeExtractor,
   } from '@tanstack/svelte-virtual';
   import type { Candidate } from './model';
+  import { t } from './i18n.svelte';
   let {
     items,
     children,
@@ -59,11 +60,12 @@
 
 {#if large}<div class="list-mode">
     <span
-      >{items.length} itens · {paged
-        ? 'paginação acessível'
-        : 'lista virtualizada'}</span
+      >{items.length}
+      {t('itens')} · {paged
+        ? t('paginação acessível')
+        : t('lista virtualizada')}</span
     ><button class="text-button" onclick={() => (paged = !paged)}
-      >{paged ? 'Usar rolagem virtual' : 'Usar paginação'}</button
+      >{paged ? t('Usar rolagem virtual') : t('Usar paginação')}</button
     >
   </div>{/if}
 {#if large && !paged}
@@ -79,7 +81,7 @@
     bind:this={scrollElement}
     class="virtual-scroll"
     role="region"
-    aria-label="Lista virtualizada de itens; paginação disponível acima"
+    aria-label={t('Lista virtualizada de itens; paginação disponível acima')}
     tabindex="0"
   >
     <div
@@ -108,17 +110,20 @@
         {@render children(item)}
       </div>{/each}
   </div>
-  {#if large}<nav class="list-pager" aria-label="Páginas da lista">
+  {#if large}<nav class="list-pager" aria-label={t('Páginas da lista')}>
       <button
         class="button"
         disabled={currentPage === 0}
-        onclick={() => currentPage--}>Anterior</button
+        onclick={() => currentPage--}>{t('Anterior')}</button
       ><span role="status"
-        >Página {currentPage + 1} de {Math.ceil(items.length / pageSize)}</span
+        >{t('Página')}
+        {currentPage + 1}
+        {t('de')}
+        {Math.ceil(items.length / pageSize)}</span
       ><button
         class="button"
         disabled={(currentPage + 1) * pageSize >= items.length}
-        onclick={() => currentPage++}>Próxima</button
+        onclick={() => currentPage++}>{t('Próxima')}</button
       >
     </nav>{/if}
 {/if}

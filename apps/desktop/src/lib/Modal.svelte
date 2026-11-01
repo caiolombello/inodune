@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount, type Snippet } from 'svelte';
   import { X } from '@lucide/svelte';
+  import { t } from './i18n.svelte';
   let {
     title,
     onclose,
@@ -24,7 +25,7 @@
     <h2>{title}</h2>
     <button
       class="icon-button"
-      aria-label="Fechar diálogo"
+      aria-label={t('Fechar diálogo')}
       onclick={() => dialog.close()}><X size={20} /></button
     >
   </div>

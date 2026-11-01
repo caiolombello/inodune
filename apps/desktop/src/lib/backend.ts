@@ -7,6 +7,7 @@ export interface NativeScope {
   label: string;
   display_path: string;
   kind: ScopeKind;
+  exclusions?: string[];
 }
 export interface NativeIssue {
   display_path: string;
@@ -68,6 +69,7 @@ export interface CleanupFileResult {
   logical_bytes: number;
   message: string | null;
   preserved_at: string | null;
+  durability_confirmed?: boolean;
 }
 export interface CleanupExecutionReport {
   schema_version: number;
@@ -104,8 +106,8 @@ export interface CleanupPoll {
   error: string | null;
 }
 export const native = {
-  chooseScope: (kind: ScopeKind) =>
-    invoke<NativeScope | null>('choose_scope', { kind }),
+  chooseScope: (kind: ScopeKind, locale: 'pt-BR' | 'en-US' = 'pt-BR') =>
+    invoke<NativeScope | null>('choose_scope', { kind, locale }),
   listScopes: () => invoke<NativeScope[]>('list_scopes'),
   forgetScope: (scopeId: string) => invoke<void>('forget_scope', { scopeId }),
   beginScan: (scopeIds: string[]) => invoke<string>('begin_scan', { scopeIds }),
@@ -116,7 +118,14 @@ export const native = {
     scanId: string,
     candidateIds: string[],
     action: 'trash' | 'permanent',
-  ) => invoke<CleanupPlan>('prepare_cleanup', { scanId, candidateIds, action }),
+    locale?: 'pt-BR' | 'en-US',
+  ) =>
+    invoke<CleanupPlan>('prepare_cleanup', {
+      scanId,
+      candidateIds,
+      action,
+      locale,
+    }),
   beginCleanup: (planId: string, hash: string) =>
     invoke<string>('begin_cleanup', { planId, hash }),
   pollCleanup: (jobId: string) =>

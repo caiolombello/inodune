@@ -2,6 +2,7 @@
   import { HardDrive, ArrowRight, ShieldCheck } from '@lucide/svelte';
   import { formatBytes, type ScanState } from './model';
   import type { NativeVolume } from './backend';
+  import { t } from './i18n.svelte';
   let {
     volumes,
     potential,
@@ -26,7 +27,7 @@
   const volume = $derived(unique[device] ?? unique[0]);
 </script>
 
-<section class="storage-panel" aria-label="Volumes analisados">
+<section class="storage-panel" aria-label={t('Volumes analisados')}>
   <div class="volume-summary">
     {#if volume}<div
         class="ring"
@@ -43,35 +44,39 @@
         <div>
           <HardDrive size={19} /><strong
             >{formatBytes(volume.total_bytes)}</strong
-          ><small>capacidade do filesystem</small>
+          ><small>{t('capacidade do filesystem')}</small>
         </div>
       </div>{:else}<div class="unmeasured-volume">
-        <HardDrive size={40} /><span>Sem medição</span>
+        <HardDrive size={40} /><span>{t('Sem medição')}</span>
       </div>{/if}
     <div class="storage-legend">
       <h2>
         {volume
-          ? 'Espaço medido, no seu disco.'
-          : 'Seu disco ainda não foi analisado.'}
+          ? t('Espaço medido, no seu disco.')
+          : t('Seu disco ainda não foi analisado.')}
       </h2>
-      <p>Somente pastas que você aprovar entram na análise.</p>
+      <p>{t('Somente pastas que você aprovar entram na análise.')}</p>
       {#if volume}<div>
-          <span><i class="legend-dot used"></i> Ocupado ou reservado</span
+          <span
+            ><i class="legend-dot used"></i> {t('Ocupado ou reservado')}</span
           ><strong
             >{formatBytes(volume.total_bytes - volume.available_bytes)}</strong
           >
         </div>
         <div>
-          <span><i class="legend-dot free"></i> Disponível ao usuário</span
+          <span
+            ><i class="legend-dot free"></i> {t('Disponível ao usuário')}</span
           ><strong>{formatBytes(volume.available_bytes)}</strong>
         </div>
         <small>{volume.scope_path} · statvfs · medição deste scan</small
         >{:else}<small
-          >Escolha uma pasta para começar. Nenhum número de demonstração é usado
-          neste modo.</small
+          >{t(
+            'Escolha uma pasta para começar. Nenhum número de demonstração é usado neste modo.',
+          )}</small
         >{/if}
       {#if unique.length > 1}<label
-          >Volume <select aria-label="Volume" bind:value={device}
+          >{t('Volume')}
+          <select aria-label={t('Volume')} bind:value={device}
             >{#each unique as vol, index (vol.device)}<option value={index}
                 >{vol.scope_path}</option
               >{/each}</select
@@ -80,16 +85,19 @@
     </div>
   </div>
   <div class="potential-summary">
-    <span class="eyebrow">POTENCIAL LÓGICO ESTIMADO</span>
+    <span class="eyebrow">{t('POTENCIAL LÓGICO ESTIMADO')}</span>
     <div class="big-number">
       {scanStatus === 'idle' || scanStatus === 'error'
         ? '—'
         : formatBytes(potential)}
     </div>
-    <p>{count} candidatos · {protectedCount} itens protegidos</p>
+    <p>{count} {t('candidatos')} · {protectedCount} {t('itens protegidos')}</p>
     <button class="button primary" onclick={onreview} disabled={!count || busy}
-      >Revisar candidatos <ArrowRight size={17} /></button
-    ><small><ShieldCheck size={14} /> Nenhum arquivo removido pelo scan.</small>
+      >{t('Revisar candidatos')} <ArrowRight size={17} /></button
+    ><small
+      ><ShieldCheck size={14} />
+      {t('Nenhum arquivo removido pelo scan.')}</small
+    >
   </div>
 </section>
 

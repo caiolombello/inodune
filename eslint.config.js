@@ -9,7 +9,7 @@ export default ts.config(
   ...svelte.configs['flat/recommended'],
   { languageOptions: { globals: { ...globals.browser, ...globals.node } } },
   {
-    files: ['**/*.svelte'],
+    files: ['**/*.svelte', '**/*.svelte.ts'],
     languageOptions: { parserOptions: { parser: ts.parser } },
     rules: { 'svelte/no-at-html-tags': 'error' },
   },

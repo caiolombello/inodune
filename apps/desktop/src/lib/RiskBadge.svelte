@@ -1,6 +1,7 @@
 <script lang="ts">
   import { ShieldCheck, Shield, CircleAlert } from '@lucide/svelte';
   import { riskLabel, type Risk } from './model';
+  import { t } from './i18n.svelte';
   let { risk }: { risk: Risk } = $props();
 </script>
 
@@ -10,5 +11,5 @@
     />{:else if risk === 'protected'}<Shield size={13} />{:else}<CircleAlert
       size={13}
     />{/if}
-  {riskLabel[risk]}
+  {t(riskLabel[risk])}
 </span>

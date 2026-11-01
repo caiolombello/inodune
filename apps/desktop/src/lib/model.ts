@@ -1,4 +1,5 @@
 import corpus from '../../../../tests/fixtures/demo.json';
+import { language } from './i18n.svelte';
 export type Risk = 'low' | 'review' | 'protected';
 export type Policy = 'trash' | 'permanent';
 export type Scenario = 'normal' | 'partial' | 'empty' | 'error';
@@ -70,7 +71,7 @@ export function formatBytes(bytes: number): string {
   if (bytes === 0) return '0 B';
   const unit =
     bytes >= 1024 ** 3 ? 3 : bytes >= 1024 ** 2 ? 2 : bytes >= 1024 ? 1 : 0;
-  return `${new Intl.NumberFormat('pt-BR', { maximumFractionDigits: 1 }).format(bytes / 1024 ** unit)} ${['B', 'KiB', 'MiB', 'GiB'][unit]}`;
+  return `${new Intl.NumberFormat(language.value, { maximumFractionDigits: 1 }).format(bytes / 1024 ** unit)} ${['B', 'KiB', 'MiB', 'GiB'][unit]}`;
 }
 export function formatSignedBytes(bytes: number): string {
   const sign = bytes > 0 ? '+' : bytes < 0 ? '−' : '';
