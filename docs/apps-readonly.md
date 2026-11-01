@@ -1,4 +1,4 @@
-# Programas & Jogos — inventário v0.1.4
+# Programas & Jogos — inventário v0.1.5
 
 O inventário é somente leitura e independente de `inodune-core::Candidate` e do executor de caches. Não há score de desuso ou persistência automática do inventário. A desinstalação possui fluxo separado de simulação, plano e confirmação nativa descrito abaixo.
 
