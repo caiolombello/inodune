@@ -9,6 +9,10 @@ import {
   selectLocalDefaults,
   formatSignedBytes,
   compareInstalledSize,
+  cleanupBatches,
+  cleanupBatchWarning,
+  protectedOnlyLabel,
+  CLEANUP_BATCH_LIMIT,
 } from './model';
 describe('conservative simulation policy', () => {
   it('formats signed observed volume deltas by magnitude', () => {
@@ -108,6 +112,31 @@ describe('conservative simulation policy', () => {
     ]);
     expect(compareInstalledSize(null, null)).toBe(0);
     expect(Number.isNaN(compareInstalledSize(null, 1))).toBe(false);
+  });
+  it('labels a protected-only card as occupied space that cannot be reclaimed', () => {
+    expect(protectedOnlyLabel(2, '12 KiB')).toBe(
+      '2 itens protegidos · 12 KiB ocupados (não recuperável)',
+    );
+    expect(protectedOnlyLabel(1, '0 B')).toBe(
+      '1 item protegido · 0 B ocupados (não recuperável)',
+    );
+  });
+  it('splits a selection above the plan limit into ordered batches and warns', () => {
+    const ids = Array.from(
+      { length: CLEANUP_BATCH_LIMIT + 2 },
+      (_, index) => `item-${index}`,
+    );
+    ids.push('item-0');
+    const batches = cleanupBatches(ids);
+    expect(batches).toHaveLength(2);
+    expect(batches[0]).toHaveLength(CLEANUP_BATCH_LIMIT);
+    expect(batches[0][0]).toBe('item-0');
+    expect(batches[1]).toEqual(['item-1000', 'item-1001']);
+    expect(cleanupBatchWarning(CLEANUP_BATCH_LIMIT)).toBeNull();
+    expect(cleanupBatchWarning(CLEANUP_BATCH_LIMIT + 2)).toContain(
+      'dividida em 2 lotes',
+    );
+    expect(cleanupBatchWarning(CLEANUP_BATCH_LIMIT + 2)).toContain('1.002');
   });
   it('retains per-item failure/changed/cancelled and never reports a real deletion', () => {
     expect(executeDemo('py', 'partial', false)).toBe('failed');

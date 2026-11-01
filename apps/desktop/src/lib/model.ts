@@ -67,6 +67,59 @@ export const outcomeLabel: Record<Outcome, string> = {
   skipped_changed: 'Pulado · item alterado',
   cancelled: 'Cancelado · não processado',
 };
+export const CLEANUP_BATCH_LIMIT = 1000;
+
+export function cleanupBatches(
+  ids: readonly string[],
+  limit = CLEANUP_BATCH_LIMIT,
+): string[][] {
+  if (!Number.isSafeInteger(limit) || limit < 1)
+    throw new Error('Limite de lote inválido');
+  const unique: string[] = [];
+  const seen = new Set<string>();
+  for (const id of ids) {
+    if (seen.has(id)) continue;
+    seen.add(id);
+    unique.push(id);
+  }
+  const batches: string[][] = [];
+  for (let index = 0; index < unique.length; index += limit)
+    batches.push(unique.slice(index, index + limit));
+  return batches;
+}
+
+export function cleanupBatchWarning(
+  total: number,
+  limit = CLEANUP_BATCH_LIMIT,
+): string | null {
+  if (total <= limit) return null;
+  const batches = Math.ceil(total / limit);
+  const n = (value: number) =>
+    new Intl.NumberFormat(language.value).format(value);
+  if (language.value === 'en-US')
+    return `The selection has ${n(total)} items. Each plan accepts at most ${n(limit)}. Preparation will be split into ${n(batches)} batches; this batch covers the first ${n(limit)}.`;
+  return `A seleção tem ${n(total)} itens. Cada plano aceita no máximo ${n(limit)}. A preparação será dividida em ${n(batches)} lotes; este lote cobre os primeiros ${n(limit)}.`;
+}
+
+export function protectedOnlyLabel(
+  count: number,
+  occupiedLabel: string,
+): string {
+  const noun =
+    language.value === 'en-US'
+      ? count === 1
+        ? 'protected item'
+        : 'protected items'
+      : count === 1
+        ? 'item protegido'
+        : 'itens protegidos';
+  const occupied =
+    language.value === 'en-US'
+      ? 'occupied (not recoverable)'
+      : 'ocupados (não recuperável)';
+  return `${new Intl.NumberFormat(language.value).format(count)} ${noun} · ${occupiedLabel} ${occupied}`;
+}
+
 export function compareInstalledSize(
   a: number | null,
   b: number | null,

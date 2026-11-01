@@ -557,6 +557,12 @@ main {
   font-weight: 600;
   font-variant-numeric: tabular-nums;
 }
+.category-number.protected-summary {
+  font-size: 15px;
+  letter-spacing: 0;
+  font-weight: 560;
+  line-height: 1.35;
+}
 .category-card p {
   font-size: 12px;
   margin: 4px 0 16px;

@@ -61,6 +61,9 @@
     isLocallyEligible,
     toggleSelection,
     simulateBudget,
+    cleanupBatches,
+    cleanupBatchWarning,
+    protectedOnlyLabel,
     executeDemo,
     outcomeLabel,
     type Candidate,
@@ -127,6 +130,7 @@
   });
   let nativeError = $state('');
   let cleanupError = $state('');
+  let cleanupBatchIds = $state<string[]>([]);
   let cleanupPlan = $state<CleanupPlan | null>(null);
   let cleanupReport = $state<CleanupExecutionReport | null>(null);
   let cleanupProgress = $state<CleanupPoll['progress']>({
@@ -189,6 +193,7 @@
   const potential = $derived(
     available.reduce((n, c) => n + c.logical_bytes, 0),
   );
+  const batchWarning = $derived(cleanupBatchWarning(selected.length));
   const projects = $derived([...new Set(candidates.map((c) => c.project))]);
   const filtered = $derived(
     candidates
@@ -641,12 +646,15 @@
       total_items: 0,
     };
     try {
+      const batch = cleanupBatches(selected)[0] ?? [];
+      if (!batch.length) return;
       cleanupPlan = await native.prepareCleanup(
         nativeResult.scan_id,
-        [...selected],
+        batch,
         policy,
         language.value,
       );
+      cleanupBatchIds = batch;
       consent = false;
       confirmation = true;
     } catch (e) {
@@ -704,6 +712,11 @@
           cleanupError =
             'O executor encerrou sem fornecer um relatório de execução.';
         executing = false;
+        if (cleanupBatchIds.length) {
+          const done = new Set(cleanupBatchIds);
+          selected = selected.filter((id) => !done.has(id));
+          cleanupBatchIds = [];
+        }
         cleanupJob = null;
         cleanupPlan = null;
         sound.play(
@@ -1136,23 +1149,34 @@
               : group.filter((c) => c.coverage_key !== null)}
             {@const uncertain =
               !eligible.length && group.some((c) => c.coverage_key === null)}
+            {@const protectedOnly = group.length > 0 && eligible.length === 0}
             <button class="category-card" onclick={() => go(cat.page)}
               ><div class="category-top">
                 <span class="category-icon"><cat.icon size={22} /></span
                 ><ArrowUpRight size={17} />
               </div>
               <h2>{t(cat.label)}</h2>
-              <div class="category-number">
-                {t(
-                  !candidates.length
-                    ? '—'
-                    : !measured.length && group.length
-                      ? 'Não medido'
-                      : (uncertain ? '≥ ' : '') +
-                        formatBytes(
-                          measured.reduce((n, c) => n + c.logical_bytes, 0),
-                        ),
-                )}
+              <div
+                class="category-number"
+                class:protected-summary={protectedOnly}
+              >
+                {protectedOnly
+                  ? protectedOnlyLabel(
+                      group.length,
+                      formatBytes(
+                        group.reduce((n, c) => n + c.logical_bytes, 0),
+                      ),
+                    )
+                  : t(
+                      !candidates.length
+                        ? '—'
+                        : !measured.length && group.length
+                          ? 'Não medido'
+                          : (uncertain ? '≥ ' : '') +
+                            formatBytes(
+                              measured.reduce((n, c) => n + c.logical_bytes, 0),
+                            ),
+                    )}
               </div>
               <p>{t(cat.caption)}</p>
               <span class="category-qualifier"
@@ -1415,6 +1439,9 @@
                 )}</span
               >
             </div>
+            {#if batchWarning}<p class="inline-note" role="status">
+                {batchWarning}
+              </p>{/if}
             <div class="inline-actions">
               <button
                 class="button"
@@ -1549,6 +1576,9 @@
                     : 'Apenas exemplos de caches recriáveis selecionados.',
               )}
             </p>
+            {#if batchWarning}<p class="inline-note" role="status">
+                {batchWarning}
+              </p>{/if}
             <button
               class="button primary full"
               disabled={!selected.length ||
@@ -2269,7 +2299,13 @@
     >
     <p role="status">{status}</p>
     <dl class="explanation">
-      <dt>{t('Por que apareceu')}</dt>
+      <dt>
+        {t(
+          detail.risk === 'protected'
+            ? 'Motivo do bloqueio'
+            : 'Por que apareceu',
+        )}
+      </dt>
       <dd>{t(detail.reason)}</dd>
       <dt>{t('O que pode mudar')}</dt>
       <dd>{t(detail.impact)}</dd>

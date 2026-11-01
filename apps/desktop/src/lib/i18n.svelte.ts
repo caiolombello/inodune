@@ -632,6 +632,7 @@ const catalog: Record<string, string> = {
   'Cancelado · não processado': 'Cancelled · not processed',
   'Potencial lógico estimado': 'Estimated logical potential',
   'Inventário · não recuperável': 'Inventory · not recoverable',
+  'Motivo do bloqueio': 'Why it is blocked',
   item: 'item',
   analisados: 'analyzed',
   'no exemplo': 'in sample',
