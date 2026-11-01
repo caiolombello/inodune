@@ -4,6 +4,12 @@ mod backend;
 mod cleanup;
 mod history;
 use tauri::Manager;
+#[tauri::command]
+async fn list_installed_apps() -> Result<inodune_apps::Inventory, String> {
+    tauri::async_runtime::spawn_blocking(inodune_apps::inventory)
+        .await
+        .map_err(|e| e.to_string())?
+}
 fn main() {
     inodune_clean::diagnostics::install_local_panic_reporter();
     #[cfg(feature = "fixture-tests")]
@@ -24,6 +30,7 @@ fn main() {
             }
         })
         .invoke_handler(tauri::generate_handler![
+            list_installed_apps,
             backend::choose_scope,
             backend::list_scopes,
             backend::forget_scope,

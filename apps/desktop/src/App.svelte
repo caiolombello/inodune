@@ -28,6 +28,7 @@
   } from '@lucide/svelte';
   import logo from '../../../assets/brand/inodune-logo.svg';
   import icon from '../../../assets/brand/inodune-icon.svg';
+  import InstalledApps from './lib/InstalledApps.svelte';
   import RiskBadge from './lib/RiskBadge.svelte';
   import ItemList from './lib/ItemList.svelte';
   import Modal from './lib/Modal.svelte';
@@ -70,6 +71,7 @@
   } from './lib/model';
 
   type Page =
+    | 'apps'
     | 'overview'
     | 'projects'
     | 'development'
@@ -84,6 +86,7 @@
     | 'impact'
     | 'report';
   const nav = [
+    { id: 'apps' as Page, label: 'Programas & Jogos', icon: HardDrive },
     { id: 'overview' as Page, label: 'Visão geral', icon: House },
     { id: 'projects' as Page, label: 'Projetos', icon: Layers },
     { id: 'development' as Page, label: 'Desenvolvimento', icon: Code },
@@ -92,6 +95,7 @@
     { id: 'system' as Page, label: 'Sistema', icon: HardDrive },
   ];
   const pageNames: Record<Page, string> = {
+    apps: 'Programas & Jogos',
     overview: 'Seu espaço, em perspectiva.',
     projects: 'Cada projeto tem seu espaço.',
     development: 'Construa. Revise. Recomece.',
@@ -843,11 +847,13 @@
         <span class="topbar-separator">/</span>
         <strong
           >{t(
-            source === 'local'
-              ? scanMode === 'automatic'
-                ? 'Análise automática · limpeza com confirmação'
-                : 'Escopos aprovados · limpeza com confirmação'
-              : 'Somente dados sintéticos',
+            page === 'apps'
+              ? 'Inventário somente leitura'
+              : source === 'local'
+                ? scanMode === 'automatic'
+                  ? 'Análise automática · limpeza com confirmação'
+                  : 'Escopos aprovados · limpeza com confirmação'
+                : 'Somente dados sintéticos',
           )}</strong
         >
       </div>
@@ -903,7 +909,7 @@
             )}
           </p>
         </div>
-        {#if !['settings', 'catalog', 'impact', 'report'].includes(page)}<button
+        {#if !['apps', 'settings', 'catalog', 'impact', 'report'].includes(page)}<button
             class="button primary"
             onclick={startScan}
             disabled={scanBusy ||
@@ -924,132 +930,136 @@
             )}</button
           >{/if}
       </div>
-      <div class="demo-banner">
-        <FlaskConical size={16} /><span
-          ><strong
-            >{t(
-              source === 'local' ? 'Análise local' : 'Protótipo navegável',
-            )}</strong
-          >
-          · {t(
-            source === 'local'
-              ? scanMode === 'automatic'
-                ? 'Descoberta local automática. Nenhuma remoção automática.'
-                : 'Pastas aprovadas. Nenhuma remoção automática.'
-              : 'Pastas e valores fictícios. Seus arquivos não são acessados.',
-          )}</span
-        ><button
-          onclick={() => {
-            onboarding = 0;
-          }}
-          disabled={executing || scanBusy || preparingCleanup}
-          >{t('Conhecer o fluxo')} <ArrowUpRight size={14} /></button
-        >
-      </div>
-      <div class="live-status" role="status" aria-live="polite">
-        {t(status)}
-      </div>
-
-      {#if scanBusy}
-        <ScanExperience
-          paused={scanState === 'paused'}
-          title={t(
-            scanState === 'paused'
-              ? 'Análise pausada'
-              : source === 'local'
-                ? scanMode === 'automatic'
-                  ? 'Analisando volumes locais'
-                  : 'Analisando pastas aprovadas'
-                : 'Analisando exemplos locais',
-          )}
-          progress={source === 'local'
-            ? nativeProgress
-            : {
-                visited: candidates.length,
-                candidates: candidates.length,
-                stage: 'Demonstração',
-              }}
-          findings={source === 'local'
-            ? (nativeProgress.recent_findings ?? [])
-            : candidates.slice(-4)}
-          demo={source === 'demo'}
-          {reduced}
-          {soundEnabled}
-          onpause={() => void pauseScan()}
-          onresume={() => void resumeScan()}
-          oncancel={() => void cancelScan()}
-          onreduce={() => {
-            reduced = !reduced;
-            applyPreferences();
-          }}
-          onsound={() => void setSoundEnabled(!soundEnabled)}
-        />
-      {:else if scanState === 'error'}
-        <section class="notice error" role="alert">
-          <CircleAlert size={22} />
-          <div>
-            <h2>
-              {t(
-                source === 'local'
-                  ? 'Não foi possível concluir a análise'
-                  : 'Não foi possível concluir o exemplo',
-              )}
-            </h2>
-            <p>
-              {source === 'local'
-                ? nativeError
-                : t(
-                    'Permissão negada no cenário simulado. Nenhum arquivo foi alterado. Escolha outro cenário em Configurações.',
-                  )}
-            </p>
-            <button class="button" onclick={() => go('settings')}
-              >{t('Rever cenário')}</button
+      {#if page !== 'apps'}
+        <div class="demo-banner">
+          <FlaskConical size={16} /><span
+            ><strong
+              >{t(
+                source === 'local' ? 'Análise local' : 'Protótipo navegável',
+              )}</strong
             >
-          </div>
-        </section>
-      {:else if scanState === 'cancelled'}
-        <div class="notice">
-          <CircleAlert size={20} />
-          <div>
-            <strong>{t('Análise cancelada')}</strong>
-            <p>
-              {candidates.length}
-              {t(
-                'itens parciais disponíveis. Nenhuma seleção automática foi mantida.',
-              )}
-            </p>
-          </div>
+            · {t(
+              source === 'local'
+                ? scanMode === 'automatic'
+                  ? 'Descoberta local automática. Nenhuma remoção automática.'
+                  : 'Pastas aprovadas. Nenhuma remoção automática.'
+                : 'Pastas e valores fictícios. Seus arquivos não são acessados.',
+            )}</span
+          ><button
+            onclick={() => {
+              onboarding = 0;
+            }}
+            disabled={executing || scanBusy || preparingCleanup}
+            >{t('Conhecer o fluxo')} <ArrowUpRight size={14} /></button
+          >
         </div>
-      {/if}
+        <div class="live-status" role="status" aria-live="polite">
+          {t(status)}
+        </div>
 
-      {#if nativeError && scanState !== 'error'}<div
-          class="notice error"
-          role="alert"
-        >
-          <CircleAlert size={20} />
-          <p>{nativeError}</p>
-        </div>{/if}
-      {#if source === 'local' && nativeResult && (!nativeResult.complete || nativeResult.issues.length)}<section
-          class="notice"
-        >
-          <CircleAlert size={20} />
-          <div>
-            <strong>{t('Análise com cobertura parcial / exclusões')}</strong>
-            <p>
-              {formatNumber(nativeResult.stats.skipped)}
-              {t(
-                'entradas ignoradas. Itens incertos permanecem protegidos; não há seleção automática para um scan parcial.',
-              )}
-            </p>
-            <details>
-              <summary>{t('Ver motivos e caminhos')}</summary
-              >{#each nativeResult.issues as issue, index (index)}<p>
-                  <code>{issue.display_path}</code> · {t(issue.message)}
-                </p>{/each}
-            </details>
+        {#if scanBusy}
+          <ScanExperience
+            paused={scanState === 'paused'}
+            title={t(
+              scanState === 'paused'
+                ? 'Análise pausada'
+                : source === 'local'
+                  ? scanMode === 'automatic'
+                    ? 'Analisando volumes locais'
+                    : 'Analisando pastas aprovadas'
+                  : 'Analisando exemplos locais',
+            )}
+            progress={source === 'local'
+              ? nativeProgress
+              : {
+                  visited: candidates.length,
+                  candidates: candidates.length,
+                  stage: 'Demonstração',
+                }}
+            findings={source === 'local'
+              ? (nativeProgress.recent_findings ?? [])
+              : candidates.slice(-4)}
+            demo={source === 'demo'}
+            {reduced}
+            {soundEnabled}
+            onpause={() => void pauseScan()}
+            onresume={() => void resumeScan()}
+            oncancel={() => void cancelScan()}
+            onreduce={() => {
+              reduced = !reduced;
+              applyPreferences();
+            }}
+            onsound={() => void setSoundEnabled(!soundEnabled)}
+          />
+        {:else if scanState === 'error'}
+          <section class="notice error" role="alert">
+            <CircleAlert size={22} />
+            <div>
+              <h2>
+                {t(
+                  source === 'local'
+                    ? 'Não foi possível concluir a análise'
+                    : 'Não foi possível concluir o exemplo',
+                )}
+              </h2>
+              <p>
+                {source === 'local'
+                  ? nativeError
+                  : t(
+                      'Permissão negada no cenário simulado. Nenhum arquivo foi alterado. Escolha outro cenário em Configurações.',
+                    )}
+              </p>
+              <button class="button" onclick={() => go('settings')}
+                >{t('Rever cenário')}</button
+              >
+            </div>
+          </section>
+        {:else if scanState === 'cancelled'}
+          <div class="notice">
+            <CircleAlert size={20} />
+            <div>
+              <strong>{t('Análise cancelada')}</strong>
+              <p>
+                {candidates.length}
+                {t(
+                  'itens parciais disponíveis. Nenhuma seleção automática foi mantida.',
+                )}
+              </p>
+            </div>
           </div>
-        </section>{/if}
-      {#if page === 'overview' && !scanBusy}
+        {/if}
+
+        {#if nativeError && scanState !== 'error'}<div
+            class="notice error"
+            role="alert"
+          >
+            <CircleAlert size={20} />
+            <p>{nativeError}</p>
+          </div>{/if}
+        {#if source === 'local' && nativeResult && (!nativeResult.complete || nativeResult.issues.length)}<section
+            class="notice"
+          >
+            <CircleAlert size={20} />
+            <div>
+              <strong>{t('Análise com cobertura parcial / exclusões')}</strong>
+              <p>
+                {formatNumber(nativeResult.stats.skipped)}
+                {t(
+                  'entradas ignoradas. Itens incertos permanecem protegidos; não há seleção automática para um scan parcial.',
+                )}
+              </p>
+              <details>
+                <summary>{t('Ver motivos e caminhos')}</summary
+                >{#each nativeResult.issues as issue, index (index)}<p>
+                    <code>{issue.display_path}</code> · {t(issue.message)}
+                  </p>{/each}
+              </details>
+            </div>
+          </section>{/if}
+      {/if}
+      {#if page === 'apps'}
+        <InstalledApps />
+      {:else if page === 'overview' && !scanBusy}
         {#if source === 'local'}<NativeStorage
             automatic={scanMode === 'automatic'}
             volumes={nativeResult?.volumes ?? []}
