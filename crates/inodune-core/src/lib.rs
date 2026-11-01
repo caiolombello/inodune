@@ -1,8 +1,12 @@
 //! Shared contracts, read-only discovery and conservative planning.
 #[cfg(target_os = "linux")]
-pub mod scan;
+pub mod cache_rules;
 #[cfg(target_os = "linux")]
 pub mod git;
+#[cfg(target_os = "linux")]
+pub mod scan;
+#[cfg(target_os = "linux")]
+pub mod terraform;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 
@@ -61,6 +65,7 @@ pub struct Candidate {
 pub enum SupportedAction {
     None,
     CacheContents,
+    ReviewedCacheContents,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Volume {
