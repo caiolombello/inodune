@@ -210,6 +210,9 @@ def main() -> None:
         "runtimeUser": {"name": user.pw_name, "uid": os.getuid(), "home": user.pw_dir},
         "network": "disabled by Podman (--network=none)",
         "xdgHome": "empty TemporaryDirectory, removed after app exit",
+        "explicitHostDataMounts": [],
+        "scanInitiatedByHarness": False,
+        "automaticStartupScan": "not asserted; container has no mounted user data",
         "gui": {
             "executable": "/usr/bin/inodune-desktop",
             "visibleWindow": True,
@@ -220,8 +223,7 @@ def main() -> None:
             "graphicsMode": "test-only software compositing fallback (WEBKIT_DISABLE_COMPOSITING_MODE=1)",
         },
         "dynamicLibraries": "ldd found no unresolved dependencies",
-        "scanRequested": False,
-        "cleanupRequested": False,
+        "cleanupInitiatedByHarness": False,
     }
     (output / "runtime-smoke.json").write_text(json.dumps(evidence, indent=2) + "\n", encoding="utf-8")
     print(json.dumps({"packageVersion": evidence["packageVersion"], "windowTitle": title, "screenshot": str(output / "inodune-desktop.png")}))

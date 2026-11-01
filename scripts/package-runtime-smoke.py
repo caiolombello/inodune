@@ -13,15 +13,17 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+APP_VERSION = json.loads((ROOT / "apps/desktop/src-tauri/tauri.conf.json").read_text(encoding="utf-8"))["version"]
+PACKAGE_DIR = ROOT / "target" / "packages" / APP_VERSION
 PLATFORMS = {
     "ubuntu-24.04": {
-        "package": ROOT / "target/packages/Inodune_0.1.0_amd64.deb",
+        "package_pattern": "*.deb",
         "containerfile": ROOT / "packaging/Containerfile.smoke.ubuntu",
         "image": "docker.io/library/ubuntu@sha256:78d4744ead1f5b19b04d0df558ab182a5300903900755e515b2ca4d10eb2044d",
         "copy_name": "Inodune.deb",
     },
     "fedora-44": {
-        "package": ROOT / "target/packages/Inodune-0.1.0-1.x86_64.rpm",
+        "package_pattern": "*.rpm",
         "containerfile": ROOT / "packaging/Containerfile.smoke.fedora",
         "image": "registry.fedoraproject.org/fedora@sha256:7a04a2f9d11bba3ff8016ae79cc01ba49965578746c930702e141a3be1f8d4de",
         "copy_name": "Inodune.rpm",
@@ -54,9 +56,19 @@ def sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
+def package_for(config: dict[str, str]) -> Path:
+    packages = sorted(PACKAGE_DIR.glob(config["package_pattern"]))
+    if len(packages) != 1:
+        raise SystemExit(
+            f"Expected exactly one {config['package_pattern']} in {PACKAGE_DIR}; found {len(packages)}. "
+            "Wait for package generation to finish."
+        )
+    return packages[0]
+
+
 def smoke(platform: str, output_root: Path, *, rebuild: bool, source_revision: str) -> None:
     config = PLATFORMS[platform]
-    package = config["package"]
+    package = package_for(config)
     if not package.is_file():
         raise SystemExit(f"Package not found: {package}")
     package_hash = sha256(package)
@@ -133,7 +145,7 @@ def smoke(platform: str, output_root: Path, *, rebuild: bool, source_revision: s
             "packageFile": package.name,
             "packageSha256": package_hash,
             "sourceRevision": source_revision,
-            "hostMounts": [],
+            "explicitHostDataMounts": [],
             "hostInstallation": False,
         }
     )
@@ -144,17 +156,17 @@ def smoke(platform: str, output_root: Path, *, rebuild: bool, source_revision: s
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--platform", choices=["all", *PLATFORMS], default="all")
-    parser.add_argument("--output-dir", type=Path, default=ROOT / "docs/evidence/f4")
-    parser.add_argument("--source-revision", required=True, help="source commit used to build the packaged application")
+    parser.add_argument("--output-dir", type=Path, default=ROOT / "docs/evidence/automatic")
     parser.add_argument("--rebuild", action="store_true", help="ignore cached smoke image layers")
     args = parser.parse_args()
+    source_revision = run(["git", "rev-parse", "HEAD"], capture=True, cwd=ROOT).stdout.strip()
     selected = list(PLATFORMS) if args.platform == "all" else [args.platform]
     for platform in selected:
-        smoke(platform, args.output_dir, rebuild=args.rebuild, source_revision=args.source_revision)
+        smoke(platform, args.output_dir, rebuild=args.rebuild, source_revision=source_revision)
     summary = {
         "checkedAtUtc": datetime.now(timezone.utc).isoformat(),
         "platforms": selected,
-        "sourceRevision": args.source_revision,
+        "sourceRevision": source_revision,
         "results": {platform: "PASS" for platform in selected},
         "scope": "installed GUI process and visible window under Xvfb, isolated container, empty XDG home, network disabled",
     }

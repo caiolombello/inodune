@@ -12,7 +12,8 @@ from pathlib import Path
 from urllib.parse import quote
 
 ROOT = Path(__file__).resolve().parents[1]
-OUT = ROOT / "target" / "packages"
+VERSION = json.loads((ROOT / "apps/desktop/src-tauri/tauri.conf.json").read_text())["version"]
+OUT = ROOT / "target" / "packages" / VERSION
 
 
 def run_json(args: list[str], *, cwd: Path, env: dict[str, str] | None = None) -> dict:

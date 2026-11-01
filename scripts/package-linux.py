@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import gzip
 import io
 import json
@@ -18,7 +19,8 @@ ROOT = Path(__file__).resolve().parents[1]
 IMAGE = "localhost/inodune-packager:debian12"
 TARGET = ROOT / "target" / "compat"
 BINARY_DIR = TARGET / "release"
-PACKAGE_DIR = ROOT / "target" / "packages"
+VERSION = json.loads((ROOT / "apps/desktop/src-tauri/tauri.conf.json").read_text())["version"]
+PACKAGE_DIR = ROOT / "target" / "packages" / VERSION
 
 
 def checked(args: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:

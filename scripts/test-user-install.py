@@ -1,6 +1,7 @@
 """Smoke the non-root installer only in task-created temporary prefixes."""
 import configparser
 import hashlib
+import json
 import importlib.util
 import subprocess
 import tempfile
@@ -12,9 +13,10 @@ installer = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(installer)
 with tempfile.TemporaryDirectory(prefix='inodune-install-test-') as temporary:
     prefix = Path(temporary) / 'my apps $100%'
-    archive = ROOT / 'target/packages/Inodune_0.1.0_linux_x86_64.tar.gz'
+    version=json.loads((ROOT / 'apps/desktop/src-tauri/tauri.conf.json').read_text())['version']
+    archive = ROOT / f'target/packages/{version}/Inodune_{version}_linux_x86_64.tar.gz'
     app = installer.install(prefix, archive)
-    launcher = prefix / 'share/applications/inodune-0.1.0.desktop'
+    launcher = prefix / f'share/applications/inodune-{version}.desktop'
     parser = configparser.RawConfigParser()
     parser.read(launcher)
     assert Path(parser['Desktop Entry']['TryExec']).exists()
