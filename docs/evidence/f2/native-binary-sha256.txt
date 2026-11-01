@@ -1,0 +1,1 @@
+2e23a38cba267e9d9e2cb609cd0f07af3725ea63eaa53fe3a87f49dbbd606676  target/debug/inodune-desktop

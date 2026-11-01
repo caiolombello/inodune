@@ -1,0 +1,17 @@
+[
+  {
+    "action": "trash",
+    "result": "passed",
+    "scope": "task-created temporary fixture"
+  },
+  {
+    "action": "permanent",
+    "result": "passed",
+    "scope": "task-created temporary fixture"
+  },
+  {
+    "action": "refuse",
+    "result": "passed",
+    "scope": "task-created temporary fixture"
+  }
+]

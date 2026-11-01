@@ -1,0 +1,11 @@
+{
+  "standalone_without_vite": true,
+  "native": true,
+  "backend": "Rust IPC",
+  "scopes": "application-owned temporary fixtures",
+  "cleanup": "real same-filesystem Trash move of 68-byte app-owned PNG fixture only",
+  "native_confirmation": "fixture-only consent; production GTK dialog not automated",
+  "opaque_forgery_rejected": true,
+  "replay_rejected": true,
+  "result": "passed"
+}

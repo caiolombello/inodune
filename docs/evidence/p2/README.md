@@ -1,0 +1,1 @@
+Capturas preliminares da integração de UI F2, com IPC sintético. A verificação final, incluindo o executor nativo sobre fixture temporária, está em ../f2/acceptance.md. Preservadas como histórico de desenvolvimento.

@@ -1,0 +1,37 @@
+{
+  "warnings": [],
+  "schema_version": 1,
+  "items": [
+    {
+      "complete": true,
+      "files": [
+        {
+          "display_path": "/tmp/.tmpV7A92T/cache/thumbnails/./normal/0123456789abcdef0123456789abcdef.png",
+          "logical_bytes": 68,
+          "preserved_at": "/tmp/.tmpV7A92T/data/Trash/files/inodune-cf101705a4cf178bb0b1527e21e71ddc",
+          "status": "trashed",
+          "durability_confirmed": true,
+          "message": "Movido \u00e0 Lixeira; ainda ocupa espa\u00e7o."
+        }
+      ],
+      "candidate_id": "scan-18e3d78578ae77a2-1-5"
+    }
+  ],
+  "cancelled": false,
+  "history_path": "/tmp/.tmpV7A92T/state/inodune/reports/report-fbcc5ff186019136dfe1152b60d3cc22.json",
+  "volumes": [
+    {
+      "observed_delta": -4096,
+      "device": 54,
+      "available_before": 16355106816,
+      "available_after": 16355102720
+    }
+  ],
+  "complete": true,
+  "plan_id": "plan-b3d74864bf9e183b8b4f8c650d68faaf",
+  "action": "trash",
+  "measurement_note": "Arquivos movidos para a Lixeira continuam ocupando espa\u00e7o. Varia\u00e7\u00f5es observadas no volume n\u00e3o s\u00e3o ganho atribu\u00eddo \u00e0 limpeza.",
+  "journal_path": "/tmp/.tmpV7A92T/state/inodune/reports/journal-a9374a0306d1e760e3d8441e8dca0760.jsonl",
+  "attributed_freed_bytes": null,
+  "logical_bytes_processed": 68
+}

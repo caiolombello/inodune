@@ -1,0 +1,13 @@
+{
+  "text": "Pular para conte\u00fado\nInodune.\nESPA\u00c7O DE TRABALHO\nVis\u00e3o geral\nProjetos\nDesenvolvimento\nGit Worktrees\nIA & Agentes\nSistema\nItens protegidos\n4\nHist\u00f3rico\nLocal por natureza\nSem conta. Sem telemetria.\nConfigura\u00e7\u00f5es\nINODUNE\n0.1.0 \u00b7 Fase 1\nMeu computador\n/\nEscopos aprovados \u00b7 limpeza com confirma\u00e7\u00e3o\n100% local\nINODUNE\nRevise com tranquilidade.\n\nDecis\u00f5es claras, com voc\u00ea no controle.\n\nAnalisar novamente\nAn\u00e1lise local \u00b7 Somente pastas aprovadas. Nenhuma remo\u00e7\u00e3o autom\u00e1tica.\nConhecer o fluxo\nRevis\u00e3o de itens\n\n6 itens exibidos \u00b7 1 selecionados no total\n\nAn\u00e1lise encerrada\nFiltrar por riscoTodos os riscos\nBaixo risco\nRevisar\nProtegido\nOrdenar itensMaior tamanho\nNome\nItem / origem\nTamanho l\u00f3gico\nPol\u00edtica\nMiniaturas XDG\n/tmp/.tmpV7A92T/cache/thumbnails/./normal\n68 B\nBaixo risco\nSess\u00f5es e mem\u00f3ria de agentes\n/tmp/.tmpV7A92T/projects/./.codex\n15 B\nProtegido\nSomente an\u00e1lise\nEstado / configura\u00e7\u00e3o protegida\n/tmp/.tmpV7A92T/projects/./infra/terraform.tfstate\n13 B\nProtegido\nSomente an\u00e1lise\nArtefatos Cargo\n/tmp/.tmpV7A92T/projects/./orbit/target\n13 B\nRevisar\nSomente an\u00e1lise\nProviders Terraform\n/tmp/.tmpV7A92T/projects/./infra/.terraform/providers\n0 B\nProtegido\nSomente an\u00e1lise\nM\u00f3dulos Terraform\n/tmp/.tmpV7A92T/projects/./infra/.terraform/modules\n0 B\nProtegido\nSomente an\u00e1lise\n1 itens selecionados\n68 B \u00b7 estimativa l\u00f3gica, sem recupera\u00e7\u00e3o medida\nDesmarcar todos\nRevisar impacto\nFeito para abrir espa\u00e7o. Projetado para preservar.\nInodune \u00b7 dados locais",
+  "checkboxes": [
+    {
+      "label": "Selecionar Miniaturas XDG",
+      "checked": true
+    },
+    {
+      "label": "Selecionar Artefatos Cargo",
+      "checked": false
+    }
+  ]
+}
