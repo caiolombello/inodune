@@ -246,7 +246,7 @@ test('local cleanup reports every fixture file and never attributes volume delta
   await expect(page.getByText('/fixture/history/report.json')).toBeVisible();
   const path = resolve(
     process.cwd(),
-    '../../docs/evidence/f2/screenshots/chromium-cleanup-report.png',
+    '../../docs/evidence/f3/screenshots/chromium-cleanup-report.png',
   );
   await mkdir(resolve(path, '..'), { recursive: true });
   await page.screenshot({ path, fullPage: true, animations: 'disabled' });

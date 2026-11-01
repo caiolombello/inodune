@@ -162,6 +162,12 @@
   );
   const available = $derived(candidates.filter((c) => c.risk !== 'protected'));
   const locallyEligible = $derived(candidates.filter(isLocallyEligible));
+  const selectedReview = $derived(
+    candidates.find(
+      (candidate) =>
+        selected.includes(candidate.id) && candidate.risk === 'review',
+    ),
+  );
   const potential = $derived(
     available.reduce((n, c) => n + c.logical_bytes, 0),
   );
@@ -443,8 +449,27 @@
   }
   function toggle(item: Candidate) {
     if (source === 'local' && !isLocallyEligible(item)) return;
-    if (!scanBusy && !executing && !preparingCleanup && !localScanStale)
-      selected = toggleSelection(selected, item);
+    if (!scanBusy && !executing && !preparingCleanup && !localScanStale) {
+      const alreadySelected = selected.includes(item.id);
+      if (
+        source === 'local' &&
+        !alreadySelected &&
+        item.risk !== 'review' &&
+        selectedReview
+      ) {
+        status = 'Remova o item em revisão antes de selecionar outro item.';
+        return;
+      }
+      const hadSelection = selected.length > 0;
+      selected = toggleSelection(selected, item, candidates);
+      if (source === 'local' && item.risk === 'review' && !alreadySelected) {
+        status = hadSelection
+          ? 'O item em revisão foi selecionado individualmente; os demais itens foram desmarcados.'
+          : 'O item em revisão foi selecionado individualmente.';
+      } else {
+        status = '';
+      }
+    }
   }
   async function copyPath(path: string) {
     try {
@@ -682,7 +707,7 @@
         ><Settings size={18} /> Configurações</button
       >
       <div class="sidebar-version">
-        <span>INODUNE</span><span>0.1.0 · Fase 1</span>
+        <span>INODUNE</span><span>Linux desktop</span>
       </div>
     </div>
   </aside>
@@ -1152,6 +1177,16 @@
                 novamente antes de selecionar novos itens.</span
               >
             </p>{/if}
+          {#if source === 'local' && selectedReview}<p
+              class="notice"
+              role="status"
+            >
+              <CircleAlert size={18} /><span
+                >Este candidato exige revisão individual. Remova-o antes de
+                selecionar outro item; confira impacto e como recriar antes de
+                preparar a limpeza.</span
+              >
+            </p>{/if}
           <ItemList
             items={filtered}
             disabled={scanBusy ||
@@ -1279,7 +1314,7 @@
             <RiskBadge risk={budget.reviewCount ? 'review' : 'low'} />
             <p>
               {budget.reviewCount
-                ? 'Inclui build com custo de reconstrução. Revise individualmente.'
+                ? 'Inclui cache com custo de recriação. Revise individualmente.'
                 : source === 'local'
                   ? 'Somente caches de baixo risco com ação de limpeza suportada podem ser executados.'
                   : 'Apenas exemplos de caches recriáveis selecionados.'}
@@ -1910,7 +1945,9 @@
       <p>
         Ação suportada: {detail.supported_action === 'cache_contents'
           ? 'conteúdo de cache'
-          : 'nenhuma'}. A identidade observada pelo scanner local é conferida
+          : detail.supported_action === 'reviewed_cache_contents'
+            ? 'conteúdo de cache com revisão individual'
+            : 'nenhuma'}. A identidade observada pelo scanner local é conferida
         pelo executor antes da operação.
       </p>
     </details>
@@ -1945,6 +1982,15 @@
             cleanupPlan.logical_bytes_estimate,
           )} lógicos estimados · válido por {cleanupPlan.expires_in_seconds} segundos.
         </p>
+        {#if cleanupPlan.review_required || cleanupPlan.items.some((item) => item.risk === 'review' || candidates.find((candidate) => candidate.id === item.candidate_id)?.risk === 'review')}<div
+            class="notice"
+          >
+            <CircleAlert size={20} />
+            <p>
+              Revisão individual obrigatória. Confira o impacto e o custo de
+              reconstrução informados no plano antes de continuar.
+            </p>
+          </div>{/if}
         <div class="plan-identity">
           <span>Plano <code>{cleanupPlan.id}</code></span><span
             >Snapshot <code>{cleanupPlan.snapshot_id}</code></span
@@ -1960,18 +2006,29 @@
     {/if}
     <ul class="confirmation-list">
       {#if source === 'local' && cleanupPlan}
-        {#each cleanupPlan.items as item (item.candidate_id)}<li>
-            <strong
-              >{candidates.find(
-                (candidate) => candidate.id === item.candidate_id,
-              )?.title ?? item.candidate_id}</strong
-            ><code>{item.display_path}</code><span
+        {#each cleanupPlan.items as item (item.candidate_id)}{@const candidate =
+            candidates.find((candidate) => candidate.id === item.candidate_id)}
+          <li>
+            <strong>{candidate?.title ?? item.candidate_id}</strong><code
+              >{item.display_path}</code
+            ><span
               >{formatBytes(item.logical_bytes)} lógicos · {item.allocated_bytes_estimate ===
               null
                 ? 'alocado não estimado'
                 : formatBytes(item.allocated_bytes_estimate) +
                   ' alocados estimados'}</span
             >
+            {#if (item.risk ?? candidate?.risk) === 'review'}<RiskBadge
+                risk="review"
+              />
+              {#if item.impact ?? candidate?.impact}<span
+                  >{item.impact ?? candidate?.impact}</span
+                >{/if}
+              {#if item.rebuild_hint ?? candidate?.rebuild_hint}<span
+                  >Custo / como recriar: {item.rebuild_hint ??
+                    candidate?.rebuild_hint}</span
+                >{/if}
+            {/if}
           </li>{/each}
       {:else}
         {#each budget.picked as item (item.id)}<li>

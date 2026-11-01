@@ -40,6 +40,9 @@ export interface CleanupPlanItem {
   display_path: string;
   logical_bytes: number;
   allocated_bytes_estimate: number | null;
+  risk?: Candidate['risk'];
+  impact?: string;
+  rebuild_hint?: string;
 }
 export interface CleanupPlan {
   id: string;
@@ -50,6 +53,7 @@ export interface CleanupPlan {
   items: CleanupPlanItem[];
   logical_bytes_estimate: number;
   allocated_bytes_estimate: number | null;
+  review_required?: boolean;
 }
 export type CleanupFileStatus =
   | 'trashed'

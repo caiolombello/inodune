@@ -1,6 +1,6 @@
 <script lang="ts">
   import { Folder, ChevronRight, LockKeyhole } from '@lucide/svelte';
-  import { formatBytes, type Candidate } from './model';
+  import { formatBytes, isLocallyEligible, type Candidate } from './model';
   import RiskBadge from './RiskBadge.svelte';
   import VirtualList from './VirtualList.svelte';
   let {
@@ -19,9 +19,7 @@
     localMode?: boolean;
   } = $props();
   const isSelectable = (item: Candidate) =>
-    localMode
-      ? item.risk === 'low' && item.supported_action === 'cache_contents'
-      : item.risk !== 'protected';
+    localMode ? isLocallyEligible(item) : item.risk !== 'protected';
 </script>
 
 <div class="item-list">
@@ -58,7 +56,9 @@
           >
           <div>
             <RiskBadge risk={item.risk} />
-            {#if !isSelectable(item)}<small class="item-policy-note"
+            {#if localMode && item.risk === 'review' && isSelectable(item)}<small
+                class="item-policy-note">Revisão individual</small
+              >{:else if !isSelectable(item)}<small class="item-policy-note"
                 >Somente análise</small
               >{/if}
           </div>

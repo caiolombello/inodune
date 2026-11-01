@@ -10,13 +10,22 @@ use std::{
 };
 
 fn main() -> ExitCode {
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    if args.iter().any(|arg| arg == "--help" || arg == "-h") {
+        println!("{}", usage());
+        return ExitCode::SUCCESS;
+    }
+    if args.iter().any(|arg| arg == "--version" || arg == "-V") {
+        println!("inodune-cli {}", env!("CARGO_PKG_VERSION"));
+        return ExitCode::SUCCESS;
+    }
     let control = Arc::new(ScanControl::default());
     let signal_control = control.clone();
     if let Err(e) = ctrlc::set_handler(move || signal_control.cancel()) {
         eprintln!("Não foi possível registrar cancelamento: {e}");
         return ExitCode::from(2);
     }
-    match run_with_control(std::env::args().skip(1).collect(), &control) {
+    match run_with_control(args, &control) {
         Ok((value, partial)) => {
             println!("{value}");
             if partial {
@@ -39,6 +48,12 @@ fn run(args: Vec<String>) -> Result<(String, bool), String> {
 
 fn run_with_control(args: Vec<String>, control: &ScanControl) -> Result<(String, bool), String> {
     let values: Vec<&str> = args.iter().map(String::as_str).collect();
+    if values.iter().any(|arg| matches!(*arg, "--help" | "-h")) {
+        return Ok((usage(), false));
+    }
+    if values.iter().any(|arg| matches!(*arg, "--version" | "-V")) {
+        return Ok((format!("inodune-cli {}", env!("CARGO_PKG_VERSION")), false));
+    }
     match values.as_slice() {
         ["scan", "--demo", "--json"] => {
             return inodune_core::demo_inventory()
@@ -124,6 +139,7 @@ fn run_clean(args: &[String], control: &ScanControl) -> Result<(String, bool), S
     let mut json = false;
     let mut apply = false;
     let mut dry_run = false;
+    let mut review: Option<String> = None;
     let mut action = inodune_clean::plan::Action::Trash;
     let mut index = 1;
     while index < args.len() {
@@ -139,6 +155,19 @@ fn run_clean(args: &[String], control: &ScanControl) -> Result<(String, bool), S
             "--json" => json = true,
             "--apply" => apply = true,
             "--dry-run" => dry_run = true,
+            "--review" => {
+                index += 1;
+                let detector = args.get(index).ok_or_else(usage)?.clone();
+                if !matches!(
+                    detector.as_str(),
+                    "cargo.fingerprint-json" | "terraform.provider-package"
+                ) {
+                    return Err(format!("Detector de revisão desconhecido: {detector}. Use cargo.fingerprint-json ou terraform.provider-package."));
+                }
+                if review.replace(detector).is_some() {
+                    return Err("Use --review uma única vez.".into());
+                }
+            }
             "--permanent" => action = inodune_clean::plan::Action::Permanent,
             _ => return Err(usage()),
         }
@@ -165,16 +194,47 @@ fn run_clean(args: &[String], control: &ScanControl) -> Result<(String, bool), S
         return Ok((output, true));
     }
 
-    let selected = snapshot
-        .candidates
-        .iter()
-        .filter(|candidate| {
-            candidate.selected_by_default
-                && candidate.risk == Risk::Low
-                && matches!(&candidate.supported_action, SupportedAction::CacheContents)
-        })
-        .map(|candidate| candidate.id.clone())
-        .collect::<Vec<_>>();
+    let selected = if let Some(detector) = &review {
+        let eligible = snapshot
+            .candidates
+            .iter()
+            .filter(|candidate| {
+                candidate.detector_id == *detector
+                    && candidate.risk == Risk::Review
+                    && matches!(
+                        &candidate.supported_action,
+                        SupportedAction::ReviewedCacheContents
+                    )
+            })
+            .collect::<Vec<_>>();
+        match eligible.as_slice() {
+            [] => {
+                return Err(format!(
+                "Nenhum candidato elegível para revisão '{detector}' foi encontrado nesta análise."
+            ))
+            }
+            [candidate] => vec![candidate.id.clone()],
+            many => {
+                let paths = many
+                    .iter()
+                    .map(|candidate| format!("  {}", candidate.display_path))
+                    .collect::<Vec<_>>()
+                    .join("\n");
+                return Err(format!("Há {} candidatos elegíveis para '{detector}'; restrinja o root para selecionar um único candidato:\n{paths}", many.len()));
+            }
+        }
+    } else {
+        snapshot
+            .candidates
+            .iter()
+            .filter(|candidate| {
+                candidate.selected_by_default
+                    && candidate.risk == Risk::Low
+                    && matches!(&candidate.supported_action, SupportedAction::CacheContents)
+            })
+            .map(|candidate| candidate.id.clone())
+            .collect::<Vec<_>>()
+    };
     let protected_or_review_items = snapshot
         .candidates
         .iter()
@@ -274,14 +334,20 @@ fn confirm_plan(plan: &inodune_clean::plan::PlanView) -> Result<(), String> {
         inodune_clean::plan::Action::Permanent => format!("DELETE {}", plan.items.len()),
     };
     eprintln!(
-        "Plano {} | hash {} | ação {:?} | {} itens",
+        "Plano {} | hash {} | ação {:?} | {} itens | risco {} | impacto estimado {} bytes lógicos / {} bytes alocados",
         plan.id,
         plan.hash,
         plan.action,
-        plan.items.len()
+        plan.items.len(),
+        if plan.review_required { "revisão" } else { "baixo" },
+        plan.logical_bytes_estimate,
+        plan.allocated_bytes_estimate.map(|n| n.to_string()).unwrap_or_else(|| "desconhecido".into())
     );
     for item in &plan.items {
-        eprintln!("{}", item.display_path);
+        eprintln!(
+            "{} | {:?} | {} bytes lógicos | impacto: {} | reconstrução: {}",
+            item.display_path, item.risk, item.logical_bytes, item.impact, item.rebuild_hint
+        );
     }
     eprint!("Digite exatamente '{expected}' para confirmar: ");
     std::io::stderr().flush().map_err(|e| e.to_string())?;
@@ -312,18 +378,26 @@ fn format_plan(view: &CleanView) -> String {
             view.protected_or_review_items
         );
     };
-    let paths = plan
+    let details = plan
         .items
         .iter()
-        .map(|item| item.display_path.as_str())
+        .map(|item| {
+            format!(
+                "  {} | {:?} | {} bytes lógicos | impacto: {} | reconstrução: {}",
+                item.display_path, item.risk, item.logical_bytes, item.impact, item.rebuild_hint
+            )
+        })
         .collect::<Vec<_>>()
-        .join("\n  ");
+        .join("\n");
     format!(
-        "Plano somente leitura: {} itens, hash {}. Ação {:?}.\n  {}\nNenhuma limpeza executada.",
+        "Plano somente leitura: {} itens, hash {}. Ação {:?}; risco {}; impacto estimado {} bytes lógicos / {} bytes alocados.\n{}\nNenhuma limpeza executada.",
         plan.items.len(),
         plan.hash,
         plan.action,
-        paths
+        if plan.review_required { "revisão" } else { "baixo" },
+        plan.logical_bytes_estimate,
+        plan.allocated_bytes_estimate.map(|n| n.to_string()).unwrap_or_else(|| "desconhecido".into()),
+        details
     )
 }
 
@@ -345,12 +419,30 @@ fn validate_root_count(count: usize) -> Result<(), String> {
 }
 
 fn usage() -> String {
-    "Uso: inodune-cli scan --root ABS [--root ABS] [--scope projects|thumbnails|protected] [--json]\n     inodune-cli clean --root ABS [--root ABS] [--scope projects|thumbnails|protected] [--dry-run|--apply] [--permanent] [--json]\nDemonstração: scan --demo --json | clean --demo --dry-run. A limpeza real começa em simulação; --apply exige confirmação interativa. Exit 2: erro; exit 3: cobertura ou execução parcial.".into()
+    "Uso: inodune-cli [--help|-h] [--version|-V]\n     inodune-cli scan --root ABS [--root ABS] [--scope projects|thumbnails|protected] [--json]\n     inodune-cli clean --root ABS [--root ABS] [--scope projects|thumbnails|protected] [--dry-run|--apply] [--review cargo.fingerprint-json|terraform.provider-package] [--permanent] [--json]\nDemonstração: scan --demo --json | clean --demo --dry-run. --review seleciona um único candidato verificado e não aplica a limpeza; por padrão, apenas itens de baixo risco entram no plano. A limpeza real começa em simulação; --apply exige confirmação interativa e digitação exata. Exit 2: erro; exit 3: cobertura ou execução parcial.".into()
 }
 
 #[cfg(test)]
 mod tests {
     use super::{confirmation_matches, run};
+    use std::fs;
+
+    fn cargo_fixture(parent: &std::path::Path, name: &str) -> std::path::PathBuf {
+        let project = parent.join(name);
+        let json = project.join(format!(
+            "target/debug/.fingerprint/{name}-0123456789abcdef/lib-{name}.json"
+        ));
+        fs::create_dir_all(json.parent().unwrap()).unwrap();
+        fs::write(
+            project.join("Cargo.toml"),
+            format!("[package]\nname=\"{name}\"\nversion=\"0.1.0\"\n"),
+        )
+        .unwrap();
+        let value = serde_json::json!({"rustc":1,"features":"[]","declared_features":"[]","target":2,"profile":3,"path":4,"deps":[],"local":[],"rustflags":[],"config":5,"compile_kind":0});
+        fs::write(&json, serde_json::to_vec(&value).unwrap()).unwrap();
+        fs::write(json.with_extension(""), b"0123456789abcdef").unwrap();
+        project
+    }
 
     #[test]
     fn requires_exact_confirmation_text() {
@@ -367,5 +459,66 @@ mod tests {
         ] {
             assert!(run(args.into_iter().map(str::to_string).collect()).is_err());
         }
+    }
+
+    #[test]
+    fn review_selects_one_exact_detector_for_dry_run() {
+        let temp = tempfile::tempdir().unwrap();
+        cargo_fixture(temp.path(), "fixture");
+        let (output, partial) = run(vec![
+            "clean",
+            "--root",
+            temp.path().to_str().unwrap(),
+            "--review",
+            "cargo.fingerprint-json",
+            "--dry-run",
+        ]
+        .into_iter()
+        .map(str::to_string)
+        .collect())
+        .unwrap();
+        assert!(!partial);
+        assert!(output.contains("risco revisão"));
+        assert!(output.contains("fingerprint"));
+        assert!(output.contains("impacto:"));
+        assert!(output.contains("reconstrução:"));
+        assert!(output.contains("Nenhuma limpeza executada."));
+    }
+
+    #[test]
+    fn review_rejects_multiple_candidates_with_paths() {
+        let temp = tempfile::tempdir().unwrap();
+        cargo_fixture(temp.path(), "one");
+        cargo_fixture(temp.path(), "two");
+        let error = run(vec![
+            "clean",
+            "--root",
+            temp.path().to_str().unwrap(),
+            "--review",
+            "cargo.fingerprint-json",
+        ]
+        .into_iter()
+        .map(str::to_string)
+        .collect())
+        .unwrap_err();
+        assert!(error.contains("restrinja o root"));
+        assert!(error.contains("lib-one.json"));
+        assert!(error.contains("lib-two.json"));
+    }
+
+    #[test]
+    fn rejects_unknown_review_detector_and_help_is_available() {
+        assert!(run(
+            vec!["clean", "--root", "/tmp", "--review", "arbitrary.path"]
+                .into_iter()
+                .map(str::to_string)
+                .collect()
+        )
+        .unwrap_err()
+        .contains("desconhecido"));
+        let (help, partial) = run(vec!["--help".into()]).unwrap();
+        assert!(!partial);
+        assert!(help.contains("--review"));
+        assert!(help.contains("--version"));
     }
 }

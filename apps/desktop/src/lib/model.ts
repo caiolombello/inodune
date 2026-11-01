@@ -32,7 +32,7 @@ export interface Candidate {
   preserved: string;
   evidence: string[];
   activity: string;
-  supported_action: 'none' | 'cache_contents';
+  supported_action: 'none' | 'cache_contents' | 'reviewed_cache_contents';
 }
 export interface Inventory {
   schema_version: number;
@@ -82,18 +82,43 @@ export function selectDefaults(items: Candidate[]): string[] {
     .map((c) => c.id);
 }
 export function isLocallyEligible(item: Candidate): boolean {
-  return item.risk === 'low' && item.supported_action === 'cache_contents';
+  return (
+    (item.risk === 'low' && item.supported_action === 'cache_contents') ||
+    (item.risk === 'review' &&
+      item.supported_action === 'reviewed_cache_contents')
+  );
 }
 export function selectLocalDefaults(items: Candidate[]): string[] {
   return items
-    .filter((item) => item.selected_by_default && isLocallyEligible(item))
+    .filter(
+      (item) =>
+        item.selected_by_default &&
+        item.risk === 'low' &&
+        isLocallyEligible(item),
+    )
     .map((item) => item.id);
 }
-export function toggleSelection(ids: string[], item: Candidate): string[] {
+export function toggleSelection(
+  ids: string[],
+  item: Candidate,
+  items: Candidate[] = [],
+): string[] {
   if (item.risk === 'protected') return ids;
-  return ids.includes(item.id)
-    ? ids.filter((id) => id !== item.id)
-    : [...ids, item.id];
+  if (ids.includes(item.id)) return ids.filter((id) => id !== item.id);
+  if (
+    item.risk === 'review' &&
+    item.supported_action === 'reviewed_cache_contents'
+  )
+    return [item.id];
+  const hasReview = ids.some((id) =>
+    items.some(
+      (candidate) =>
+        candidate.id === id &&
+        candidate.risk === 'review' &&
+        candidate.supported_action === 'reviewed_cache_contents',
+    ),
+  );
+  return hasReview ? ids : [...ids, item.id];
 }
 export function simulateBudget(
   items: Candidate[],

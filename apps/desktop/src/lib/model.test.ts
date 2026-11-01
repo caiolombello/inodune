@@ -15,7 +15,7 @@ describe('conservative simulation policy', () => {
     expect(formatSignedBytes(-1024)).toBe('−1 KiB');
     expect(formatSignedBytes(0)).toBe('0 B');
   });
-  it('allows local cleanup only for low-risk cache-content candidates', () => {
+  it('allows low cache contents and individually reviewed cache contents', () => {
     const lowCache = {
       ...demo.candidates[0],
       supported_action: 'cache_contents' as const,
@@ -23,11 +23,36 @@ describe('conservative simulation policy', () => {
     const reviewCache = { ...lowCache, risk: 'review' as const };
     const unsupportedLow = { ...demo.candidates[0] };
     expect(isLocallyEligible(lowCache)).toBe(true);
+    const reviewedContents = {
+      ...reviewCache,
+      id: 'reviewed-cache',
+      selected_by_default: true,
+      supported_action: 'reviewed_cache_contents' as const,
+    };
     expect(isLocallyEligible(reviewCache)).toBe(false);
+    expect(isLocallyEligible(reviewedContents)).toBe(true);
     expect(isLocallyEligible(unsupportedLow)).toBe(false);
     expect(
-      selectLocalDefaults([lowCache, reviewCache, unsupportedLow]),
+      selectLocalDefaults([lowCache, reviewedContents, unsupportedLow]),
     ).toEqual([lowCache.id]);
+  });
+  it('keeps reviewed candidates isolated from all other selections', () => {
+    const low = { ...demo.candidates[0], risk: 'low' as const };
+    const reviewed = {
+      ...low,
+      id: 'reviewed',
+      risk: 'review' as const,
+      supported_action: 'reviewed_cache_contents' as const,
+    };
+    expect(toggleSelection([low.id], reviewed, [low, reviewed])).toEqual([
+      reviewed.id,
+    ]);
+    expect(toggleSelection([reviewed.id], low, [low, reviewed])).toEqual([
+      reviewed.id,
+    ]);
+    expect(toggleSelection([reviewed.id], reviewed, [low, reviewed])).toEqual(
+      [],
+    );
   });
   it('suggests only low risk and rejects protected IDs even from a forged selection', () => {
     expect(selectDefaults(demo.candidates)).toEqual(['thumbs', 'py']);

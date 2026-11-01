@@ -319,6 +319,35 @@ impl Backend {
             png,
         )
         .map_err(|e| e.to_string())?;
+        if std::env::var("INODUNE_FIXTURE_REVIEW").as_deref() == Ok("1") {
+            let fingerprint =
+                projects.join("orbit/target/debug/.fingerprint/fixture-0123456789abcdef");
+            fs::create_dir_all(&fingerprint).map_err(|e| e.to_string())?;
+            fs::write(fingerprint.join("lib-fixture"), b"0123456789abcdef")
+                .map_err(|e| e.to_string())?;
+            fs::write(fingerprint.join("lib-fixture.json"),br#"{"rustc":1,"features":"[]","declared_features":"[]","target":2,"profile":3,"path":4,"deps":[],"local":[],"rustflags":[],"config":5,"compile_kind":0}"#).map_err(|e|e.to_string())?;
+            let package = projects.join(
+                "infra/.terraform/providers/registry.terraform.io/hashicorp/demo/1.2.3/linux_amd64",
+            );
+            fs::create_dir_all(&package).map_err(|e| e.to_string())?;
+            let mut elf = vec![0u8; 64];
+            elf[..7].copy_from_slice(b"\x7fELF\x02\x01\x01");
+            elf[18..20].copy_from_slice(&62u16.to_le_bytes());
+            fs::write(package.join("terraform-provider-demo_v1.2.3"), elf)
+                .map_err(|e| e.to_string())?;
+            fs::write(package.join("LICENSE.txt"), b"license text\n").map_err(|e| e.to_string())?;
+            fs::write(projects.join("infra/.terraform.lock.hcl"),b"provider \"registry.terraform.io/hashicorp/demo\" {\n version = \"1.2.3\"\n hashes = [\"h1:sBa6P0Es63rPk400M08oc+n2m1OBbCco8ayvM+ij82c=\"]\n}\n").map_err(|e|e.to_string())?;
+            fs::write(
+                projects.join("infra/.terraform/terraform.tfstate"),
+                b"private backend fixture",
+            )
+            .map_err(|e| e.to_string())?;
+            fs::write(
+                projects.join("infra/.terraform/modules/local-script.sh"),
+                b"private module fixture",
+            )
+            .map_err(|e| e.to_string())?;
+        }
         let mut backend = Self::default();
         for (id, path, kind) in [
             ("fixture-projects", projects, ScopeKind::Projects),
