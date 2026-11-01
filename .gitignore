@@ -10,3 +10,9 @@ apps/desktop/src-tauri/gen/
 
 __pycache__/
 *.pyc
+
+.env*
+*.secret
+*senha*
+*password*
+*.pem
