@@ -208,7 +208,7 @@ async fn begin_authorized(
                 "python.pycache"=>"Python can regenerate bytecode from the preserved source. The first import may be slower.",
                 "thumbnails"=>"Applications can regenerate thumbnails. The first view may be slower.",
                 "cargo.fingerprint-json"=>"Cargo may rebuild after diagnostic metadata is removed. Manifests, hashes and final binaries are preserved.",
-                "terraform.provider-package"=>"Terraform may need to download this provider again. State, backend and lock files are preserved. Local h1 matches the lock; publisher signature and future availability are unverified.",
+                "terraform.provider-package"=>"No relevant lock selects this version. Terraform may need to download it again. State, backend and locks are preserved. Current use, publisher signature and future availability are unverified.",
                 _=>"Rebuild cost is unmeasured; preserve uncertain data.",
             };
             format!("• {}\n  Risk: {}\n  {impact}",i.display_path,if i.risk==inodune_core::Risk::Review{"individual review"}else{"low"})

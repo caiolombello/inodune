@@ -60,7 +60,9 @@ fn recreatable_caches_use_reviewed_plans_and_trash_without_touching_manifests() 
     };
     for c in caches {
         assert_eq!(c.risk, Risk::Review, "{}", c.reason);
-        let plan = PlanSession::prepare(snapshot.clone(), &[c.id.clone()], Action::Trash).unwrap();
+        let plan =
+            PlanSession::prepare(snapshot.clone(), std::slice::from_ref(&c.id), Action::Trash)
+                .unwrap();
         let hash = plan.view().hash;
         let report = execute(
             plan.consume(&hash).unwrap(),

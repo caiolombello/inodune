@@ -530,10 +530,8 @@ fn directory_names(root: &ApprovedRoot, relative: &Path) -> Result<Vec<String>, 
     names.sort();
     Ok(names)
 }
-fn read_lock(
-    root: &ApprovedRoot,
-    relative: &Path,
-) -> Result<Option<(BTreeMap<String, LockRecord>, Fingerprint)>, String> {
+type ParsedLock = (BTreeMap<String, LockRecord>, Fingerprint);
+fn read_lock(root: &ApprovedRoot, relative: &Path) -> Result<Option<ParsedLock>, String> {
     let fd = match root.open_relative(
         relative,
         OFlags::RDONLY | OFlags::NOATIME | OFlags::NONBLOCK,

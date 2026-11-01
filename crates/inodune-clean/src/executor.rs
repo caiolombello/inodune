@@ -473,14 +473,14 @@ fn validate_target(target: &ScannedTarget) -> Result<(), String> {
     validate_witnesses(target)
 }
 fn validate_witnesses(target: &ScannedTarget) -> Result<(), String> {
-    if inodune_core::terraform::is_provider_package_path(&target.relative) {
-        if !inodune_core::terraform::provider_locks_unchanged(
+    if inodune_core::terraform::is_provider_package_path(&target.relative)
+        && !inodune_core::terraform::provider_locks_unchanged(
             &target.root,
             &target.relative,
             &target.witnesses,
-        ) {
-            return Err("Locks relevantes mudaram; refaça a análise.".into());
-        }
+        )
+    {
+        return Err("Locks relevantes mudaram; refaça a análise.".into());
     }
 
     for (path, expected) in &target.witnesses {
