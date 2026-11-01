@@ -6,7 +6,7 @@ use inodune_core::{
     scan::{Fingerprint, ScanSnapshot},
     Risk, SupportedAction,
 };
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::{
     collections::HashSet,
@@ -20,7 +20,7 @@ const PLAN_TTL: Duration = Duration::from_secs(120);
 const PLAN_RULE_VERSION: &[u8] = b"inodune-cache-plan-v2";
 const MAX_PLAN_ITEMS: usize = 1000;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Action {
     Trash,
@@ -99,6 +99,7 @@ impl PlanSession {
         let mut seen_coverage = HashSet::new();
         let mut review_required = false;
         let mut total_files = 0usize;
+        let mut total_path_bytes = 0usize;
         for id in requested_ids {
             if !seen_ids.insert(id.as_str()) {
                 continue;
@@ -153,8 +154,8 @@ impl PlanSession {
             total_files = total_files
                 .checked_add(target.files.len())
                 .ok_or("Manifesto excede o limite")?;
-            if total_files > 100_000 {
-                return Err("Plano excede 100.000 arquivos; divida a seleção.".into());
+            if total_files > 10_000 {
+                return Err("Plano excede 10.000 arquivos; limite de execução deste MVP.".into());
             }
             for (path, _) in &target.witnesses {
                 validate_relative(path)?;
@@ -168,6 +169,11 @@ impl PlanSession {
                 return Err("O caminho do item não pode ser representado sem ambiguidade.".into());
             }
             for (path, _) in &target.files {
+                total_path_bytes = total_path_bytes
+                    .saturating_add(target.root.path().join(path).as_os_str().as_bytes().len());
+                if total_path_bytes > 2 * 1024 * 1024 {
+                    return Err("Caminhos do plano excedem 2 MiB; reduza a seleção para manter relatório e journal limitados.".into());
+                }
                 validate_relative(path)?;
                 let leaf_target = target.files.len() == 1
                     && path == &target.relative

@@ -1,13 +1,20 @@
 //! Private, descriptor-relative storage. No symlink fallback or chmod of existing data.
 use rustix::{
     fd::{AsFd, OwnedFd},
-    fs::{self, Mode, OFlags, ResolveFlags},
+    fs::{self, AtFlags, FileType, Mode, OFlags, ResolveFlags},
     io::Errno,
 };
 use std::{
     io::Write,
     path::{Component, Path, PathBuf},
 };
+
+const MAX_HISTORY_ENTRIES: u64 = 200;
+const MAX_HISTORY_BYTES: u64 = 256 * 1024 * 1024;
+const HISTORY_HEADROOM: u64 = 64 * 1024 * 1024;
+const MAX_JOURNAL_BYTES: u64 = 64 * 1024 * 1024;
+const MAX_JOURNAL_RECORD: usize = 8 * 1024 * 1024;
+const MAX_REPORT_BYTES: usize = 8 * 1024 * 1024;
 
 pub(crate) fn open_dir(path: &Path, create: bool, private: bool) -> Result<OwnedFd, String> {
     if !path.is_absolute() || path.components().any(|c| matches!(c, Component::ParentDir)) {
@@ -59,6 +66,47 @@ pub(crate) fn open_dir(path: &Path, create: bool, private: bool) -> Result<Owned
         check_private(&fd)?;
     }
     Ok(fd)
+}
+
+/// Like `open_dir`, but distinguishes a genuinely missing component from every
+/// other failure so history listing never treats permission errors as empty.
+pub(crate) fn open_dir_optional(path: &Path, private: bool) -> Result<Option<OwnedFd>, String> {
+    if !path.is_absolute() || path.components().any(|c| matches!(c, Component::ParentDir)) {
+        return Err("Armazenamento requer caminho absoluto sem '..'.".into());
+    }
+    let mut fd = fs::open(
+        "/",
+        OFlags::RDONLY | OFlags::DIRECTORY | OFlags::CLOEXEC,
+        Mode::empty(),
+    )
+    .map_err(|e| e.to_string())?;
+    check_storage_ancestor(&fd)?;
+    for part in path.components() {
+        let Component::Normal(name) = part else {
+            continue;
+        };
+        let next = fs::openat2(
+            &fd,
+            name,
+            OFlags::RDONLY | OFlags::DIRECTORY | OFlags::CLOEXEC | OFlags::NOFOLLOW,
+            Mode::empty(),
+            ResolveFlags::BENEATH | ResolveFlags::NO_SYMLINKS | ResolveFlags::NO_MAGICLINKS,
+        );
+        fd = match next {
+            Ok(next) => next,
+            Err(Errno::NOENT) => return Ok(None),
+            Err(e) => {
+                return Err(format!(
+                    "Armazenamento inacessível, links não permitidos: {e}"
+                ))
+            }
+        };
+        check_storage_ancestor(&fd)?;
+    }
+    if private {
+        check_private(&fd)?;
+    }
+    Ok(Some(fd))
 }
 fn check_storage_ancestor(fd: impl AsFd) -> Result<(), String> {
     let st = fs::fstat(fd).map_err(|e| e.to_string())?;
@@ -124,21 +172,56 @@ pub fn save_report(
     report: &crate::executor::ExecutionReport,
 ) -> Result<PathBuf, String> {
     let dir = open_dir(directory, true, true)?;
+    check_capacity(&dir, MAX_REPORT_BYTES as u64, 1)?;
+    let bytes = serde_json::to_vec_pretty(report).map_err(|e| e.to_string())?;
+    if bytes.len() > MAX_REPORT_BYTES {
+        return Err("Relatório excede 8 MiB; execução marcada como incompleta e nenhum arquivo de relatório foi criado.".into());
+    }
     let name = random_name("report-")? + ".json";
+    write_new_atomic(&dir, &name, &bytes)?;
+    Ok(directory.join(name))
+}
+
+/// Export only a revalidated presentation report to a native-picker destination.
+/// Existing files, symlinks and writable directory ancestors are never replaced.
+pub fn export_report(
+    destination: &Path,
+    report: &crate::executor::ExecutionReport,
+) -> Result<(), String> {
+    let parent = destination.parent().ok_or("Destino sem diretório pai.")?;
+    let name = destination.file_name().ok_or("Nome de arquivo inválido.")?;
+    let dir = open_dir(parent, false, false)?;
+    let bytes = serde_json::to_vec_pretty(report).map_err(|e| e.to_string())?;
+    if bytes.len() > MAX_REPORT_BYTES {
+        return Err("Relatório excede 8 MiB.".into());
+    }
+    write_new_atomic(&dir, name, &bytes)
+}
+
+fn write_new_atomic(
+    dir: &OwnedFd,
+    name: impl rustix::path::Arg,
+    bytes: &[u8],
+) -> Result<(), String> {
+    // Pending files cannot match the history namespace. A crash can leave one
+    // for manual inspection; neither export nor history silently removes it.
+    let pending = random_name(".inodune-pending-")?;
     let fd = fs::openat(
-        &dir,
-        &name,
+        dir,
+        &pending,
         OFlags::WRONLY | OFlags::CREATE | OFlags::EXCL | OFlags::NOFOLLOW | OFlags::CLOEXEC,
         Mode::from_raw_mode(0o600),
     )
     .map_err(|e| e.to_string())?;
     let mut file = std::fs::File::from(fd);
-    let bytes = serde_json::to_vec_pretty(report).map_err(|e| e.to_string())?;
-    file.write_all(&bytes)
+    file.write_all(bytes)
         .and_then(|_| file.sync_all())
         .map_err(|e| e.to_string())?;
-    fs::fsync(&dir).map_err(|e| e.to_string())?;
-    Ok(directory.join(name))
+    fs::renameat_with(dir, &pending, dir, name, fs::RenameFlags::NOREPLACE).map_err(|e| {
+        format!("Exportação não substitui arquivos existentes; arquivo pendente {pending}: {e}")
+    })?;
+    fs::fsync(dir).map_err(|e| e.to_string())?;
+    Ok(())
 }
 
 pub(crate) struct Trash {
@@ -238,11 +321,13 @@ impl Trash {
 /// An interrupted intent means UNKNOWN, never inferred success or automatic rollback.
 pub(crate) struct Journal {
     file: std::fs::File,
+    dir: OwnedFd,
     pub path: PathBuf,
 }
 impl Journal {
     pub fn create(directory: &Path) -> Result<Self, String> {
         let dir = open_dir(directory, true, true)?;
+        check_capacity(&dir, HISTORY_HEADROOM, 2)?;
         let name = random_name("journal-")? + ".jsonl";
         let fd = fs::openat(
             &dir,
@@ -254,17 +339,59 @@ impl Journal {
         fs::fsync(&dir).map_err(|e| e.to_string())?;
         Ok(Self {
             file: std::fs::File::from(fd),
+            dir,
             path: directory.join(name),
         })
     }
     pub fn record(&mut self, value: &impl serde::Serialize) -> Result<(), String> {
         let mut bytes = serde_json::to_vec(value).map_err(|e| e.to_string())?;
         bytes.push(b'\n');
+        if bytes.len() > MAX_JOURNAL_RECORD {
+            return Err(
+                "Registro do journal excede 8 MiB; operações seguintes foram bloqueadas.".into(),
+            );
+        }
+        let current = self.file.metadata().map_err(|e| e.to_string())?.len();
+        if current.saturating_add(bytes.len() as u64) > MAX_JOURNAL_BYTES {
+            return Err("Journal atingiu 64 MiB; operações seguintes foram bloqueadas. Arquive o histórico local para liberar capacidade.".into());
+        }
+        check_capacity(&self.dir, bytes.len() as u64, 0)?;
         self.file
             .write_all(&bytes)
             .and_then(|_| self.file.sync_all())
             .map_err(|e| e.to_string())
     }
+}
+
+fn check_capacity(dir: &OwnedFd, addition: u64, new_entries: u64) -> Result<(), String> {
+    let mut count = 0u64;
+    let mut total = 0u64;
+    let mut buffer = [std::mem::MaybeUninit::uninit(); 8192];
+    let mut entries = fs::RawDir::new(dir, &mut buffer);
+    while let Some(entry) = entries.next() {
+        let entry = entry.map_err(|e| e.to_string())?;
+        let name = entry.file_name();
+        if name.to_bytes() == b"." || name.to_bytes() == b".." {
+            continue;
+        }
+        count = count.saturating_add(1);
+        if count > MAX_HISTORY_ENTRIES {
+            return Err(format!("Histórico local contém mais de {MAX_HISTORY_ENTRIES} entradas; arquive arquivos manualmente em XDG_STATE_HOME/inodune/reports."));
+        }
+        let stat = fs::statat(dir, name, AtFlags::SYMLINK_NOFOLLOW).map_err(|e| e.to_string())?;
+        if FileType::from_raw_mode(stat.st_mode) == FileType::RegularFile {
+            total = total.saturating_add(stat.st_size.max(0) as u64);
+        }
+    }
+    if count.saturating_add(new_entries) > MAX_HISTORY_ENTRIES
+        || total
+            .saturating_add(addition)
+            .saturating_add(HISTORY_HEADROOM)
+            > MAX_HISTORY_BYTES
+    {
+        return Err(format!("Histórico local atingiu o limite de armazenamento (máximo {MAX_HISTORY_ENTRIES} entradas e 256 MiB, com 64 MiB reservados). Arquive manualmente arquivos em {} e tente novamente.", "XDG_STATE_HOME/inodune/reports"));
+    }
+    Ok(())
 }
 
 #[cfg(test)]

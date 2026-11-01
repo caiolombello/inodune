@@ -1,5 +1,7 @@
 //! Shared simulation compatibility and Linux backend-authorized cleanup.
+pub mod diagnostics;
 pub mod executor;
+pub mod history;
 pub mod plan;
 pub mod storage;
 use inodune_core::{prepare_simulation, Candidate, Plan};

@@ -12,13 +12,13 @@ use rustix::{
     fd::{AsFd, OwnedFd},
     fs::{self, AtFlags, FileType, Mode, OFlags, RenameFlags},
 };
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::{
     collections::HashSet,
     path::{Path, PathBuf},
 };
 
-#[derive(Clone, Debug, Serialize, PartialEq, Eq)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum FileStatus {
     Trashed,
@@ -28,29 +28,30 @@ pub enum FileStatus {
     Cancelled,
     Quarantined,
 }
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct FileOutcome {
     pub display_path: String,
     pub status: FileStatus,
     pub logical_bytes: u64,
     pub message: String,
     pub preserved_at: Option<String>,
+    #[serde(default)]
     pub durability_confirmed: bool,
 }
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ItemResult {
     pub candidate_id: String,
     pub files: Vec<FileOutcome>,
     pub complete: bool,
 }
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct VolumeDelta {
     pub device: u64,
     pub available_before: u64,
     pub available_after: Option<u64>,
     pub observed_delta: Option<i128>,
 }
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ExecutionReport {
     pub schema_version: u32,
     pub plan_id: String,
@@ -65,6 +66,7 @@ pub struct ExecutionReport {
     pub measurement_note: String,
     pub warnings: Vec<String>,
     pub history_path: Option<String>,
+    #[serde(default)]
     pub journal_path: Option<String>,
 }
 #[derive(Clone, Serialize)]
