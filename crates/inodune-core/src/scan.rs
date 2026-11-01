@@ -2,7 +2,7 @@
 //! No fallback to path-based walking if openat2 containment is unavailable.
 use crate::{Candidate, Identity, Risk, SupportedAction};
 use rustix::{
-    fd::OwnedFd,
+    fd::{AsFd, BorrowedFd, OwnedFd},
     fs::{self, FileType, Mode, OFlags, RawDir, ResolveFlags, Stat},
     io::Errno,
 };
@@ -106,7 +106,14 @@ impl ApprovedRoot {
     pub fn display_path(&self) -> String {
         self.path.to_string_lossy().into_owned()
     }
-    pub(crate) fn open_relative(&self, path: &Path, flags: OFlags) -> Result<OwnedFd, Errno> {
+    /// Rust capability retained by the backend, never serialized to the renderer.
+    pub fn directory_fd(&self) -> BorrowedFd<'_> {
+        self.fd.as_fd()
+    }
+    pub fn path(&self) -> &Path {
+        &self.path
+    }
+    pub fn open_relative(&self, path: &Path, flags: OFlags) -> Result<OwnedFd, Errno> {
         fs::openat2(
             &*self.fd,
             path,
@@ -207,7 +214,7 @@ impl ScanControl {
         !self.is_cancelled()
     }
 }
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct Fingerprint {
     pub dev: u64,
     pub ino: u64,
@@ -568,7 +575,7 @@ impl<F: FnMut(ScanProgress)> Walker<'_, F> {
             reason:if complete {reason.into()}else{format!("{reason} Cobertura incompleta, links, conteúdo desconhecido ou hardlinks: protegido.")},
             impact:if py||thumbs {"O aplicativo recriará o cache; a primeira abertura pode ser mais lenta.".into()}else{"Pode conter dados de trabalho ou exigir reconstrução/download. Inventário não autoriza remoção.".into()},
             rebuild_hint:if py {"Bytecode recriado ao importar o módulo.".into()}else if thumbs{"Miniaturas recriadas pelo aplicativo.".into()}else{"Custo não medido; revisão necessária.".into()},
-            preserved:"Código, estado, configuração, credenciais, sessões e memória nunca entram em remoção genérica.".into(),evidence:vec!["root-approved".into(),"openat2-no-symlinks-no-xdev".into(),if complete{"coverage-complete"}else{"coverage-incomplete"}.into()],activity:format!("mtime Unix {} (metadado; não comprova desuso)",st.st_mtime),supported_action:SupportedAction::None,
+            preserved:"Código, estado, configuração, credenciais, sessões e memória nunca entram em remoção genérica.".into(),evidence:vec!["root-approved".into(),"openat2-no-symlinks-no-xdev".into(),if complete{"coverage-complete"}else{"coverage-incomplete"}.into()],activity:format!("mtime Unix {} (metadado; não comprova desuso)",st.st_mtime),supported_action:if complete && (py||thumbs){SupportedAction::CacheContents}else{SupportedAction::None},
         });
     }
     fn walk_root(&mut self, root: &ApprovedRoot) {
@@ -668,6 +675,10 @@ impl<F: FnMut(ScanProgress)> Walker<'_, F> {
                 if ["node_modules", ".venv", "venv", ".ssh", ".gnupg"].contains(&n.as_ref()) {
                     continue;
                 }
+                if n.starts_with(".inodune-") {
+                    self.candidate(root,&path,&project,CandidatePolicy{detector:"inodune.recovery",title:"Área de recuperação protegida",category:"Sistema",risk:Risk::Protected,reason:"Operação anterior pode ter preservado arquivos; recuperação manual, nunca limpeza genérica."});
+                    continue;
+                }
                 if [".codex", ".claude", "opencode"].contains(&n.as_ref()) {
                     self.candidate(
                         root,
@@ -739,7 +750,7 @@ impl<F: FnMut(ScanProgress)> Walker<'_, F> {
 }
 /// Only minimal format signatures are read, never payloads/prompts or source content.
 /// This confirms a documented cache shape, not semantic validity of arbitrary bytecode.
-fn cache_header_valid(root: &ApprovedRoot, path: &Path, python: bool) -> bool {
+pub fn cache_header_valid(root: &ApprovedRoot, path: &Path, python: bool) -> bool {
     let Ok(fd) = root.open_relative(path, OFlags::RDONLY | OFlags::NOATIME | OFlags::NONBLOCK)
     else {
         return false;
@@ -791,7 +802,7 @@ fn cache_header_valid(root: &ApprovedRoot, path: &Path, python: bool) -> bool {
     }
 }
 
-fn matching_source(root: &ApprovedRoot, path: &Path) -> bool {
+pub fn matching_source(root: &ApprovedRoot, path: &Path) -> bool {
     let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
         return false;
     };

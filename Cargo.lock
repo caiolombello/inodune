@@ -1495,8 +1495,14 @@ dependencies = [
 name = "inodune-clean"
 version = "0.0.1"
 dependencies = [
+ "chrono",
+ "getrandom 0.3.4",
  "inodune-core",
+ "rustix",
+ "serde",
  "serde_json",
+ "sha2",
+ "tempfile",
 ]
 
 [[package]]
@@ -1506,6 +1512,7 @@ dependencies = [
  "ctrlc",
  "inodune-clean",
  "inodune-core",
+ "serde",
  "serde_json",
  "tempfile",
 ]
@@ -1524,6 +1531,7 @@ dependencies = [
 name = "inodune-desktop"
 version = "0.0.1"
 dependencies = [
+ "inodune-clean",
  "inodune-core",
  "serde",
  "serde_json",

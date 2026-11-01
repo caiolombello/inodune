@@ -58,6 +58,7 @@ pub struct Candidate {
 #[serde(rename_all = "snake_case")]
 pub enum SupportedAction {
     None,
+    CacheContents,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Volume {

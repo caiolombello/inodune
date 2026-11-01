@@ -17,3 +17,9 @@ Ativos: arquivos pessoais, código, Git, estado Terraform, credenciais, sessões
 | Upload, XSS/path com markup, binário malicioso | render texto escapado, CSP, zero plugins remotos/shell; Git confiável com argv | Sem conteúdo remoto/invoke; paths são texto |
 
 Risco residual: a Fase 0 NÃO demonstra segurança TOCTOU nem integridade em Linux real. Antes de F2 são obrigatórios testes hostis de filesystem temporário, revisão humana pré-release e validação de capabilities em runtime nativo. Confirmação visual nunca concede autoridade ao renderer.
+
+## Atualização F1/F2 (01/11/2026)
+
+O quadro acima preserva o estado histórico da Fase 0. O scanner agora usa descritores/openat2 e limites reais; o protocolo F2 está em [cleanup-protocol.md](cleanup-protocol.md). Testes temporários cobrem troca de folha/pai, symlinks, hardlinks posteriores ao scan, escrita por descritor aberto, cancelamento parcial, arquivos novos, fonte Python removida e armazenamento privado. Bind mounts são exercitados somente em namespace user/mount privado. Resultados exatos e integração nativa são registrados na evidência de cada fase, sem herdar PASS da F0.
+
+A área privada não é uma sandbox contra outro processo do mesmo UID. A comparação pós-captura previne apagar substitutos observados; a última janela compare/unlink não pode ser eliminada pela API Linux. Aprovação de GUI resolve apenas IDs; confirmação nativa e revalidação continuam no Rust. Journals com intenções sem resultado são UNKNOWN após interrupção; não há rollback automático.

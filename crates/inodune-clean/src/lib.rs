@@ -1,4 +1,7 @@
-//! Intentionally no executor in Phase 0. A dry-run cannot mutate the filesystem.
+//! Shared simulation compatibility and Linux backend-authorized cleanup.
+pub mod executor;
+pub mod plan;
+pub mod storage;
 use inodune_core::{prepare_simulation, Candidate, Plan};
 pub fn dry_run(items: &[Candidate], ids: &[String]) -> Result<Plan, &'static str> {
     prepare_simulation(items, ids)
