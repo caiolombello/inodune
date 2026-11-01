@@ -2,6 +2,7 @@
   import { invoke } from '@tauri-apps/api/core';
   import { formatDate, formatNumber, language, t } from './i18n.svelte';
   import FileOutcomes from './FileOutcomes.svelte';
+  import RecoveryGuide from './RecoveryGuide.svelte';
   import type { CleanupExecutionReport } from './backend';
 
   type Entry = {
@@ -134,6 +135,12 @@
             <h3>{t('Detalhes do relatório')}</h3>
             <p>{t('Plano')}: <code>{report.plan_id}</code></p>
             <p>{t(report.measurement_note)}</p>
+            <RecoveryGuide
+              action={report.action}
+              complete={report.complete}
+              cancelled={report.cancelled}
+              warnings={report.warnings}
+            />
             <button onclick={exportSelected} disabled={exporting}>
               {exporting ? t('Exportando…') : t('Exportar JSON local')}
             </button>
@@ -145,16 +152,6 @@
             {#if exportedPath}<p role="status">
                 {t('Relatório exportado')}: <code>{exportedPath}</code>
               </p>{/if}
-            {#if !report.complete || report.cancelled}<p class="error">
-                {report.cancelled
-                  ? t('Execução cancelada.')
-                  : t('Execução incompleta.')}
-              </p>{/if}
-            {#each report.warnings as warning, index (`${index}-${warning}`)}<p
-                class="error"
-              >
-                {t(warning)}
-              </p>{/each}
           </header>
           <FileOutcomes files={report.items.flatMap((item) => item.files)} />
         {:else if selected}<p>

@@ -1,3 +1,10 @@
+@font-face {
+  font-family: 'Inter';
+  src: url('../../../../assets/fonts/InterVariable.woff2') format('woff2');
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+}
 :root {
   --layer-skip: 10;
   --shadow-dialog: 0 20px 100px #0003;

@@ -18,9 +18,6 @@
     Layers,
     SlidersHorizontal,
     CircleAlert,
-    X,
-    Pause,
-    Play,
     Copy,
     Sun,
     Moon,
@@ -38,6 +35,10 @@
   import HistoryPanel from './lib/HistoryPanel.svelte';
   import FileOutcomes from './lib/FileOutcomes.svelte';
   import ScopeControls from './lib/ScopeControls.svelte';
+  import ScanExperience from './lib/ScanExperience.svelte';
+  import FeedbackSettings from './lib/FeedbackSettings.svelte';
+  import FontCredits from './lib/FontCredits.svelte';
+  import { SoundFeedback } from './lib/sound-feedback';
   import { formatNumber, language, t, type Locale } from './lib/i18n.svelte';
   import {
     native,
@@ -48,6 +49,7 @@
     type CleanupPlan,
     type CleanupExecutionReport,
     type CleanupPoll,
+    type ScanActivity,
   } from './lib/backend';
   import {
     demo,
@@ -114,7 +116,11 @@
   let nativeScopes = $state<NativeScope[]>([]);
   let nativeResult = $state<NativeResult | null>(null);
   let nativeJob = $state<string | null>(null);
-  let nativeProgress = $state({ visited: 0, candidates: 0, stage: '' });
+  let nativeProgress = $state<ScanActivity>({
+    visited: 0,
+    candidates: 0,
+    stage: '',
+  });
   let nativeError = $state('');
   let cleanupError = $state('');
   let cleanupPlan = $state<CleanupPlan | null>(null);
@@ -150,6 +156,9 @@
   let policy = $state<Policy>('trash');
   let theme = $state('system');
   let reduced = $state(false);
+  let soundEnabled = $state(false);
+  let soundMessage = $state('');
+  const sound = new SoundFeedback();
   let status = $state('');
   let outcomes = $state<{ id: string; title: string; outcome: Outcome }[]>([]);
   let executing = $state(false);
@@ -238,6 +247,7 @@
     try {
       theme = localStorage.getItem('inodune-theme') ?? 'system';
       reduced = localStorage.getItem('inodune-motion') === 'reduce';
+      soundEnabled = localStorage.getItem('inodune-sound') === 'on';
       const savedLocale = localStorage.getItem('inodune-locale');
       if (savedLocale === 'pt-BR' || savedLocale === 'en-US')
         language.value = savedLocale;
@@ -245,6 +255,11 @@
       /* Preferences are optional; no user files are accessed. */
     }
     applyPreferences();
+    sound.setEnabled(soundEnabled);
+    const silenceInBackground = () => {
+      if (document.hidden) sound.dispose();
+    };
+    document.addEventListener('visibilitychange', silenceInBackground);
     if (isDesktop)
       void native
         .listScopes()
@@ -260,6 +275,8 @@
       clearTimeout(executionTimer);
       clearTimeout(nativeTimer);
       clearTimeout(cleanupTimer);
+      document.removeEventListener('visibilitychange', silenceInBackground);
+      sound.dispose();
     };
   });
   $effect(() => {
@@ -282,6 +299,32 @@
     } catch {
       /* Keep in-memory preferences. */
     }
+  }
+  async function setSoundEnabled(enabled: boolean) {
+    soundEnabled = enabled;
+    sound.setEnabled(enabled);
+    soundMessage = '';
+    try {
+      localStorage.setItem('inodune-sound', enabled ? 'on' : 'off');
+    } catch {
+      soundMessage =
+        language.value === 'en-US'
+          ? 'Preference applies to this session; storage is unavailable.'
+          : 'A preferência vale nesta sessão; não foi possível salvá-la.';
+    }
+    if (enabled && !(await sound.unlock()))
+      soundMessage =
+        language.value === 'en-US'
+          ? 'Audio is unavailable. All feedback remains visible.'
+          : 'Áudio indisponível. Todos os avisos continuam visíveis.';
+  }
+  async function previewSound() {
+    soundMessage = '';
+    if (!(await sound.unlock()) || !sound.play('preview'))
+      soundMessage =
+        language.value === 'en-US'
+          ? 'Audio unavailable or temporarily paused. Try again.'
+          : 'Áudio indisponível ou temporariamente pausado. Tente novamente.';
   }
   async function go(next: Page) {
     page = next;
@@ -317,6 +360,8 @@
     scanState = 'idle';
   }
   async function startScan() {
+    // Called from a user gesture. No audio context is created while disabled.
+    void sound.unlock();
     clearTimeout(scanTimer);
     localScanStale = false;
     candidates = [];
@@ -360,6 +405,7 @@
       } catch (e) {
         nativeError = String(e);
         scanState = 'error';
+        sound.play('attention');
       }
     } else scanTimer = setTimeout(emitScan, 420);
     await tick();
@@ -369,6 +415,7 @@
     if (scanState !== 'scanning') return;
     if (scenario === 'error') {
       scanState = 'error';
+      sound.play('attention');
       return;
     }
     const next = scanQueue.shift();
@@ -378,6 +425,7 @@
     } else {
       scanState = 'complete';
       selected = selectDefaults(candidates);
+      sound.play('ready');
     }
   }
   async function addNativeScope(kind: ScopeKind) {
@@ -428,6 +476,8 @@
       if (result.status === 'error') {
         nativeError = result.error ?? 'Falha de análise';
         scanState = 'error';
+        nativeJob = null;
+        sound.play('attention');
         return;
       }
       if (result.result) {
@@ -444,6 +494,9 @@
           }
         }
         scanState = result.result.cancelled ? 'cancelled' : 'complete';
+        nativeJob = null;
+        if (!result.result.cancelled)
+          sound.play(result.result.complete ? 'ready' : 'attention');
         selected = result.result.complete
           ? source === 'local'
             ? selectLocalDefaults(candidates)
@@ -455,13 +508,16 @@
     } catch (e) {
       nativeError = String(e);
       scanState = 'error';
+      sound.play('attention');
     }
   }
   async function pauseScan() {
     if (source === 'local' && nativeJob) {
+      const jobId = nativeJob;
       try {
-        await native.controlScan(nativeJob, 'pause');
-        scanState = 'paused';
+        await native.controlScan(jobId, 'pause');
+        if (nativeJob === jobId && scanState === 'scanning')
+          scanState = 'paused';
       } catch (e) {
         nativeError = String(e);
       }
@@ -472,10 +528,13 @@
     scanState = 'paused';
   }
   async function resumeScan() {
+    void sound.unlock();
     if (source === 'local' && nativeJob) {
+      const jobId = nativeJob;
       try {
-        await native.controlScan(nativeJob, 'resume');
-        scanState = 'scanning';
+        await native.controlScan(jobId, 'resume');
+        if (nativeJob === jobId && scanState === 'paused')
+          scanState = 'scanning';
       } catch (e) {
         nativeError = String(e);
       }
@@ -534,6 +593,7 @@
   }
   async function startExecution() {
     if (!consent || !budget.picked.length || executing) return;
+    void sound.unlock();
     if (source === 'local') {
       await beginLocalCleanup();
       return;
@@ -631,6 +691,7 @@
       if (result.status === 'error') {
         cleanupError = result.error ?? 'A execução foi interrompida.';
         executing = false;
+        sound.play('attention');
         return;
       }
       if (result.status === 'done') {
@@ -641,6 +702,11 @@
         executing = false;
         cleanupJob = null;
         cleanupPlan = null;
+        sound.play(
+          result.report?.complete && !result.report.warnings.length
+            ? 'ready'
+            : 'attention',
+        );
         return;
       }
       cleanupTimer = setTimeout(() => void pollCleanup(), 180);
@@ -885,49 +951,39 @@
       </div>
 
       {#if scanBusy}
-        <section
-          class="scan-panel"
-          aria-label={t('Análise de demonstração')}
-          role="status"
-          aria-live="polite"
-        >
-          <div class="scan-symbol"><CircleDashed size={28} /></div>
-          <div>
-            <h2>
-              {t(
-                scanState === 'paused'
-                  ? 'Análise pausada'
-                  : source === 'local'
-                    ? scanMode === 'automatic'
-                      ? 'Analisando volumes locais'
-                      : 'Analisando pastas aprovadas'
-                    : 'Analisando exemplos locais',
-              )}
-            </h2>
-            <p>
-              {source === 'local' ? nativeProgress.visited : candidates.length}
-              {source === 'local'
-                ? `${t('entradas inspecionadas')} · ${nativeProgress.candidates} ${t('candidatos')}`
-                : t('itens emitidos pelo provedor de demonstração')} · {t(
-                scanState === 'paused'
-                  ? 'nenhum próximo item será lido'
-                  : 'total ainda não informado',
-              )}
-            </p>
-            <span class="badge neutral">{t('Nenhuma escrita em arquivos')}</span
-            >
-          </div>
-          <div class="inline-actions">
-            {#if scanState === 'paused'}<button
-                class="button"
-                onclick={resumeScan}><Play size={16} /> {t('Continuar')}</button
-              >{:else}<button class="button" onclick={pauseScan}
-                ><Pause size={16} /> {t('Pausar')}</button
-              >{/if}<button class="button" onclick={cancelScan}
-              ><X size={16} /> {t('Cancelar')}</button
-            >
-          </div>
-        </section>
+        <ScanExperience
+          paused={scanState === 'paused'}
+          title={t(
+            scanState === 'paused'
+              ? 'Análise pausada'
+              : source === 'local'
+                ? scanMode === 'automatic'
+                  ? 'Analisando volumes locais'
+                  : 'Analisando pastas aprovadas'
+                : 'Analisando exemplos locais',
+          )}
+          progress={source === 'local'
+            ? nativeProgress
+            : {
+                visited: candidates.length,
+                candidates: candidates.length,
+                stage: 'Demonstração',
+              }}
+          findings={source === 'local'
+            ? (nativeProgress.recent_findings ?? [])
+            : candidates.slice(-4)}
+          demo={source === 'demo'}
+          {reduced}
+          {soundEnabled}
+          onpause={() => void pauseScan()}
+          onresume={() => void resumeScan()}
+          oncancel={() => void cancelScan()}
+          onreduce={() => {
+            reduced = !reduced;
+            applyPreferences();
+          }}
+          onsound={() => void setSoundEnabled(!soundEnabled)}
+        />
       {:else if scanState === 'error'}
         <section class="notice error" role="alert">
           <CircleAlert size={22} />
@@ -993,7 +1049,7 @@
             </details>
           </div>
         </section>{/if}
-      {#if page === 'overview'}
+      {#if page === 'overview' && !scanBusy}
         {#if source === 'local'}<NativeStorage
             automatic={scanMode === 'automatic'}
             volumes={nativeResult?.volumes ?? []}
@@ -1172,7 +1228,7 @@
             <ArrowUpRight size={14} /></button
           >
         </div>
-      {:else if page === 'projects'}
+      {:else if page === 'projects' && !scanBusy}
         <div class="section-head">
           <h2>
             {t(
@@ -1217,13 +1273,13 @@
               <p>
                 {t(
                   source === 'local'
-                    ? 'Escolha uma pasta de projetos e inicie a análise.'
+                    ? 'Inicie uma análise automática para encontrar seus projetos.'
                     : 'Inicie uma análise de exemplo para explorar o Project Lens.',
                 )}
               </p>
             </div>{/each}
         </div>
-      {:else if ['development', 'git', 'ai', 'system', 'review', 'protected'].includes(page)}
+      {:else if !scanBusy && ['development', 'git', 'ai', 'system', 'review', 'protected'].includes(page)}
         {#if page === 'protected' || page === 'git' || page === 'ai'}<div
             class="protection-note"
           >
@@ -1835,6 +1891,12 @@
               onchange={applyPreferences}
             /></label
           >
+          <FeedbackSettings
+            enabled={soundEnabled}
+            onchange={(enabled) => void setSoundEnabled(enabled)}
+            onpreview={() => void previewSound()}
+            message={soundMessage}
+          />
           <div class="section-divider"></div>
           <h2>{t('Pastas e origem dos dados')}</h2>
           <label class="setting-row"
@@ -1919,7 +1981,7 @@
                   ><code>{scope.display_path}</code></span
                 ></label
               >{/each}{/if}
-          {#if source === 'local' && scanMode === 'manual'}
+          {#if source === 'local'}
             {#if scanBusy || executing || preparingCleanup}
               <p class="inline-note">
                 {t(
@@ -1970,6 +2032,7 @@
             {t('Abrir catálogo de componentes e estados')}
             <ArrowUpRight size={14} /></button
           >
+          <FontCredits />
         </section>
       {:else if page === 'catalog'}
         <section class="panel padded">
@@ -2084,7 +2147,9 @@
               'Escolha quais exemplos entram na análise. Nenhuma pasta real será aberta.',
             )}
       </p>
-      {#if source === 'local'}<div class="inline-actions scope-actions">
+      {#if source === 'local' && scanMode === 'manual'}<div
+          class="inline-actions scope-actions"
+        >
           <button
             class="button"
             disabled={choosingScope ||
@@ -2155,7 +2220,9 @@
             onclick={() => (onboarding = onboarding! - 1)}>{t('Voltar')}</button
           >{/if}<button
           class="button primary"
-          disabled={!scopes.length && onboarding > 0}
+          disabled={!scopes.length &&
+            onboarding > 0 &&
+            (source !== 'local' || scanMode === 'manual')}
           onclick={() => {
             if (onboarding === 2) startScan();
             else onboarding = onboarding! + 1;

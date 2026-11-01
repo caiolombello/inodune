@@ -10,3 +10,6 @@ Metas: contraste texto ≥4.5:1, UI/foco ≥3:1; alvos ≥36px (44px em viewport
 
 
 F4: idioma PT-BR/EN-US acompanha valores numéricos e datas, preservando caminhos e nomes definidos pelo usuário. Histórico usa os mesmos tokens de superfície/stroke/texto/erro/focus; lista de outcomes pagina 100 arquivos e não cria linhas fictícias. Exclusões têm estados editing/saving/error/disabled e feedback após backend. Screenshots desktop/reflow estão em `evidence/f4`; controles nativos seguem o tema/idioma do sistema além do título localizado do app.
+
+
+0.1.2 inclui Inter Variable 4.1 localmente, sem CDN, com créditos/licença nas configurações. Fonte oficial: [rsms/inter v4.1](https://github.com/rsms/inter/releases/tag/v4.1); [SIL OFL](https://raw.githubusercontent.com/rsms/inter/v4.1/LICENSE.txt). Arquivos em assets/fonts; WOFF2 SHA-256 693b77d4f32ee9b8bfc995589b5fad5e99adf2832738661f5402f9978429a8e3. O novo scanner usa as superfícies, raios, tipografia e tokens de motion existentes; revela classificação provisória sem transformar inventário protegido em ganho. Guia de recuperação mantém avisos persistentes, caminho selecionável e falha explícita de clipboard.

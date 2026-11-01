@@ -1,6 +1,7 @@
 <script lang="ts">
   import { t, formatNumber } from './i18n.svelte';
   import type { CleanupFileResult } from './backend';
+  import RecoveryGuide from './RecoveryGuide.svelte';
 
   let { files }: { files: CleanupFileResult[] } = $props();
   let page = $state(0);
@@ -31,7 +32,8 @@
           </div>
           <code class="path">{file.display_path}</code>
           <p>{t(file.message ?? 'Sem mensagem registrada.')}</p>
-          {#if file.preserved_at}<p>
+          <RecoveryGuide action={null} {file} />
+          {#if file.preserved_at && file.status !== 'quarantined'}<p>
               {t('Preservado em')}: <code>{file.preserved_at}</code>
             </p>{/if}
           <small

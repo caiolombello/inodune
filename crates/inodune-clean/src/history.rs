@@ -45,14 +45,35 @@ pub fn list_history(directory: &Path) -> Result<Vec<HistoryEntry>, String> {
             );
         }
         if let Ok(name) = std::str::from_utf8(name) {
-            if valid_report_name(name) {
+            if valid_report_name(name) || valid_journal_name(name) {
                 names.push(name.to_owned());
             }
         }
     }
     names.sort();
     let mut result = Vec::with_capacity(names.len());
+    let mut journal_budget = 16 * 1024 * 1024usize;
     for name in names {
+        if valid_journal_name(&name) {
+            let error = inspect_journal(&dir, &name, &mut journal_budget).err();
+            if let Some(error) = error {
+                result.push(HistoryEntry {
+                    report_id: name.clone(),
+                    created_unix: 0,
+                    plan_id: String::new(),
+                    action: None,
+                    complete: false,
+                    cancelled: false,
+                    logical_bytes_processed: 0,
+                    files_count: 0,
+                    error: Some(format!(
+                        "{error} Journal: {}",
+                        directory.join(&name).display()
+                    )),
+                });
+            }
+            continue;
+        }
         let id = name.trim_end_matches(".json").to_owned();
         match read_report_at(&dir, &name) {
             Ok((report, created)) => result.push(entry(id, created, &report, None)),
@@ -110,6 +131,103 @@ fn valid_report_id(id: &str) -> bool {
 fn valid_report_name(name: &str) -> bool {
     name.strip_suffix(".json").is_some_and(valid_report_id)
 }
+fn valid_journal_name(name: &str) -> bool {
+    name.strip_prefix("journal-")
+        .and_then(|tail| tail.strip_suffix(".jsonl"))
+        .is_some_and(|tail| tail.len() == 32 && tail.bytes().all(|b| b.is_ascii_hexdigit()))
+}
+
+// Presentation only: never open recovery paths or turn stored intents into plans.
+fn inspect_journal(dir: impl AsFd, name: &str, budget: &mut usize) -> Result<(), String> {
+    let read = || -> Result<Vec<u8>, String> {
+        let fd = fs::openat2(
+            dir,
+            name,
+            OFlags::RDONLY | OFlags::NONBLOCK | OFlags::NOFOLLOW | OFlags::CLOEXEC,
+            fs::Mode::empty(),
+            ResolveFlags::BENEATH
+                | ResolveFlags::NO_SYMLINKS
+                | ResolveFlags::NO_MAGICLINKS
+                | ResolveFlags::NO_XDEV,
+        )
+        .map_err(|e| e.to_string())?;
+        let before = fs::fstat(&fd).map_err(|e| e.to_string())?;
+        if FileType::from_raw_mode(before.st_mode) != FileType::RegularFile
+            || before.st_nlink != 1
+            || before.st_uid != rustix::process::getuid().as_raw()
+            || before.st_mode & 0o777 != 0o600
+            || before.st_size < 0
+            || before.st_size > 4 * 1024 * 1024
+        {
+            return Err("journal não é arquivo privado válido dentro do limite de 4 MiB".into());
+        }
+        let mut file = std::fs::File::from(fd);
+        let mut bytes = Vec::new();
+        if *budget == 0 {
+            return Err("orçamento total de leitura atingido".into());
+        }
+        let limit = (*budget).min(4 * 1024 * 1024 + 1);
+        (&mut file)
+            .take(limit as u64)
+            .read_to_end(&mut bytes)
+            .map_err(|e| e.to_string())?;
+        *budget = budget.saturating_sub(bytes.len());
+        let after = fs::fstat(&file).map_err(|e| e.to_string())?;
+        if bytes.len() != before.st_size as usize
+            || inodune_core::scan::Fingerprint::from_stat(&before)
+                != inodune_core::scan::Fingerprint::from_stat(&after)
+        {
+            return Err("journal alterado durante a leitura".into());
+        }
+        Ok(bytes)
+    };
+    let bytes = read().map_err(|e| format!("UNKNOWN: {e}."))?;
+    let mut finished = false;
+    let mut paths = Vec::new();
+    for (index, line) in bytes
+        .split(|b| *b == b'\n')
+        .filter(|l| !l.is_empty())
+        .enumerate()
+    {
+        if index >= 10_000 {
+            return Err(
+                "UNKNOWN: journal excede 10.000 registros; inspeção manual necessária.".into(),
+            );
+        }
+        let value: serde_json::Value = serde_json::from_slice(line)
+            .map_err(|_| "UNKNOWN: journal incompleto ou corrompido.".to_string())?;
+        if finished {
+            return Err("UNKNOWN: registros após encerramento do journal.".into());
+        }
+        match value.get("phase").and_then(|p| p.as_str()) {
+            Some("finished") => {
+                let report: ExecutionReport =
+                    serde_json::from_value(value.get("report").cloned().unwrap_or_default())
+                        .map_err(|_| "UNKNOWN: encerramento inválido.".to_string())?;
+                if report.schema_version != 1 {
+                    return Err("UNKNOWN: versão de relatório desconhecida.".into());
+                }
+                finished = true;
+            }
+            Some("capture_intent") => {
+                if let Some(path) = value.get("recovery_path").and_then(|p| p.as_str()) {
+                    if paths.len() < 8 && path.len() <= 4096 && !path.chars().any(char::is_control)
+                    {
+                        paths.push(path.to_owned());
+                    }
+                }
+            }
+            Some("plan" | "intent" | "outcome") => {}
+            _ => return Err("UNKNOWN: fase de journal desconhecida.".into()),
+        }
+    }
+    if finished {
+        Ok(())
+    } else {
+        Err(format!("UNKNOWN: execução sem encerramento confirmado; pode estar em andamento ou ter sido interrompida. Não repita a limpeza nem restaure automaticamente. Preserve o journal e confira os locais registrados (até 8): {}", paths.join("; ")))
+    }
+}
+
 fn read_report_at(dir: impl AsFd, name: &str) -> Result<(ExecutionReport, u64), String> {
     let fd = fs::openat2(
         dir,
@@ -289,5 +407,57 @@ mod tests {
         }
         assert!(storage::Journal::create(&path).is_err());
         assert_eq!(std::fs::read_dir(&path).unwrap().count(), 199);
+    }
+    #[test]
+    fn unfinished_journal_is_visible_without_replaying_or_opening_target_paths() {
+        use std::os::unix::fs::PermissionsExt;
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("reports");
+        drop(storage::open_dir(&path, true, true).unwrap());
+        let journal = path.join("journal-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.jsonl");
+        let bytes = b"{\"phase\":\"plan\"}\n{\"phase\":\"capture_intent\",\"recovery_path\":\"/not-opened/fixture-stage\"}\n";
+        fs::write(&journal, bytes).unwrap();
+        fs::set_permissions(&journal, fs::Permissions::from_mode(0o600)).unwrap();
+        let entries = list_history(&path).unwrap();
+        assert_eq!(entries.len(), 1);
+        assert!(entries[0].error.as_ref().unwrap().contains("UNKNOWN"));
+        assert!(entries[0]
+            .error
+            .as_ref()
+            .unwrap()
+            .contains("/not-opened/fixture-stage"));
+        assert_eq!(fs::read(&journal).unwrap(), bytes);
+    }
+    #[test]
+    fn finished_journals_are_not_pending_and_linked_or_oversized_journals_stay_unknown() {
+        use std::os::unix::fs::{symlink, PermissionsExt};
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("reports");
+        drop(storage::open_dir(&path, true, true).unwrap());
+        let finished = path.join("journal-11111111111111111111111111111111.jsonl");
+        fs::write(
+            &finished,
+            serde_json::to_vec(&serde_json::json!({"phase":"finished", "report":sample_report()}))
+                .unwrap(),
+        )
+        .unwrap();
+        fs::set_permissions(&finished, fs::Permissions::from_mode(0o600)).unwrap();
+        assert!(list_history(&path).unwrap().is_empty());
+        symlink(
+            &finished,
+            path.join("journal-22222222222222222222222222222222.jsonl"),
+        )
+        .unwrap();
+        let oversized = path.join("journal-33333333333333333333333333333333.jsonl");
+        fs::File::create(&oversized)
+            .unwrap()
+            .set_len(4 * 1024 * 1024 + 1)
+            .unwrap();
+        fs::set_permissions(&oversized, fs::Permissions::from_mode(0o600)).unwrap();
+        let entries = list_history(&path).unwrap();
+        assert_eq!(entries.len(), 2);
+        assert!(entries
+            .iter()
+            .all(|entry| entry.error.as_ref().unwrap().contains("UNKNOWN")));
     }
 }
