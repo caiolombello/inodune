@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-poll-scan"
+description = "Enables the poll_scan command without any pre-configured scope."
+commands.allow = ["poll_scan"]
+
+[[permission]]
+identifier = "deny-poll-scan"
+description = "Denies the poll_scan command without any pre-configured scope."
+commands.deny = ["poll_scan"]

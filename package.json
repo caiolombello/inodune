@@ -17,7 +17,7 @@
     "test": "npm run test -w @inodune/desktop",
     "test:e2e": "npm run test:e2e -w @inodune/desktop --",
     "format:check": "prettier --check apps/desktop/src apps/desktop/tests",
-    "desktop": "npm run tauri -w @inodune/desktop -- dev"
+    "desktop": "node scripts/desktop.mjs"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",

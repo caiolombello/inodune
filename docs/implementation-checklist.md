@@ -17,9 +17,9 @@ Fase 0 implementada e abertura nativa verificada; Fase 1 em andamento — 31/10/
 - [ ] E2E Playwright WebKit: fallback requer libicu74/libjpeg-turbo8. Não confundir com o smoke nativo.
 - [x] Abre em Fedora 44 via WebKitGTK em X11/Xvfb isolado; dependências instaladas com autorização expressa posterior. Standalone/pacotes e Wayland interativo pendentes.
 
-## Fases seguintes — não implementadas
+## Fases seguintes
 
-- [ ] F1: scanner read-only de roots aprovadas, detectores com fontes oficiais atuais, eventos/cancelamento, bytes/deduplicação/limites, adversarial traversal.
+- [x] F1: scanner read-only de roots aprovadas, fontes oficiais, GUI/CLI compartilhados, contagens/cancelamento/pausa, bytes/deduplicação/limites, testes adversariais e native E2E em fixtures. Git permanece marcador protegido até F3. Ver [evidência](evidence/f1/acceptance.md).
 - [ ] F2: executor baixo risco dirfd/TOCTOU, planos internos efêmeros, Lixeira, medição real, testes adversariais em temporários.
 - [ ] F3: Git/TF/builds com revisão individual e preservação de estado.
 - [ ] F4: i18n EN-US, benchmark 100/1000/10000, 60 fps em hardware representativo, empacotamento deb/rpm, Ubuntu/Fedora/Wayland/X11.

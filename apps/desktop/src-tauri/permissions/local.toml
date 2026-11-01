@@ -1,0 +1,4 @@
+[[permission]]
+identifier = "allow-local-scan"
+description = "Approve roots through native picker and request read-only scans by opaque IDs. No arbitrary filesystem or shell API."
+commands.allow = ["choose_scope", "list_scopes", "forget_scope", "begin_scan", "poll_scan", "control_scan"]

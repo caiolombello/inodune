@@ -1,8 +1,10 @@
 {
   "identifier": "main",
-  "description": "Phase 0: no application commands, filesystem, shell or network plugins.",
+  "description": "Local read-only discovery through narrowly scoped application commands; no FS/shell plugin authority.",
   "windows": [
     "main"
   ],
-  "permissions": []
+  "permissions": [
+    "allow-local-scan"
+  ]
 }

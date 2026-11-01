@@ -1,0 +1,7 @@
+{
+  "native": true,
+  "backend": "Rust IPC",
+  "scopes": "application-owned temporary fixtures",
+  "arbitrary_scope_rejected": true,
+  "result": "passed"
+}

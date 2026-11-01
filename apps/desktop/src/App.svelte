@@ -34,6 +34,14 @@
   import RiskBadge from './lib/RiskBadge.svelte';
   import ItemList from './lib/ItemList.svelte';
   import Modal from './lib/Modal.svelte';
+  import NativeStorage from './lib/NativeStorage.svelte';
+  import {
+    native,
+    isDesktop,
+    type NativeScope,
+    type NativeResult,
+    type ScopeKind,
+  } from './lib/backend';
   import {
     demo,
     formatBytes,
@@ -88,7 +96,20 @@
   };
   let page = $state<Page>('overview');
   let onboarding = $state<number | null>(0);
-  let scopes = $state(['demo-cache', 'demo-projects', 'demo-agents']);
+  let source = $state<'local' | 'demo'>(isDesktop ? 'local' : 'demo');
+  let scopes = $state<string[]>(
+    isDesktop ? [] : ['demo-cache', 'demo-projects', 'demo-agents'],
+  );
+  let nativeScopes = $state<NativeScope[]>([]);
+  let nativeResult = $state<NativeResult | null>(null);
+  let nativeJob = $state<string | null>(null);
+  let nativeProgress = $state({ visited: 0, candidates: 0, stage: '' });
+  let nativeError = $state('');
+  let choosingScope = $state(false);
+  let nativeTimer: ReturnType<typeof setTimeout>;
+  const scopeOptions = $derived(
+    source === 'local' ? nativeScopes : demo.scopes,
+  );
   let scenario = $state<Scenario>('normal');
   let scanState = $state<ScanState>('idle');
   let candidates = $state<Candidate[]>([]);
@@ -188,9 +209,20 @@
       /* Preferences are optional; no user files are accessed. */
     }
     applyPreferences();
+    if (isDesktop)
+      void native
+        .listScopes()
+        .then((known) => {
+          nativeScopes = known;
+          if (source === 'local') scopes = known.map((s) => s.id);
+        })
+        .catch((e) => {
+          nativeError = String(e);
+        });
     return () => {
       clearTimeout(scanTimer);
       clearTimeout(executionTimer);
+      clearTimeout(nativeTimer);
     };
   });
   function applyPreferences() {
@@ -223,6 +255,10 @@
     selected = [];
     outcomes = [];
     reportAvailable = false;
+    nativeError = '';
+    nativeResult = null;
+    nativeJob = null;
+    nativeProgress = { visited: 0, candidates: 0, stage: 'Iniciando' };
     scanState = 'scanning';
     onboarding = null;
     page = 'overview';
@@ -234,7 +270,15 @@
       scenario === 'empty' || scenario === 'error'
         ? []
         : demo.candidates.filter((c) => scopes.includes(c.scope_id));
-    scanTimer = setTimeout(emitScan, 420);
+    if (source === 'local') {
+      try {
+        nativeJob = await native.beginScan(scopes);
+        await pollNative();
+      } catch (e) {
+        nativeError = String(e);
+        scanState = 'error';
+      }
+    } else scanTimer = setTimeout(emitScan, 420);
     await tick();
     heading?.focus();
   }
@@ -253,15 +297,98 @@
       selected = selectDefaults(candidates);
     }
   }
-  function pauseScan() {
+  async function addNativeScope(kind: ScopeKind) {
+    choosingScope = true;
+    nativeError = '';
+    try {
+      const scope = await native.chooseScope(kind);
+      if (scope) {
+        nativeScopes = await native.listScopes();
+        if (!scopes.includes(scope.id)) scopes = [...scopes, scope.id];
+      }
+    } catch (e) {
+      nativeError = String(e);
+    } finally {
+      choosingScope = false;
+    }
+  }
+  function changeSource() {
+    clearTimeout(nativeTimer);
+    clearTimeout(scanTimer);
+    candidates = [];
+    selected = [];
+    nativeResult = null;
+    nativeJob = null;
+    reportAvailable = false;
+    outcomes = [];
+    scanState = 'idle';
+    scopes =
+      source === 'demo'
+        ? demo.scopes.map((s) => s.id)
+        : nativeScopes.map((s) => s.id);
+  }
+  async function pollNative() {
+    if (!nativeJob) return;
+    const jobId = nativeJob;
+    try {
+      const result = await native.pollScan(jobId);
+      if (nativeJob !== jobId) return;
+      nativeProgress = result.progress;
+      if (result.status === 'error') {
+        nativeError = result.error ?? 'Falha de análise';
+        scanState = 'error';
+        return;
+      }
+      if (result.result) {
+        nativeResult = result.result;
+        candidates = result.result.candidates;
+        scanState = result.result.cancelled ? 'cancelled' : 'complete';
+        selected = result.result.complete ? selectDefaults(candidates) : [];
+        return;
+      }
+      nativeTimer = setTimeout(() => void pollNative(), 150);
+    } catch (e) {
+      nativeError = String(e);
+      scanState = 'error';
+    }
+  }
+  async function pauseScan() {
+    if (source === 'local' && nativeJob) {
+      try {
+        await native.controlScan(nativeJob, 'pause');
+        scanState = 'paused';
+      } catch (e) {
+        nativeError = String(e);
+      }
+      return;
+    }
+
     clearTimeout(scanTimer);
     scanState = 'paused';
   }
-  function resumeScan() {
+  async function resumeScan() {
+    if (source === 'local' && nativeJob) {
+      try {
+        await native.controlScan(nativeJob, 'resume');
+        scanState = 'scanning';
+      } catch (e) {
+        nativeError = String(e);
+      }
+      return;
+    }
     scanState = 'scanning';
     scanTimer = setTimeout(emitScan, 220);
   }
-  function cancelScan() {
+  async function cancelScan() {
+    if (source === 'local' && nativeJob) {
+      try {
+        await native.controlScan(nativeJob, 'cancel');
+        selected = [];
+      } catch (e) {
+        nativeError = String(e);
+      }
+      return;
+    }
     clearTimeout(scanTimer);
     scanState = 'cancelled';
     selected = [];
@@ -272,14 +399,16 @@
   async function copyPath(path: string) {
     try {
       await navigator.clipboard.writeText(path);
-      status = 'Caminho de exemplo copiado.';
+      status =
+        source === 'local' ? 'Caminho copiado.' : 'Caminho de exemplo copiado.';
     } catch {
       status =
         'Não foi possível copiar. O caminho permanece disponível para seleção.';
     }
   }
   async function startExecution() {
-    if (!consent || !budget.picked.length || executing) return;
+    if (source === 'local' || !consent || !budget.picked.length || executing)
+      return;
     confirmation = false;
     executing = true;
     reportAvailable = true;
@@ -393,16 +522,21 @@
         ><Settings size={18} /> Configurações</button
       >
       <div class="sidebar-version">
-        <span>INODUNE</span><span>0.0.1 · Fase 0</span>
+        <span>INODUNE</span><span>0.1.0 · Fase 1</span>
       </div>
     </div>
   </aside>
   <div class="main-shell">
     <header class="topbar">
       <div>
-        <span class="device-mark"><HardDrive size={16} /></span> Ambiente de
-        demonstração <span class="topbar-separator">/</span>
-        <strong>Somente dados sintéticos</strong>
+        <span class="device-mark"><HardDrive size={16} /></span>
+        {source === 'local' ? 'Meu computador' : 'Ambiente de demonstração'}
+        <span class="topbar-separator">/</span>
+        <strong
+          >{source === 'local'
+            ? 'Escopos explícitos · somente leitura'
+            : 'Somente dados sintéticos'}</strong
+        >
       </div>
       <div class="topbar-actions">
         <button
@@ -451,14 +585,22 @@
             disabled={scanBusy || executing || scopes.length === 0}
             ><RefreshCw size={16} />
             {scanState === 'idle'
-              ? 'Analisar exemplo'
+              ? source === 'local'
+                ? 'Analisar pastas'
+                : 'Analisar exemplo'
               : 'Analisar novamente'}</button
           >{/if}
       </div>
       <div class="demo-banner">
         <FlaskConical size={16} /><span
-          ><strong>Protótipo navegável</strong> · Pastas e valores fictícios. Seus
-          arquivos não são acessados.</span
+          ><strong
+            >{source === 'local'
+              ? 'Análise local'
+              : 'Protótipo navegável'}</strong
+          >
+          · {source === 'local'
+            ? 'Somente pastas aprovadas. Nenhuma remoção automática.'
+            : 'Pastas e valores fictícios. Seus arquivos não são acessados.'}</span
         ><button
           onclick={() => {
             onboarding = 0;
@@ -481,10 +623,17 @@
             <h2>
               {scanState === 'paused'
                 ? 'Análise pausada'
-                : 'Analisando exemplos locais'}
+                : source === 'local'
+                  ? 'Analisando pastas aprovadas'
+                  : 'Analisando exemplos locais'}
             </h2>
             <p>
-              {candidates.length} itens emitidos pelo provedor de demonstração · {scanState ===
+              {source === 'local' ? nativeProgress.visited : candidates.length}
+              {source === 'local'
+                ? 'entradas inspecionadas · ' +
+                  nativeProgress.candidates +
+                  ' candidatos'
+                : 'itens emitidos pelo provedor de demonstração'} · {scanState ===
               'paused'
                 ? 'nenhum próximo item será lido'
                 : 'total ainda não informado'}
@@ -506,10 +655,15 @@
         <section class="notice error" role="alert">
           <CircleAlert size={22} />
           <div>
-            <h2>Não foi possível concluir o exemplo</h2>
+            <h2>
+              {source === 'local'
+                ? 'Não foi possível concluir a análise'
+                : 'Não foi possível concluir o exemplo'}
+            </h2>
             <p>
-              Permissão negada no cenário simulado. Nenhum arquivo foi alterado.
-              Escolha outro cenário em Configurações.
+              {source === 'local'
+                ? nativeError
+                : 'Permissão negada no cenário simulado. Nenhum arquivo foi alterado. Escolha outro cenário em Configurações.'}
             </p>
             <button class="button" onclick={() => go('settings')}
               >Rever cenário</button
@@ -529,61 +683,102 @@
         </div>
       {/if}
 
-      {#if page === 'overview'}
-        <section class="storage-panel" aria-labelledby="storage-title">
-          <div class="volume-summary">
-            <div
-              class="ring"
-              role="img"
-              aria-label="Volume fictício: 512 GiB totais, 382 GiB ocupados e 130 GiB livres"
-            >
-              <div>
-                <HardDrive size={19} /><strong>512 <span>GiB</span></strong
-                ><small>volume de exemplo</small>
-              </div>
-            </div>
-            <div class="storage-legend">
-              <h2 id="storage-title">Um pouco mais de respiro.</h2>
-              <p>O primeiro passo é entender o que ocupa espaço.</p>
-              <div>
-                <span><i class="legend-dot used"></i> Ocupado</span><strong
-                  >382 GiB</strong
-                >
-              </div>
-              <div>
-                <span><i class="legend-dot free"></i> Livre</span><strong
-                  >130 GiB</strong
-                >
-              </div>
-              <small>Valores do corpus sintético, sem medição do disco.</small>
-            </div>
-          </div>
-          <div class="potential-summary">
-            <span class="eyebrow">POTENCIAL LÓGICO ESTIMADO</span>
-            <div class="big-number">
-              {scanState === 'idle' || scanState === 'error'
-                ? '—'
-                : formatBytes(potential)}
-            </div>
+      {#if nativeError && scanState !== 'error'}<div
+          class="notice error"
+          role="alert"
+        >
+          <CircleAlert size={20} />
+          <p>{nativeError}</p>
+        </div>{/if}
+      {#if source === 'local' && nativeResult && (!nativeResult.complete || nativeResult.issues.length)}<section
+          class="notice"
+        >
+          <CircleAlert size={20} />
+          <div>
+            <strong>Análise com cobertura parcial / exclusões</strong>
             <p>
-              {scanState === 'idle'
-                ? 'Analise o exemplo para encontrar candidatos.'
-                : `${available.length} candidatos · ${protectedItems.length} itens protegidos`}
+              {nativeResult.stats.skipped} entradas ignoradas. Itens incertos permanecem
+              protegidos; não há seleção automática para um scan parcial.
             </p>
-            <button
-              class="button primary"
-              onclick={() => go('review')}
-              disabled={!available.length || scanBusy}
-              >Revisar candidatos <ArrowRight size={17} /></button
-            ><small
-              ><ShieldCheck size={14} /> Nenhuma limpeza está habilitada.</small
-            >
+            <details>
+              <summary>Ver motivos e caminhos</summary
+              >{#each nativeResult.issues as issue, index (index)}<p>
+                  <code>{issue.display_path}</code> · {issue.message}
+                </p>{/each}
+            </details>
           </div>
-        </section>
+        </section>{/if}
+      {#if page === 'overview'}
+        {#if source === 'local'}<NativeStorage
+            volumes={nativeResult?.volumes ?? []}
+            {potential}
+            count={available.length}
+            protectedCount={protectedItems.length}
+            busy={scanBusy}
+            scanStatus={scanState}
+            onreview={() => go('review')}
+          />{:else}
+          <section class="storage-panel" aria-labelledby="storage-title">
+            <div class="volume-summary">
+              <div
+                class="ring"
+                role="img"
+                aria-label="Volume fictício: 512 GiB totais, 382 GiB ocupados e 130 GiB livres"
+              >
+                <div>
+                  <HardDrive size={19} /><strong>512 <span>GiB</span></strong
+                  ><small>volume de exemplo</small>
+                </div>
+              </div>
+              <div class="storage-legend">
+                <h2 id="storage-title">Um pouco mais de respiro.</h2>
+                <p>O primeiro passo é entender o que ocupa espaço.</p>
+                <div>
+                  <span><i class="legend-dot used"></i> Ocupado</span><strong
+                    >382 GiB</strong
+                  >
+                </div>
+                <div>
+                  <span><i class="legend-dot free"></i> Livre</span><strong
+                    >130 GiB</strong
+                  >
+                </div>
+                <small>Valores do corpus sintético, sem medição do disco.</small
+                >
+              </div>
+            </div>
+            <div class="potential-summary">
+              <span class="eyebrow">POTENCIAL LÓGICO ESTIMADO</span>
+              <div class="big-number">
+                {scanState === 'idle' || scanState === 'error'
+                  ? '—'
+                  : formatBytes(potential)}
+              </div>
+              <p>
+                {scanState === 'idle'
+                  ? 'Analise o exemplo para encontrar candidatos.'
+                  : `${available.length} candidatos · ${protectedItems.length} itens protegidos`}
+              </p>
+              <button
+                class="button primary"
+                onclick={() => go('review')}
+                disabled={!available.length || scanBusy}
+                >Revisar candidatos <ArrowRight size={17} /></button
+              ><small
+                ><ShieldCheck size={14} /> Nenhuma limpeza está habilitada.</small
+              >
+            </div>
+          </section>
+        {/if}
         <section class="category-grid" aria-label="Categorias">
           {#each categories as cat (cat.page)}
             {@const group = candidates.filter((c) => c.category === cat.label)}
             {@const eligible = group.filter((c) => c.risk !== 'protected')}
+            {@const measured = eligible.length
+              ? eligible
+              : group.filter((c) => c.coverage_key !== null)}
+            {@const uncertain =
+              !eligible.length && group.some((c) => c.coverage_key === null)}
             <button class="category-card" onclick={() => go(cat.page)}
               ><div class="category-top">
                 <span class="category-icon"><cat.icon size={22} /></span
@@ -593,12 +788,12 @@
               <div class="category-number">
                 {!candidates.length
                   ? '—'
-                  : formatBytes(
-                      (eligible.length
-                        ? eligible
-                        : group.filter((c) => c.coverage_key !== null)
-                      ).reduce((n, c) => n + c.logical_bytes, 0),
-                    )}
+                  : !measured.length && group.length
+                    ? 'Não medido'
+                    : (uncertain ? '≥ ' : '') +
+                      formatBytes(
+                        measured.reduce((n, c) => n + c.logical_bytes, 0),
+                      )}
               </div>
               <p>{cat.caption}</p>
               <span class="category-qualifier"
@@ -610,7 +805,11 @@
                 <span
                   >{group.length}
                   {group.length === 1 ? 'item' : 'itens'}
-                  {eligible.length ? 'no exemplo' : 'em inventário'}</span
+                  {eligible.length
+                    ? source === 'local'
+                      ? 'analisados'
+                      : 'no exemplo'
+                    : 'em inventário'}</span
                 >{#if group.length}<span class="tiny-label"
                     >{eligible.length ? 'Revisar' : 'Protegido'}</span
                   >{/if}
@@ -632,11 +831,14 @@
               <Folder size={30} />
               <h3>Seu primeiro passo é uma análise.</h3>
               <p>
-                Explore o fluxo com pastas de exemplo. Nada será lido do seu
-                disco.
+                {source === 'local'
+                  ? 'Escolha pastas específicas para analisar. Nenhum scan é iniciado automaticamente.'
+                  : 'Explore o fluxo com pastas de exemplo. Nada será lido do seu disco.'}
               </p>
               <button class="button" onclick={() => (onboarding = 1)}
-                >Escolher escopos de exemplo</button
+                >{source === 'local'
+                  ? 'Escolher pastas'
+                  : 'Escolher escopos de exemplo'}</button
               >
             </div>{:else if scanBusy}<div
               class="skeleton-group"
@@ -662,7 +864,9 @@
         </div>
       {:else if page === 'projects'}
         <div class="section-head">
-          <h2>Seus projetos de exemplo</h2>
+          <h2>
+            {source === 'local' ? 'Seus projetos' : 'Seus projetos de exemplo'}
+          </h2>
           <span class="muted"
             >{projects.length} grupos · tamanhos sem contêineres sobrepostos</span
           >
@@ -695,7 +899,11 @@
             >{:else}<div class="empty-state">
               <Layers size={28} />
               <h2>Nenhum projeto analisado</h2>
-              <p>Inicie uma análise de exemplo para explorar o Project Lens.</p>
+              <p>
+                {source === 'local'
+                  ? 'Escolha uma pasta de projetos e inicie a análise.'
+                  : 'Inicie uma análise de exemplo para explorar o Project Lens.'}
+              </p>
             </div>{/each}
         </div>
       {:else if ['development', 'git', 'ai', 'system', 'review', 'protected'].includes(page)}
@@ -733,7 +941,9 @@
             </div>
             <span class="badge neutral"
               >{scanState === 'complete'
-                ? 'Análise de exemplo concluída'
+                ? source === 'local'
+                  ? 'Análise encerrada'
+                  : 'Análise de exemplo concluída'
                 : scanState === 'cancelled'
                   ? 'Resultado parcial'
                   : 'Dados não concluídos'}</span
@@ -806,7 +1016,14 @@
             <p>{selected.length} itens · tamanho lógico estimado</p>
             <div class="compare-grid">
               <div>
-                <span>Antes · exemplo</span><strong>130 GiB livres</strong>
+                <span>Antes · exemplo</span><strong
+                  >{source === 'demo'
+                    ? '130 GiB livres'
+                    : nativeResult?.volumes.length === 1
+                      ? formatBytes(nativeResult.volumes[0].available_bytes) +
+                        ' disponíveis'
+                      : 'Medição por volume'}</strong
+                >
               </div>
               <div>
                 <span>Potencial físico</span><strong
@@ -864,13 +1081,17 @@
             </p>
             <button
               class="button primary full"
-              disabled={!selected.length || executing}
+              disabled={!selected.length || executing || source === 'local'}
               onclick={() => {
                 consent = false;
                 confirmation = true;
               }}>Revisar confirmação <ArrowRight size={16} /></button
-            ><button class="text-button full" onclick={() => go('review')}
-              >Voltar à seleção</button
+            >{#if source === 'local'}<p class="inline-note">
+                Executor ainda não habilitado neste incremento. A simulação de
+                impacto não altera seus arquivos.
+              </p>{/if}<button
+              class="text-button full"
+              onclick={() => go('review')}>Voltar à seleção</button
             >
           </section>
         </div>
@@ -979,12 +1200,42 @@
             /></label
           >
           <div class="section-divider"></div>
-          <h2>Escopos de demonstração</h2>
+          <h2>Pastas e origem dos dados</h2>
+          <label class="setting-row"
+            ><span>Fonte de dados</span><select
+              aria-label="Fonte de dados"
+              bind:value={source}
+              onchange={changeSource}
+              disabled={!isDesktop || scanBusy || executing}
+              ><option value="local">Meu computador</option><option value="demo"
+                >Demonstração</option
+              ></select
+            ></label
+          >
           <p>
-            Os caminhos abaixo são fictícios. O seletor nativo de pastas será
-            integrado ao scanner na Fase 1.
+            {source === 'local'
+              ? 'Selecione pastas específicas. Links, mounts externos, sessões e estado são preservados.'
+              : 'Os caminhos abaixo são fictícios e não são acessados.'}
           </p>
-          {#each demo.scopes as scope (scope.id)}<label class="scope-option"
+          {#if source === 'local'}<div class="inline-actions scope-actions">
+              <button
+                class="button"
+                disabled={choosingScope || scanBusy || executing}
+                onclick={() => addNativeScope('projects')}
+                ><Folder size={16} /> Adicionar pasta de projetos</button
+              ><button
+                class="button"
+                disabled={choosingScope || scanBusy || executing}
+                onclick={() => addNativeScope('thumbnails')}
+                >Escolher thumbnails</button
+              ><button
+                class="button"
+                disabled={choosingScope || scanBusy || executing}
+                onclick={() => addNativeScope('protected')}
+                ><Shield size={16} /> Inventário protegido de IA</button
+              >
+            </div>{/if}
+          {#each scopeOptions as scope (scope.id)}<label class="scope-option"
               ><input
                 type="checkbox"
                 checked={scopes.includes(scope.id)}
@@ -994,26 +1245,28 @@
                 ><strong>{scope.label}</strong><code>{scope.display_path}</code
                 ></span
               ></label
-            >{/each}<label class="setting-row"
-            ><span
-              ><strong>Cenário de demonstração</strong><small
-                >Reproduza estados sem usar arquivos reais.</small
-              ></span
-            ><select
-              aria-label="Cenário de demonstração"
-              bind:value={scenario}
-              disabled={scanBusy || executing}
-              ><option value="normal">Resultados normais</option><option
-                value="partial">Falha e item alterado na execução</option
-              ><option value="empty">Nenhum resultado</option><option
-                value="error">Erro de permissão no scan</option
-              ></select
-            ></label
-          ><button
+            >{/each}{#if source === 'demo'}<label class="setting-row"
+              ><span
+                ><strong>Cenário de demonstração</strong><small
+                  >Reproduza estados sem usar arquivos reais.</small
+                ></span
+              ><select
+                aria-label="Cenário de demonstração"
+                bind:value={scenario}
+                disabled={scanBusy || executing}
+                ><option value="normal">Resultados normais</option><option
+                  value="partial">Falha e item alterado na execução</option
+                ><option value="empty">Nenhum resultado</option><option
+                  value="error">Erro de permissão no scan</option
+                ></select
+              ></label
+            >{/if}<button
             class="button primary"
             onclick={startScan}
             disabled={scanBusy || executing || !scopes.length}
-            >Analisar cenário</button
+            >{source === 'local'
+              ? 'Analisar pastas aprovadas'
+              : 'Analisar cenário'}</button
           >
           <div class="section-divider"></div>
           <button class="text-button" onclick={() => go('catalog')}
@@ -1060,7 +1313,9 @@
       {/if}
       <footer class="page-footer">
         <span>Feito para abrir espaço. Projetado para preservar.</span><span
-          >Prévia de produto · dados sintéticos</span
+          >{source === 'local'
+            ? 'Inodune · dados locais'
+            : 'Prévia de produto · dados sintéticos'}</span
         >
       </footer>
     </main>
@@ -1100,15 +1355,35 @@
       <div class="notice">
         <FlaskConical size={20} />
         <p>
-          Você está em um protótipo. Todos os caminhos e valores são exemplos;
-          nenhum acesso aos seus arquivos será solicitado.
+          {source === 'local'
+            ? 'A análise é somente leitura. Você aprova cada pasta no diálogo nativo; nada é removido ao iniciar.'
+            : 'Você está em um protótipo. Todos os caminhos e valores são exemplos; nenhum acesso aos seus arquivos será solicitado.'}
         </p>
       </div>
     {:else if onboarding === 1}<p>
-        Escolha quais exemplos entram na análise. Nenhuma pasta real será
-        aberta.
+        {source === 'local'
+          ? 'Escolha pastas específicas no diálogo nativo. A aprovação não inicia o scan.'
+          : 'Escolha quais exemplos entram na análise. Nenhuma pasta real será aberta.'}
       </p>
-      {#each demo.scopes as scope (scope.id)}<label class="scope-option"
+      {#if source === 'local'}<div class="inline-actions scope-actions">
+          <button
+            class="button"
+            disabled={choosingScope || scanBusy || executing}
+            onclick={() => addNativeScope('projects')}
+            ><Folder size={16} /> Adicionar pasta de projetos</button
+          ><button
+            class="button"
+            disabled={choosingScope || scanBusy || executing}
+            onclick={() => addNativeScope('thumbnails')}
+            >Escolher thumbnails</button
+          ><button
+            class="button"
+            disabled={choosingScope || scanBusy || executing}
+            onclick={() => addNativeScope('protected')}
+            ><Shield size={16} /> Inventário protegido de IA</button
+          >
+        </div>{/if}
+      {#each scopeOptions as scope (scope.id)}<label class="scope-option"
           ><input
             type="checkbox"
             checked={scopes.includes(scope.id)}
@@ -1120,20 +1395,22 @@
         >{/each}
     {:else}<div class="onboarding-scan"><Search size={40} /></div>
       <p>
-        O provedor de demonstração emitirá itens e estados de análise. Você
-        poderá pausar, cancelar e revisar tudo antes de simular uma decisão.
+        {source === 'local'
+          ? 'O scanner Rust percorrerá somente as pastas aprovadas, sem seguir links ou mounts. Você poderá pausar, cancelar e revisar os resultados.'
+          : 'O provedor de demonstração emitirá itens e estados de análise. Você poderá pausar, cancelar e revisar tudo antes de simular uma decisão.'}
       </p>
-      <label class="setting-row"
-        ><span>Cenário</span><select
-          aria-label="Cenário inicial"
-          bind:value={scenario}
-          ><option value="normal">Resultados normais</option><option
-            value="partial">Execução parcial</option
-          ><option value="empty">Sem resultados</option><option value="error"
-            >Erro de permissão</option
-          ></select
-        ></label
-      >{/if}
+      {#if source === 'demo'}<label class="setting-row"
+          ><span>Cenário</span><select
+            aria-label="Cenário inicial"
+            bind:value={scenario}
+            ><option value="normal">Resultados normais</option><option
+              value="partial">Execução parcial</option
+            ><option value="empty">Sem resultados</option><option value="error"
+              >Erro de permissão</option
+            ></select
+          ></label
+        >{/if}
+    {/if}
     <div class="dialog-actions">
       <button class="text-button" onclick={() => (onboarding = null)}
         >Explorar sem analisar</button
@@ -1150,7 +1427,9 @@
             else onboarding = onboarding! + 1;
           }}
           >{onboarding === 2
-            ? 'Iniciar análise de exemplo'
+            ? source === 'local'
+              ? 'Iniciar análise somente leitura'
+              : 'Iniciar análise de exemplo'
             : 'Continuar'}<ArrowRight size={16} /></button
         >
       </div>
@@ -1170,7 +1449,10 @@
     <code class="detail-path">{detail.display_path}</code><button
       class="text-button"
       onclick={() => copyPath(detail!.display_path)}
-      ><Copy size={15} /> Copiar caminho de exemplo</button
+      ><Copy size={15} />
+      {source === 'local'
+        ? 'Copiar caminho'
+        : 'Copiar caminho de exemplo'}</button
     >
     <p role="status">{status}</p>
     <dl class="explanation">

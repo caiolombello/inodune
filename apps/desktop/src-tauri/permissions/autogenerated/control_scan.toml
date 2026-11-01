@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-control-scan"
+description = "Enables the control_scan command without any pre-configured scope."
+commands.allow = ["control_scan"]
+
+[[permission]]
+identifier = "deny-control-scan"
+description = "Denies the control_scan command without any pre-configured scope."
+commands.deny = ["control_scan"]
