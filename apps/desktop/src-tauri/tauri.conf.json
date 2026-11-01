@@ -44,12 +44,14 @@
     "linux": {
       "deb": {
         "files": {
-          "/usr/bin/inodune-cli": "../../../target/compat/release/inodune-cli"
+          "/usr/bin/inodune-cli": "../../../target/compat/release/inodune-cli",
+          "/usr/share/licenses/inodune/LICENSE": "../../../LICENSE"
         }
       },
       "rpm": {
         "files": {
-          "/usr/bin/inodune-cli": "../../../target/compat/release/inodune-cli"
+          "/usr/bin/inodune-cli": "../../../target/compat/release/inodune-cli",
+          "/usr/share/licenses/inodune/LICENSE": "../../../LICENSE"
         }
       }
     }
