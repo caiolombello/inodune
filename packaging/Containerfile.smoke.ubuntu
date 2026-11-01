@@ -1,0 +1,29 @@
+# Canonical Ubuntu 24.04 amd64 manifest digest from docker.io/library/ubuntu.
+FROM docker.io/library/ubuntu@sha256:78d4744ead1f5b19b04d0df558ab182a5300903900755e515b2ca4d10eb2044d
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends \
+      fontconfig \
+      fonts-dejavu-core \
+      imagemagick \
+      passwd \
+      python3 \
+      x11-apps \
+      xdotool \
+      xvfb \
+ && apt-get clean
+
+COPY Inodune.deb /tmp/Inodune.deb
+COPY runtime-smoke.py /usr/local/bin/inodune-runtime-smoke.py
+
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends /tmp/Inodune.deb \
+ && apt-get clean \
+ && rm /tmp/Inodune.deb \
+ && { getent passwd 1000 >/dev/null || useradd --uid 1000 --user-group --create-home inodune; }
+
+USER 1000:1000
+WORKDIR /home/inodune
+CMD ["python3", "/usr/local/bin/inodune-runtime-smoke.py", "--output-dir", "/tmp/inodune-smoke-output"]

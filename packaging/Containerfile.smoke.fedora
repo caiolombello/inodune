@@ -1,0 +1,26 @@
+# Canonical Fedora 44 amd64 manifest digest from registry.fedoraproject.org.
+FROM registry.fedoraproject.org/fedora@sha256:7a04a2f9d11bba3ff8016ae79cc01ba49965578746c930702e141a3be1f8d4de
+
+RUN dnf install -y \
+      dejavu-sans-fonts \
+      fontconfig \
+      ImageMagick \
+      shadow-utils \
+      python3 \
+      webkit2gtk4.1 \
+      gtk3 \
+      xdotool \
+      xwd \
+      xorg-x11-server-Xvfb \
+ && dnf clean all
+
+COPY Inodune.rpm /tmp/Inodune.rpm
+COPY runtime-smoke.py /usr/local/bin/inodune-runtime-smoke.py
+
+RUN dnf install -y /tmp/Inodune.rpm \
+ && dnf clean all \
+ && { getent passwd 1000 >/dev/null || useradd --uid 1000 --user-group --create-home inodune; }
+
+USER 1000:1000
+WORKDIR /home/inodune
+CMD ["python3", "/usr/local/bin/inodune-runtime-smoke.py", "--output-dir", "/tmp/inodune-smoke-output"]
