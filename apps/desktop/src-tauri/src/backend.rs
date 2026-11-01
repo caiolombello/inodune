@@ -77,6 +77,7 @@ pub async fn choose_scope(
     app: AppHandle,
     state: State<'_, Backend>,
     kind: ScopeKind,
+    locale: Option<crate::cleanup::PromptLocale>,
 ) -> Result<Option<ScopeInfo>, String> {
     if state.cleanup.active()? {
         return Err("Aguarde a limpeza em andamento.".into());
@@ -84,12 +85,27 @@ pub async fn choose_scope(
     let picked = tauri::async_runtime::spawn_blocking(move || {
         app.dialog()
             .file()
-            .set_title(match kind {
-                ScopeKind::Protected => {
-                    "Inodune · Escolha conteúdo para inventário protegido (somente leitura)"
-                }
-                _ => "Inodune · Escolha uma pasta de projetos para analisar (somente leitura)",
-            })
+            .set_title(
+                match (
+                    kind,
+                    matches!(locale, Some(crate::cleanup::PromptLocale::EnUs)),
+                ) {
+                    (ScopeKind::Protected, true) => {
+                        "Inodune · Choose protected inventory content (read only)"
+                    }
+                    (ScopeKind::Thumbnails, true) => {
+                        "Inodune · Choose the XDG thumbnails folder (read only)"
+                    }
+                    (_, true) => "Inodune · Choose a project folder to analyze (read only)",
+                    (ScopeKind::Protected, false) => {
+                        "Inodune · Escolha conteúdo para inventário protegido (somente leitura)"
+                    }
+                    (ScopeKind::Thumbnails, false) => {
+                        "Inodune · Escolha a pasta XDG thumbnails (somente leitura)"
+                    }
+                    _ => "Inodune · Escolha uma pasta de projetos para analisar (somente leitura)",
+                },
+            )
             .blocking_pick_folder()
     })
     .await

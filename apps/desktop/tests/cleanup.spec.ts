@@ -224,17 +224,18 @@ test('local cleanup reports every fixture file and never attributes volume delta
     page.locator('.scope-option input[type="checkbox"]'),
   ).toBeDisabled();
   await page.getByRole('button', { name: 'Histórico', exact: true }).click();
+  await page.getByRole('button', { name: 'Acompanhar limpeza' }).click();
   await page.evaluate(() => {
     (window as unknown as { __finishCleanup?: () => void }).__finishCleanup?.();
   });
-  await expect(page.getByText('module.pyc')).toBeVisible();
+  await expect(
+    page.getByText('/fixture/project/__pycache__/module.pyc'),
+  ).toBeVisible();
   await expect(
     page.getByText('/fixture/project/__pycache__/changed.pyc'),
   ).toBeVisible();
-  await expect(page.getByText('Enviado à Lixeira')).toBeVisible();
-  await expect(
-    page.getByText('Preservado · verificar recuperação'),
-  ).toBeVisible();
+  await expect(page.getByText('Movido para a Lixeira')).toBeVisible();
+  await expect(page.getByText('Quarentena; preservado')).toBeVisible();
   await expect(page.getByText('/fixture/quarantine/changed.pyc')).toBeVisible();
   await expect(page.getByText('Não atribuídos')).toBeVisible();
   await expect(
@@ -246,7 +247,7 @@ test('local cleanup reports every fixture file and never attributes volume delta
   await expect(page.getByText('/fixture/history/report.json')).toBeVisible();
   const path = resolve(
     process.cwd(),
-    '../../docs/evidence/f3/screenshots/chromium-cleanup-report.png',
+    '../../docs/evidence/f4/screenshots/chromium-cleanup-report.png',
   );
   await mkdir(resolve(path, '..'), { recursive: true });
   await page.screenshot({ path, fullPage: true, animations: 'disabled' });
