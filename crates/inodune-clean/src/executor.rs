@@ -917,6 +917,35 @@ mod tests {
         assert_eq!(fs::metadata(saved).unwrap().len(), 64);
     }
     #[test]
+    fn leaf_symlink_swap_after_pin_never_follows_or_removes_external_file() {
+        let f = Fixture::new(1);
+        let external = tempfile::tempdir().unwrap();
+        let sentinel = external.path().join("private");
+        fs::write(&sentinel, b"keep private").unwrap();
+        let saved = f.path.with_extension("saved");
+        let mut changed = false;
+        let report = execute_inner(
+            f.plan(Action::Permanent),
+            &f.options(),
+            &ScanControl::default(),
+            |_| {},
+            |phase, path| {
+                if matches!(phase, Phase::Pinned) && !changed {
+                    fs::rename(path, &saved).unwrap();
+                    symlink(&sentinel, path).unwrap();
+                    changed = true;
+                }
+            },
+        );
+        assert!(!report.complete);
+        assert_eq!(fs::read(sentinel).unwrap(), b"keep private");
+        assert_eq!(fs::metadata(saved).unwrap().len(), 64);
+        assert!(fs::symlink_metadata(&f.path)
+            .unwrap()
+            .file_type()
+            .is_symlink());
+    }
+    #[test]
     fn parent_swap_after_capture_quarantines_and_never_follows_link() {
         let f = Fixture::new(1);
         let external = tempfile::tempdir().unwrap();

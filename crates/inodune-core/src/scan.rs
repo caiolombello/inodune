@@ -529,6 +529,13 @@ impl<F: FnMut(ScanProgress)> Walker<'_, F> {
         };
         let (logical, allocated, mut complete, files) = self.measure(root, rel);
         let coverage_complete = complete;
+        // Ambiguous display names must never become a mutation authorization.
+        let unambiguous = |path: &Path| {
+            path.to_str()
+                .is_some_and(|s| !s.chars().any(char::is_control))
+        };
+        complete &= unambiguous(&root.path.join(rel))
+            && files.iter().all(|(p, _)| unambiguous(&root.path.join(p)));
         let py = detector == "python.pycache";
         let thumbs = detector == "thumbnails";
         if py {

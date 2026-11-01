@@ -221,7 +221,10 @@ impl PlanSession {
 }
 
 fn validate_relative(path: &Path) -> Result<(), String> {
-    if path.as_os_str().is_empty()
+    if path
+        .to_str()
+        .is_some_and(|s| s.chars().any(char::is_control))
+        || path.as_os_str().is_empty()
         || path.is_absolute()
         || path.components().any(|part| {
             matches!(

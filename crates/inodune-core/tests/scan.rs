@@ -344,3 +344,25 @@ fn thumbnail_format_is_checked_independently_of_python_cache_format() {
         inodune_core::Risk::Protected
     );
 }
+
+#[test]
+fn ambiguous_control_character_paths_are_inventory_only() {
+    let dir = tempfile::tempdir().unwrap();
+    let project = dir.path().join("misleading\nproject");
+    fs::create_dir_all(project.join("__pycache__")).unwrap();
+    fs::write(project.join("module.py"), b"pass").unwrap();
+    let mut pyc = vec![0u8; 64];
+    pyc[..4].copy_from_slice(&[0xa7, 0x0d, 13, 10]);
+    pyc[16] = b'c';
+    fs::write(project.join("__pycache__/module.cpython-311.pyc"), pyc).unwrap();
+    let root = ApprovedRoot::open(dir.path(), ScopeKind::Projects).unwrap();
+    let snapshot = scan(
+        &[root],
+        &ScanControl::default(),
+        &ScanLimits::default(),
+        |_| {},
+    )
+    .unwrap();
+    assert_eq!(snapshot.candidates[0].risk, inodune_core::Risk::Protected);
+    assert!(!snapshot.candidates[0].selected_by_default);
+}
