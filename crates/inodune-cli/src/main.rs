@@ -210,8 +210,14 @@ fn run_clean(args: &[String], control: &ScanControl) -> Result<(String, bool), S
                     "cargo.fingerprint-json"
                         | "terraform.provider-package"
                         | "python.pytest-nodeids"
+                        | "rust.target"
+                        | "python.pip-cache"
+                        | "npm.cache"
+                        | "next.cache"
+                        | "python.mypy-cache"
+                        | "python.ruff-cache"
                 ) {
-                    return Err(format!("Detector de revisão desconhecido: {detector}. Use cargo.fingerprint-json, terraform.provider-package ou python.pytest-nodeids."));
+                    return Err(format!("Detector de revisão desconhecido: {detector}. Use um detector de cache revisável mostrado pela análise (Cargo, Terraform, Python, npm ou Next.js)."));
                 }
                 if review.replace(detector).is_some() {
                     return Err("Use --review uma única vez.".into());
@@ -502,7 +508,7 @@ fn present_apps(inventory: &inodune_apps::Inventory, json: bool) -> Result<(Stri
 }
 
 fn usage() -> String {
-    "Uso: inodune apps list [--json]\n     inodune-cli [--help|-h] [--version|-V]\n     inodune-cli scan --auto [--json]\n     inodune-cli scan --root ABS [--root ABS] [--exclude REL]... [--scope projects|thumbnails|protected] [--json]\n     inodune-cli clean --root ABS [--root ABS] [--exclude REL]... [--scope projects|thumbnails|protected] [--dry-run|--apply] [--review cargo.fingerprint-json|terraform.provider-package|python.pytest-nodeids] [--permanent] [--json]\nDemonstração: scan --demo --json | clean --demo --dry-run. --exclude aceita caminhos relativos literais; '.' exclui a root inteira. --review seleciona um único candidato verificado e não aplica a limpeza; por padrão, apenas itens de baixo risco entram no plano. A limpeza real começa em simulação; --apply exige confirmação interativa e digitação exata. Exit 2: erro; exit 3: cobertura ou execução parcial.".into()
+    "Uso: inodune apps list [--json]\n     inodune-cli [--help|-h] [--version|-V]\n     inodune-cli scan --auto [--json]\n     inodune-cli scan --root ABS [--root ABS] [--exclude REL]... [--scope projects|thumbnails|protected] [--json]\n     inodune-cli clean --root ABS [--root ABS] [--exclude REL]... [--scope projects|thumbnails|protected] [--dry-run|--apply] [--review DETECTOR] [--permanent] [--json]\nDemonstração: scan --demo --json | clean --demo --dry-run. --exclude aceita caminhos relativos literais; '.' exclui a root inteira. --review seleciona um único candidato verificado e não aplica a limpeza; por padrão, apenas itens de baixo risco entram no plano. A limpeza real começa em simulação; --apply exige confirmação interativa e digitação exata. Exit 2: erro; exit 3: cobertura ou execução parcial.".into()
 }
 
 #[cfg(test)]
@@ -702,6 +708,26 @@ mod tests {
             .path()
             .join("project/.pytest_cache/v/cache/lastfailed")
             .exists());
+    }
+
+    #[test]
+    fn recreatable_caches_are_available_for_cli_review() {
+        let temp = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(temp.path().join(".mypy_cache")).unwrap();
+        std::fs::write(temp.path().join(".mypy_cache/fixture"), b"cache").unwrap();
+        let (text, partial) = run(vec![
+            "clean".into(),
+            "--root".into(),
+            temp.path().to_str().unwrap().into(),
+            "--review".into(),
+            "python.mypy-cache".into(),
+            "--dry-run".into(),
+            "--json".into(),
+        ])
+        .unwrap();
+        assert!(!partial);
+        assert!(text.contains("\"review_required\": true"));
+        assert!(temp.path().join(".mypy_cache/fixture").exists());
     }
 
     #[test]
