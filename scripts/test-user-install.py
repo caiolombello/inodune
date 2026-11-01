@@ -16,7 +16,7 @@ with tempfile.TemporaryDirectory(prefix='inodune-install-test-') as temporary:
     version=json.loads((ROOT / 'apps/desktop/src-tauri/tauri.conf.json').read_text())['version']
     archive = ROOT / f'target/packages/{version}/Inodune_{version}_linux_x86_64.tar.gz'
     app = installer.install(prefix, archive)
-    launcher = prefix / f'share/applications/inodune-{version}.desktop'
+    launcher = prefix / 'share/applications/inodune.desktop'
     parser = configparser.RawConfigParser()
     parser.read(launcher)
     assert Path(parser['Desktop Entry']['TryExec']).exists()
@@ -24,10 +24,6 @@ with tempfile.TemporaryDirectory(prefix='inodune-install-test-') as temporary:
     subprocess.run(['desktop-file-validate', str(launcher)], check=True)
     subprocess.run([str(app / 'bin/inodune-cli'), '--help'], check=True, stdout=subprocess.DEVNULL)
     before = {p: hashlib.sha256(p.read_bytes()).hexdigest() for p in app.rglob('*') if p.is_file()}
-    try:
-        installer.install(prefix, archive)
-        raise AssertionError('conflicting install accepted')
-    except FileExistsError:
-        pass
+    installer.install(prefix, archive)
     assert before == {p: hashlib.sha256(p.read_bytes()).hexdigest() for p in before}
-    print('PASS: private fixture install, valid desktop launcher including spaces/special characters, CLI help, conflict preserves all files.')
+    print('PASS: private fixture install, valid desktop launcher including spaces/special characters, CLI help, same-version retry preserves all files.')

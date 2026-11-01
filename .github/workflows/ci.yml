@@ -25,6 +25,8 @@ jobs:
       - run: npm run build
       - run: npx playwright install --with-deps chromium webkit
       - run: npm run test:e2e
+      - name: Exercise per-user install lifecycle in temporary prefixes
+        run: python3 scripts/test-user-lifecycle.py
   rust:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
@@ -85,3 +87,20 @@ jobs:
       - run: npm ci
       - run: npm run build
       - run: cargo +1.93.0 build --locked -p inodune-desktop
+      - run: cargo +1.93.0 test --locked -p inodune-desktop --features fixture-tests
+      - run: cargo +1.93.0 clippy --locked -p inodune-desktop --all-targets --features fixture-tests -- -D warnings
+      - name: Confirm fixture authority is rejected in release builds
+        shell: bash
+        run: |
+          set -euo pipefail
+          log="$(mktemp)"
+          if cargo +1.93.0 check --locked --release -p inodune-desktop --features fixture-tests 2>"$log"; then
+            cat "$log"
+            echo 'fixture-tests unexpectedly compiled for release' >&2
+            exit 1
+          fi
+          if ! grep -Fq 'fixture-tests is forbidden in release builds' "$log"; then
+            cat "$log"
+            echo 'release fixture guard failed for an unexpected reason' >&2
+            exit 1
+          fi

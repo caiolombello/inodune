@@ -17,7 +17,9 @@ from pathlib import Path
 
 root=Path(__file__).resolve().parents[1]
 standalone=os.environ.get('INODUNE_NATIVE_STANDALONE')=='1'
-out=root/'docs/evidence/automatic/native'
+evidence_set=os.environ.get('INODUNE_EVIDENCE_SET','automatic')
+if evidence_set not in {'automatic','launch'}:raise SystemExit('Unknown evidence set')
+out=root/'docs/evidence'/evidence_set/'native'
 out.mkdir(parents=True,exist_ok=True)
 def port():
     with socket.socket() as s:s.bind(('127.0.0.1',0));return s.getsockname()[1]
