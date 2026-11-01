@@ -56,6 +56,41 @@ fn run_with_control(args: Vec<String>, control: &ScanControl) -> Result<(String,
         return Ok((format!("inodune-cli {}", env!("CARGO_PKG_VERSION")), false));
     }
     match values.as_slice() {
+        ["apps", "list"] | ["apps", "list", "--json"] => {
+            let inventory = inodune_apps::inventory()?;
+            let partial = inventory
+                .sources
+                .iter()
+                .any(|s| matches!(s.status.as_str(), "partial" | "error"));
+            let output = if values.last() == Some(&"--json") {
+                serde_json::to_string_pretty(&inventory).map_err(|e| e.to_string())?
+            } else {
+                let mut lines = vec!["Programas & Jogos · somente leitura".to_string()];
+                for source in &inventory.sources {
+                    lines.push(format!(
+                        "{}: {} ({} itens)",
+                        source.source,
+                        source.status,
+                        source.items.len()
+                    ));
+                    for item in &source.items {
+                        lines.push(format!(
+                            "{:?} | {} | {} | {:?} bytes | uso {:?} | protegido={}",
+                            item.source,
+                            item.id,
+                            item.name,
+                            item.size_bytes,
+                            item.signals,
+                            item.protected
+                        ));
+                    }
+                    lines.extend(source.warnings.iter().cloned());
+                }
+                lines.join("\n")
+            };
+            return Ok((output, partial));
+        }
+
         ["scan", "--demo", "--json"] => {
             return inodune_core::demo_inventory()
                 .and_then(|i| serde_json::to_string_pretty(&i))
@@ -457,7 +492,7 @@ fn validate_root_count(count: usize) -> Result<(), String> {
 }
 
 fn usage() -> String {
-    "Uso: inodune-cli [--help|-h] [--version|-V]\n     inodune-cli scan --auto [--json]\n     inodune-cli scan --root ABS [--root ABS] [--exclude REL]... [--scope projects|thumbnails|protected] [--json]\n     inodune-cli clean --root ABS [--root ABS] [--exclude REL]... [--scope projects|thumbnails|protected] [--dry-run|--apply] [--review cargo.fingerprint-json|terraform.provider-package|python.pytest-nodeids] [--permanent] [--json]\nDemonstração: scan --demo --json | clean --demo --dry-run. --exclude aceita caminhos relativos literais; '.' exclui a root inteira. --review seleciona um único candidato verificado e não aplica a limpeza; por padrão, apenas itens de baixo risco entram no plano. A limpeza real começa em simulação; --apply exige confirmação interativa e digitação exata. Exit 2: erro; exit 3: cobertura ou execução parcial.".into()
+    "Uso: inodune apps list [--json]\n     inodune-cli [--help|-h] [--version|-V]\n     inodune-cli scan --auto [--json]\n     inodune-cli scan --root ABS [--root ABS] [--exclude REL]... [--scope projects|thumbnails|protected] [--json]\n     inodune-cli clean --root ABS [--root ABS] [--exclude REL]... [--scope projects|thumbnails|protected] [--dry-run|--apply] [--review cargo.fingerprint-json|terraform.provider-package|python.pytest-nodeids] [--permanent] [--json]\nDemonstração: scan --demo --json | clean --demo --dry-run. --exclude aceita caminhos relativos literais; '.' exclui a root inteira. --review seleciona um único candidato verificado e não aplica a limpeza; por padrão, apenas itens de baixo risco entram no plano. A limpeza real começa em simulação; --apply exige confirmação interativa e digitação exata. Exit 2: erro; exit 3: cobertura ou execução parcial.".into()
 }
 
 #[cfg(test)]
