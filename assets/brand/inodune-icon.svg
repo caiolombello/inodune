@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-labelledby="title desc">
+  <title id="title">Inodune app icon</title>
+  <desc id="desc">Ícone com dois arcos de armazenamento e um bloco liberado.</desc>
+  <g fill="none" stroke-linecap="round" stroke-width="20">
+    <path d="M166 40 A87 87 0 1 0 182 183" stroke="#164F52"/>
+    <path d="M158 81 A52 52 0 1 0 160 161" stroke="#1F7A71"/>
+  </g>
+  <rect x="184" y="42" width="32" height="32" rx="9" fill="#58D5B4" transform="rotate(10 200 58)"/>
+</svg>

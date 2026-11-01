@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 240" role="img" aria-labelledby="title desc">
+  <title id="title">Inodune</title>
+  <desc id="desc">Dois arcos arredondados de um disco de armazenamento com um bloco verde liberado, seguidos do nome Inodune.</desc>
+  <g fill="none" stroke-linecap="round" stroke-width="17">
+    <path d="M153 49 A79 79 0 1 0 165 177" stroke="#164F52"/>
+    <path d="M145 86 A49 49 0 1 0 151 151" stroke="#1F7A71"/>
+  </g>
+  <rect x="171" y="48" width="27" height="27" rx="8" fill="#58D5B4" transform="rotate(10 184.5 61.5)"/>
+  <text x="265" y="159" fill="#14202B" font-size="96" font-family="Inter, Manrope, 'DejaVu Sans', sans-serif" font-weight="650" letter-spacing="-4">Inodune</text>
+</svg>

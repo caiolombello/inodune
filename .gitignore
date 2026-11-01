@@ -1,0 +1,9 @@
+node_modules/
+target/
+**/dist/
+.tools/
+.ui-qa/
+playwright-report/
+test-results/
+apps/desktop/src-tauri/gen/
+*.local
