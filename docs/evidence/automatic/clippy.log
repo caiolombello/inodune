@@ -1,0 +1,5 @@
+    Checking inodune-core v0.1.1 (/home/user/inodune/crates/inodune-core)
+    Checking inodune-clean v0.1.1 (/home/user/inodune/crates/inodune-clean)
+    Checking inodune-desktop v0.1.1 (/home/user/inodune/apps/desktop/src-tauri)
+    Checking inodune-cli v0.1.1 (/home/user/inodune/crates/inodune-cli)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 1.80s

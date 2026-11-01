@@ -37,3 +37,8 @@ Histórico contém paths e decisões, não conteúdo. Está em `XDG_STATE_HOME/i
 - [Freedesktop Trash 1.0](https://specifications.freedesktop.org/trash/latest/), seções 5–6; permissões privadas são uma decisão adicional do Inodune.
 - [Tauri dialog](https://v2.tauri.app/plugin/dialog/), API Rust instalada `tauri-plugin-dialog 2.8.4`, `blocking_show`, `OkCancel`; diálogo não concede paths vindos da interface.
 - [getrandom 0.3.4](https://docs.rs/getrandom/0.3.4/getrandom/fn.fill.html), [sha2 0.10.9](https://docs.rs/sha2/0.10.9/sha2/), [chrono 0.4.45 Local](https://docs.rs/chrono/0.4.45/chrono/struct.Local.html).
+
+
+## Cobertura parcial de análise automática
+
+A versão 0.1.1 separa cobertura do computador de integridade do item selecionado. Apenas o backend de scan automático pode chamar `prepare_verified_items`; o método original mantém a recusa de snapshot parcial. O método novo não aceita snapshot cancelado, target incompleto, ação não suportada, sobreposição ou namespace protegido, e conserva todas as revalidações do executor. `inventory_complete=false` acompanha a view e a confirmação nativa; isso não anuncia que o disco inteiro foi examinado nem altera estimativas em ganho real.

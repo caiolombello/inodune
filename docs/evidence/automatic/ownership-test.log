@@ -1,0 +1,9 @@
+    Blocking waiting for file lock on artifact directory
+   Compiling inodune-core v0.1.1 (/home/user/inodune/crates/inodune-core)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 8.39s
+  Executable tests/discovery-ownership.rs (target/debug/deps/discovery_ownership-56fc0cc64e779810)
+
+running 1 test
+test ownership_boundaries_symlinks_noatime_limits_and_cancel_are_conservative ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s

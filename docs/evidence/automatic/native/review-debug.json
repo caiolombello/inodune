@@ -1,0 +1,17 @@
+{
+  "text": "Pular para conte\u00fado\nInodune.\nESPA\u00c7O DE TRABALHO\nVis\u00e3o geral\nProjetos\nDesenvolvimento\nGit Worktrees\nIA & Agentes\nSistema\nItens protegidos\n7\nHist\u00f3rico\nLocal por natureza\nSem conta. Sem telemetria.\nConfigura\u00e7\u00f5es\nINODUNE\nLinux desktop\nMeu computador\n/\nAn\u00e1lise autom\u00e1tica \u00b7 limpeza com confirma\u00e7\u00e3o\n100% local\nINODUNE\nRevise com tranquilidade.\n\nDecis\u00f5es claras, com voc\u00ea no controle.\n\nAnalisar novamente\nAn\u00e1lise local \u00b7 Descoberta local autom\u00e1tica. Nenhuma remo\u00e7\u00e3o autom\u00e1tica.\nConhecer o fluxo\nAn\u00e1lise com cobertura parcial / exclus\u00f5es\n\n1 entradas ignoradas. Itens incertos permanecem protegidos; n\u00e3o h\u00e1 sele\u00e7\u00e3o autom\u00e1tica para um scan parcial.\n\nVer motivos e caminhos\nRevis\u00e3o de itens\n\n10 itens exibidos \u00b7 0 selecionados no total\n\nAn\u00e1lise encerrada\nFiltrar por riscoTodos os riscos\nBaixo risco\nRevisar\nProtegido\nOrdenar itensMaior tamanho\nNome\nItem / origem\nTamanho l\u00f3gico\nPol\u00edtica\nMetadado de fingerprint Cargo\n/tmp/.tmpgERW7X/./projects/orbit/target/debug/.fingerprint/fixture-0123456789abcdef/lib-fixture.json\n148 B\nRevisar\nRevis\u00e3o individual\nEstado / configura\u00e7\u00e3o protegida\n/tmp/.tmpgERW7X/./projects/infra/.terraform.lock.hcl\n133 B\nProtegido\nSomente an\u00e1lise\nProvider Terraform verificado\n/tmp/.tmpgERW7X/./projects/infra/.terraform/providers/registry.terraform.io/hashicorp/demo/1.2.3/linux_amd64\n77 B\nRevisar\nRevis\u00e3o individual\nMiniaturas XDG\n/tmp/.tmpgERW7X/./cache/thumbnails/normal\n68 B\nBaixo risco\nArtefatos Cargo\n/tmp/.tmpgERW7X/./projects/orbit/target\n29 B\nProtegido\nSomente an\u00e1lise\nEstado / configura\u00e7\u00e3o protegida\n/tmp/.tmpgERW7X/./projects/infra/.terraform/terraform.tfstate\n23 B\nProtegido\nSomente an\u00e1lise\nM\u00f3dulos Terraform\n/tmp/.tmpgERW7X/./projects/infra/.terraform/modules\n22 B\nProtegido\nSomente an\u00e1lise\nSess\u00f5es e mem\u00f3ria de agentes\n/tmp/.tmpgERW7X/./projects/.codex\n15 B\nProtegido\nSomente an\u00e1lise\nEstado / configura\u00e7\u00e3o protegida\n/tmp/.tmpgERW7X/./projects/infra/terraform.tfstate\n13 B\nProtegido\nSomente an\u00e1lise\nProviders Terraform\n/tmp/.tmpgERW7X/./projects/infra/.terraform/providers\n0 B\nProtegido\nSomente an\u00e1lise\n0 itens selecionados\n0 B \u00b7 estimativa l\u00f3gica, sem recupera\u00e7\u00e3o medida\nDesmarcar todos\nRevisar impacto\nFeito para abrir espa\u00e7o. Projetado para preservar.\nInodune \u00b7 dados locais",
+  "checkboxes": [
+    {
+      "label": "Selecionar Metadado de fingerprint Cargo",
+      "checked": false
+    },
+    {
+      "label": "Selecionar Provider Terraform verificado",
+      "checked": false
+    },
+    {
+      "label": "Selecionar Miniaturas XDG",
+      "checked": false
+    }
+  ]
+}

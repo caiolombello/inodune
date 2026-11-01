@@ -2,23 +2,23 @@
 
 Liberte espaço. Preserve o essencial.
 
-Aplicativo Linux open source (MIT), com Rust + Tauri 2 + Svelte/TypeScript. **Desktop local com análise e limpeza controlada de caches reconhecidos.** Escolha pastas específicas no diálogo nativo, revise os itens, simule o impacto e confirme o plano no sistema. Fases 0–4 implementadas com validação local e pendências de release explícitas: providers com h1 e metadados Cargo conhecidos têm revisão individual. Git e formatos incertos permanecem protegidos. Demonstração sintética disponível separadamente.
+Aplicativo Linux open source (MIT), com Rust + Tauri 2 + Svelte/TypeScript. **Desktop local com análise e limpeza controlada de caches reconhecidos.** Clique em **Analisar computador**: a home e as unidades locais montadas são descobertas automaticamente. Revise os itens, simule o impacto e confirme o plano no sistema. A escolha manual de pastas fica no modo avançado. Fases 0–4 implementadas com validação local e pendências de release explícitas: providers com h1 e metadados Cargo conhecidos têm revisão individual. Git e formatos incertos permanecem protegidos. Demonstração sintética disponível separadamente.
 
 ![Desktop nativo — somente fixtures temporárias](docs/evidence/f4/native/local-results.png)
 
 ## Usar o app desktop
 
-Build local **0.1.0**, Linux x86_64. Os artefatos em `target/packages/` incluem DEB, RPM e tarball sem root, com CLI, ícone e atalho de aplicativos. São builds locais sem assinatura, sem publicação externa. [Instalação, dependências e baseline](docs/packaging-linux.md).
+Build local **0.1.1**, Linux x86_64. Os artefatos em `target/packages/` incluem DEB, RPM e tarball sem root, com CLI, ícone e atalho de aplicativos. São builds locais sem assinatura, sem publicação externa. [Instalação, dependências e baseline](docs/packaging-linux.md).
 
 ```sh
-python3 target/packages/install-user.py \
-  --archive target/packages/Inodune_0.1.0_linux_x86_64.tar.gz \
+python3 target/packages/0.1.1/install-user.py \
+  --archive target/packages/0.1.1/Inodune_0.1.1_linux_x86_64.tar.gz \
   --prefix "$HOME/.local"
 # Abra Inodune pelo menu do desktop ou:
-"$HOME/.local/lib/inodune/0.1.0/bin/inodune-desktop"
+"$HOME/.local/lib/inodune/0.1.1/bin/inodune-desktop"
 ```
 
-O instalador recusa destinos existentes. As bibliotecas GTK3/WebKitGTK 4.1 são fornecidas pela distribuição; instalar dependências de sistema pode exigir o administrador. O aplicativo e sua instalação no prefixo do usuário não elevam privilégios. A aprovação das pastas dura somente a sessão.
+O instalador recusa destinos existentes. As bibliotecas GTK3/WebKitGTK 4.1 são fornecidas pela distribuição; instalar dependências de sistema pode exigir o administrador. O aplicativo e sua instalação no prefixo do usuário não elevam privilégios. O modo automático dispensa aprovação por pasta; exclusões e ajustes avançados duram a sessão. Nada é limpo automaticamente.
 
 ## Desenvolvimento da interface
 
@@ -58,6 +58,8 @@ docs                  arquitetura, ameaças, UX, checklist e evidências
 Com Rust **1.93.0** e compilador/linker C instalados:
 
 ```sh
+cargo run --locked -p inodune-cli -- scan --auto --json
+# Modo avançado opcional:
 cargo run --locked -p inodune-cli -- scan --root /pasta/aprovada --exclude dados-privados --json
 cargo run --locked -p inodune-cli -- clean --root /pasta/aprovada --dry-run --json
 # Demonstração sem filesystem:
@@ -65,7 +67,7 @@ cargo run --locked -p inodune-cli -- scan --demo --json
 cargo run --locked -p inodune-cli -- clean --demo --dry-run
 ```
 
-`scan` é somente leitura e exige roots explícitas. `clean` também é dry-run por padrão; `--apply` é separado e exige digitar `TRASH N` ou `DELETE N` em stdin interativo após revisar paths/hash. `--permanent` escolhe exclusão permanente explicitamente; nunca é fallback da Lixeira. Não usamos esses comandos sobre dados reais nos testes. Exit 2 indica erro/recusa; exit 3 indica resultado parcial. Ctrl+C solicita cancelamento. `attributed_freed_bytes: null` significa ganho **não atribuído**, não zero recuperado. Bytes lógicos processados e variação observada por `statvfs` são distintos. Lixeira no mesmo volume continua ocupando espaço.
+`scan --auto --json` descobre as fontes no backend e é somente leitura; `scan --root` mantém o modo explícito. `clean` da CLI continua exigindo roots e confirmação interativa. `clean` também é dry-run por padrão; `--apply` é separado e exige digitar `TRASH N` ou `DELETE N` em stdin interativo após revisar paths/hash. `--permanent` escolhe exclusão permanente explicitamente; nunca é fallback da Lixeira. Não usamos esses comandos sobre dados reais nos testes. Exit 2 indica erro/recusa; exit 3 indica resultado parcial. Ctrl+C solicita cancelamento. `attributed_freed_bytes: null` significa ganho **não atribuído**, não zero recuperado. Bytes lógicos processados e variação observada por `statvfs` são distintos. Lixeira no mesmo volume continua ocupando espaço.
 
 ## Verificar
 
@@ -174,3 +176,10 @@ python3 scripts/test-user-install.py
 ```
 
 Os scripts usam somente Xvfb/processos próprios. O harness F4 desativa compositing acelerado no Xvfb conforme a documentação Tauri; isto não valida GPU ou Wayland. `cargo fmt --all --check`, `cargo clippy --locked --workspace --all-targets --all-features -- -D warnings` e `cargo test --locked --workspace --all-features` incluem o desktop. `python3 scripts/mount-fixture-tests.py` executa separadamente os dois testes de bind mount em namespaces privados.
+
+
+### Análise automática — 0.1.1
+
+O fluxo padrão é **Analisar computador → revisar → simular → confirmar**, sem seletor de pastas nem onboarding obrigatório. A descoberta percorre nomes/metadados estruturais para localizar árvores do usuário e volumes locais montados; o uso total do filesystem é medido mesmo quando conteúdos de sistema estão protegidos. Não solicita root, não entra em outros usuários, não atravessa links e não promete analisar áreas sem permissão ou FS de rede/desconhecido. Limites e exclusões ficam visíveis como cobertura parcial. Em análise automática parcial, somente candidatos selecionados com manifesto completo e novamente validado podem gerar plano; não há seleção automática em resultado parcial ou cancelado. O diálogo nativo informa a cobertura parcial.
+
+Os detectores continuam sem escrita nos alvos. A enumeração de diretórios estruturais pertencentes ao root pode atualizar seu **atime por ação do kernel**, pois um usuário comum não pode impor O_NOATIME nesses diretórios. Conteúdo, arquivos do usuário e permissões não são modificados pela descoberta. [Evidências e limites](docs/evidence/automatic/acceptance.md). Os artefatos anteriores em `target/packages/` foram preservados; os novos estão em `target/packages/0.1.1/`.

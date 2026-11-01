@@ -1,0 +1,51 @@
+
+> inodune-workspace@0.1.1 test:e2e
+> npm run test:e2e -w @inodune/desktop -- --project=chromium
+
+
+> @inodune/desktop@0.1.1 test:e2e
+> playwright test --project=chromium
+
+[WebServer] (node:419861) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+
+Running 20 tests using 8 workers
+
+(node:419903) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node-24 --trace-warnings ...` to show where the warning was created)
+(node:419901) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node-24 --trace-warnings ...` to show where the warning was created)
+(node:419922) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node-24 --trace-warnings ...` to show where the warning was created)
+(node:419904) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node-24 --trace-warnings ...` to show where the warning was created)
+(node:419902) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node-24 --trace-warnings ...` to show where the warning was created)
+(node:419916) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node-24 --trace-warnings ...` to show where the warning was created)
+(node:419929) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node-24 --trace-warnings ...` to show where the warning was created)
+(node:419910) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node-24 --trace-warnings ...` to show where the warning was created)
+  ✓   7 [chromium] › tests/automatic-scan.spec.ts:87:1 › keeps chosen-scope scanning available as an advanced mode (1.0s)
+  ✓   2 [chromium] › tests/automatic-scan.spec.ts:12:1 › starts an automatic local scan without choosing folders and refreshes discovered scopes (1.1s)
+  ✓   1 [chromium] › tests/history-scopes.spec.ts:186:1 › scope exclusions send only opaque scope ID and literal relative prefixes, then revoke approval (1.2s)
+  ✓   6 [chromium] › tests/automatic-scan.spec.ts:149:1 › allows reviewing a selected complete item from a partial automatic scan (1.4s)
+  ✓   5 [chromium] › tests/history-scopes.spec.ts:3:1 › history presents persisted reports and exports only after explicit selection (1.4s)
+  ✓   9 [chromium] › tests/journey.spec.ts:53:1 › pause and cancel never suggests incomplete results (1.2s)
+  ✓   3 [chromium] › tests/cleanup.spec.ts:14:1 › local cleanup reports every fixture file and never attributes volume delta (2.4s)
+  ✓  15 [chromium] › tests/virtual-list-f4.spec.ts:16:3 › F4 UI synthetic IPC list 100: bounded DOM, reflow, keyboard and frame sample (2.5s)
+  ✓  11 [chromium] › tests/journey.spec.ts:120:1 › empty and error states remain truthful across innovation screens (3.8s)
+  ✓   4 [chromium] › tests/i18n.spec.ts:3:1 › English keyboard journey translates the interface and preserves visual preferences (6.1s)
+  ✓   8 [chromium] › tests/journey.spec.ts:14:1 › complete journey: protect, explain, review, simulate and report with no real recovery (6.1s)
+  ✓  13 [chromium] › tests/journey.spec.ts:215:1 › cancellation between items keeps completed outcomes and report estimate frozen (4.8s)
+  ✓  14 [chromium] › tests/journey.spec.ts:232:1 › project drill-down, keyboard focus and local-only renderer (5.2s)
+  ✓  18 [chromium] › tests/virtual-list.spec.ts:12:3 › renderer keeps 100 synthetic IPC candidates bounded and keyboard reachable (1.7s)
+  ✓  19 [chromium] › tests/virtual-list.spec.ts:12:3 › renderer keeps 1000 synthetic IPC candidates bounded and keyboard reachable (1.9s)
+  ✓  12 [chromium] › tests/journey.spec.ts:154:1 › screenshots, contrast, reflow, keyboard and reduced motion (7.3s)
+  ✓  10 [chromium] › tests/journey.spec.ts:79:1 › partial execution preserves failures and changed items (7.7s)
+  ✓  20 [chromium] › tests/virtual-list.spec.ts:12:3 › renderer keeps 10000 synthetic IPC candidates bounded and keyboard reachable (2.7s)
+  ✓  16 [chromium] › tests/virtual-list-f4.spec.ts:16:3 › F4 UI synthetic IPC list 1000: bounded DOM, reflow, keyboard and frame sample (4.0s)
+  ✓  17 [chromium] › tests/virtual-list-f4.spec.ts:16:3 › F4 UI synthetic IPC list 10000: bounded DOM, reflow, keyboard and frame sample (5.1s)
+
+  20 passed (12.2s)

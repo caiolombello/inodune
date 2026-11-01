@@ -1,0 +1,21 @@
+{
+  "checkedAtUtc": "2026-11-01T16:50:44.586512+00:00",
+  "platforms": [
+    "ubuntu-24.04",
+    "fedora-44"
+  ],
+  "sourceRevision": "39c534f2f3b3bf299c7e8010a775f6c89d3674a6",
+  "sourceInputs": {
+    "gitHead": "39c534f2f3b3bf299c7e8010a775f6c89d3674a6",
+    "trackedInputStatus": "clean",
+    "trackedInputDiffSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "generatedFrontendDistTreeSha256": "e10670cb10fa578f886e0237c8d8c9dc49c938cf40add96ed16d46ca1899dbec",
+    "releaseGuiBinarySha256": "7615f5c219645a9f5934a57397313ef6fd013a46540d985be457e2855f753fa6",
+    "releaseCliBinarySha256": "c6c5f1ed17fe5ea0793fc1c8d4cc62e8b903bb51f8a0a9de282688ace1d4fa0e"
+  },
+  "results": {
+    "ubuntu-24.04": "PASS",
+    "fedora-44": "PASS"
+  },
+  "scope": "installed GUI process and visible window under Xvfb, isolated container, empty XDG home, network disabled"
+}

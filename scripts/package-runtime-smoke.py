@@ -29,6 +29,20 @@ PLATFORMS = {
         "copy_name": "Inodune.rpm",
     },
 }
+SOURCE_INPUT_PATHS = [
+    "Cargo.toml",
+    "Cargo.lock",
+    "rust-toolchain.toml",
+    "LICENSE",
+    "crates",
+    "tests/fixtures",
+    "assets/brand",
+    "package.json",
+    "package-lock.json",
+    "apps/desktop/src",
+    "apps/desktop/src-tauri",
+    "apps/desktop/tests",
+]
 
 
 def run(
@@ -56,6 +70,36 @@ def sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
+def tree_sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    for file in sorted(item for item in path.rglob("*") if item.is_file()):
+        relative = file.relative_to(path).as_posix().encode("utf-8")
+        digest.update(relative + b"\0" + sha256(file).encode("ascii") + b"\n")
+    return digest.hexdigest()
+
+
+def source_input_metadata() -> dict[str, str]:
+    status = run(
+        ["git", "status", "--porcelain=v1", "--untracked-files=all", "--", *SOURCE_INPUT_PATHS],
+        capture=True,
+        cwd=ROOT,
+    ).stdout.strip()
+    diff = subprocess.run(
+        ["git", "diff", "--binary", "HEAD", "--", *SOURCE_INPUT_PATHS],
+        cwd=ROOT,
+        capture_output=True,
+        check=True,
+    ).stdout
+    return {
+        "gitHead": run(["git", "rev-parse", "HEAD"], capture=True, cwd=ROOT).stdout.strip(),
+        "trackedInputStatus": status or "clean",
+        "trackedInputDiffSha256": hashlib.sha256(diff).hexdigest(),
+        "generatedFrontendDistTreeSha256": tree_sha256(ROOT / "apps/desktop/dist"),
+        "releaseGuiBinarySha256": sha256(ROOT / "target/compat/release/inodune-desktop"),
+        "releaseCliBinarySha256": sha256(ROOT / "target/compat/release/inodune-cli"),
+    }
+
+
 def package_for(config: dict[str, str]) -> Path:
     packages = sorted(PACKAGE_DIR.glob(config["package_pattern"]))
     if len(packages) != 1:
@@ -66,7 +110,13 @@ def package_for(config: dict[str, str]) -> Path:
     return packages[0]
 
 
-def smoke(platform: str, output_root: Path, *, rebuild: bool, source_revision: str) -> None:
+def smoke(
+    platform: str,
+    output_root: Path,
+    *,
+    rebuild: bool,
+    source_inputs: dict[str, str],
+) -> None:
     config = PLATFORMS[platform]
     package = package_for(config)
     if not package.is_file():
@@ -144,7 +194,8 @@ def smoke(platform: str, output_root: Path, *, rebuild: bool, source_revision: s
             "localImageId": image_id,
             "packageFile": package.name,
             "packageSha256": package_hash,
-            "sourceRevision": source_revision,
+            "sourceRevision": source_inputs["gitHead"],
+            "sourceInputs": source_inputs,
             "explicitHostDataMounts": [],
             "hostInstallation": False,
         }
@@ -159,14 +210,15 @@ def main() -> None:
     parser.add_argument("--output-dir", type=Path, default=ROOT / "docs/evidence/automatic")
     parser.add_argument("--rebuild", action="store_true", help="ignore cached smoke image layers")
     args = parser.parse_args()
-    source_revision = run(["git", "rev-parse", "HEAD"], capture=True, cwd=ROOT).stdout.strip()
+    source_inputs = source_input_metadata()
     selected = list(PLATFORMS) if args.platform == "all" else [args.platform]
     for platform in selected:
-        smoke(platform, args.output_dir, rebuild=args.rebuild, source_revision=source_revision)
+        smoke(platform, args.output_dir, rebuild=args.rebuild, source_inputs=source_inputs)
     summary = {
         "checkedAtUtc": datetime.now(timezone.utc).isoformat(),
         "platforms": selected,
-        "sourceRevision": source_revision,
+        "sourceRevision": source_inputs["gitHead"],
+        "sourceInputs": source_inputs,
         "results": {platform: "PASS" for platform in selected},
         "scope": "installed GUI process and visible window under Xvfb, isolated container, empty XDG home, network disabled",
     }

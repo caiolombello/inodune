@@ -1,0 +1,47 @@
+{
+  "checkedAtUtc": "2026-11-01T16:50:29.065610+00:00",
+  "distribution": "PRETTY_NAME=\"Ubuntu 24.04.5 LTS\"\nNAME=\"Ubuntu\"\nVERSION_ID=\"24.04\"\nVERSION=\"24.04.5 LTS (Noble Numbat)\"\nVERSION_CODENAME=noble\nID=ubuntu\nID_LIKE=debian\nHOME_URL=\"https://www.ubuntu.com/\"\nSUPPORT_URL=\"https://help.ubuntu.com/\"\nBUG_REPORT_URL=\"https://bugs.launchpad.net/ubuntu/\"\nPRIVACY_POLICY_URL=\"https://www.ubuntu.com/legal/terms-and-policies/privacy-policy\"\nUBUNTU_CODENAME=noble\nLOGO=ubuntu-logo\n",
+  "packageVersion": "0.1.1",
+  "installedRuntimePackages": {
+    "libgtk-3-0t64:amd64": "3.24.41-4ubuntu1.3",
+    "libwebkit2gtk-4.1-0:amd64": "2.52.6-0ubuntu0.24.04.1",
+    "x11-apps": "7.7+11build3",
+    "xvfb": "2:21.1.12-1ubuntu1.9"
+  },
+  "runtimeUser": {
+    "name": "ubuntu",
+    "uid": 1000,
+    "home": "/home/ubuntu"
+  },
+  "network": "disabled by Podman (--network=none)",
+  "xdgHome": "empty TemporaryDirectory, removed after app exit",
+  "explicitHostDataMounts": [],
+  "scanInitiatedByHarness": false,
+  "automaticStartupScan": "not asserted; container has no mounted user data",
+  "gui": {
+    "executable": "/usr/bin/inodune-desktop",
+    "visibleWindow": true,
+    "windowTitle": "Inodune",
+    "processRemainedLiveAfterWindowAppeared": true,
+    "screenshot": "inodune-desktop.png",
+    "screenshotColors": 2154,
+    "graphicsMode": "test-only software compositing fallback (WEBKIT_DISABLE_COMPOSITING_MODE=1)"
+  },
+  "dynamicLibraries": "ldd found no unresolved dependencies",
+  "cleanupInitiatedByHarness": false,
+  "platform": "ubuntu-24.04",
+  "baseImage": "docker.io/library/ubuntu@sha256:78d4744ead1f5b19b04d0df558ab182a5300903900755e515b2ca4d10eb2044d",
+  "localImageId": "2a20f28b9b1a8d7d1f1ef7d49371e3b6ec392af3b7bf76235f8ed98f25057c38",
+  "packageFile": "Inodune_0.1.1_amd64.deb",
+  "packageSha256": "60f60c952655caa936c6bd4eaac032120c1b54db680461200a880d013b45fc51",
+  "sourceRevision": "39c534f2f3b3bf299c7e8010a775f6c89d3674a6",
+  "hostInstallation": false,
+  "sourceInputs": {
+    "gitHead": "39c534f2f3b3bf299c7e8010a775f6c89d3674a6",
+    "trackedInputStatus": "clean",
+    "trackedInputDiffSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "generatedFrontendDistTreeSha256": "e10670cb10fa578f886e0237c8d8c9dc49c938cf40add96ed16d46ca1899dbec",
+    "releaseGuiBinarySha256": "7615f5c219645a9f5934a57397313ef6fd013a46540d985be457e2855f753fa6",
+    "releaseCliBinarySha256": "c6c5f1ed17fe5ea0793fc1c8d4cc62e8b903bb51f8a0a9de282688ace1d4fa0e"
+  }
+}

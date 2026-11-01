@@ -44,3 +44,13 @@ Fases 0–4 implementadas conservadoramente; código e builds locais verificados
 Usabilidade com 3 desenvolvedores e 2 pessoas não técnicas: não executada; sem participantes. Segurança real de deleção não certificada. Nenhum release/publicação/PR autorizado por este incremento. Não executar testes sobre dados reais. Não promover validações indisponíveis a aprovadas nem chamar este build local de release certificado.
 
 Evidências e comandos exatos: [Fase 0](evidence/phase0.md). Na F0 não houve deleção; na F2 operações reais foram executadas exclusivamente sobre fixtures temporárias criadas pelo teste. Nenhuma limpeza/teste sobre dados reais nem publicação. Provisionamento nativo com sudo foi autorizado expressamente; o app não usa root. 14 registros npm de build/dev (2 low, 12 moderate), sem vulnerabilidade de produção na consulta registrada. Rust 1.93.0 local; GCC no host e builder Debian rootless. [Auditoria atual](evidence/f4/dependency-audit.md) inclui os avisos RustSec GTK3 abertos.
+
+
+## Incremento automático 0.1.1
+
+- [x] Pedido posterior do usuário substitui seleção manual obrigatória: CTA Analisar computador, sem onboarding/picker obrigatório; modo avançado opcional.
+- [x] Descoberta backend de home/árvores próprias/volumes locais montados; `/` não é root destrutiva, outros UIDs/rede/FS incerto/sistema protegidos e cobertura parcial explícita.
+- [x] Exclusões/proteções/revogações preservadas na redescoberta; root parcial não é licença para remover conteúdo incerto.
+- [x] Manifestos completos selecionados de scan automático parcial podem ser revisados; cancelados/incompletos seguem bloqueados e confirmação nativa exibe a cobertura parcial.
+- [x] 93 testes Rust, 3 lanes isoladas adicionais (2 mounts + 1 ownership), 9 unitários frontend e 20 E2E Chromium; novo fluxo native/IPC em fixtures e pacotes 0.1.1 abertos em Ubuntu/Fedora isolados. [Evidências](evidence/automatic/acceptance.md).
+- [x] Efeito do kernel sobre atime de diretórios root-owned documentado, sem ocultar o teste inicial que o revelou. Nenhum scan/teste sobre dados pessoais foi executado.

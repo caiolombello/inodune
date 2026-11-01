@@ -1,0 +1,37 @@
+{
+  "warnings": [],
+  "schema_version": 1,
+  "items": [
+    {
+      "complete": true,
+      "files": [
+        {
+          "display_path": "/tmp/.tmpgERW7X/./projects/orbit/target/debug/.fingerprint/fixture-0123456789abcdef/lib-fixture.json",
+          "logical_bytes": 148,
+          "preserved_at": null,
+          "status": "removed",
+          "durability_confirmed": true,
+          "message": "Removido; verifique varia\u00e7\u00e3o observada do volume."
+        }
+      ],
+      "candidate_id": "scan-18e3f9c3a8db330c-2-8"
+    }
+  ],
+  "cancelled": false,
+  "history_path": "/tmp/.tmpgERW7X/state/inodune/reports/report-fa498af8b966a23e7703089a69162580.json",
+  "volumes": [
+    {
+      "observed_delta": 4096,
+      "device": 54,
+      "available_before": 16148660224,
+      "available_after": 16148664320
+    }
+  ],
+  "complete": true,
+  "plan_id": "plan-22ae7b287a6b4bbbb050595292059ce9",
+  "action": "permanent",
+  "measurement_note": "Varia\u00e7\u00e3o observada no filesystem; arquivos abertos, CoW, snapshots e atividade externa podem adiar ou alterar a libera\u00e7\u00e3o. Sem garantia de apagamento seguro.",
+  "journal_path": "/tmp/.tmpgERW7X/state/inodune/reports/journal-d6b3fb05b1c3191b1a543bec4aedaef4.jsonl",
+  "attributed_freed_bytes": null,
+  "logical_bytes_processed": 148
+}
