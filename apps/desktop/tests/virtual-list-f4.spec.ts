@@ -10,7 +10,7 @@ const corpus = JSON.parse(
   ),
 ) as { candidates: Candidate[] };
 
-const evidenceDirectory = '../../docs/evidence/f4';
+const evidenceDirectory = '../../docs/evidence/automatic/renderer';
 
 for (const count of [100, 1_000, 10_000]) {
   test(`F4 UI synthetic IPC list ${count}: bounded DOM, reflow, keyboard and frame sample`, async ({
@@ -78,7 +78,16 @@ for (const count of [100, 1_000, 10_000]) {
     );
 
     await page.goto('/');
-    await page.getByRole('button', { name: 'Explorar sem analisar' }).click();
+    await page
+      .getByRole('button', { name: 'Configurações', exact: true })
+      .first()
+      .click();
+    await page
+      .getByLabel('Modo de análise', { exact: true })
+      .selectOption('manual');
+    await page
+      .getByRole('button', { name: 'Visão geral', exact: true })
+      .click();
     await expect(
       page.getByRole('button', { name: 'Analisar pastas', exact: true }),
     ).toBeEnabled();

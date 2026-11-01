@@ -55,6 +55,7 @@ export interface CleanupPlan {
   logical_bytes_estimate: number;
   allocated_bytes_estimate: number | null;
   review_required?: boolean;
+  inventory_complete?: boolean;
 }
 export type CleanupFileStatus =
   | 'trashed'
@@ -110,6 +111,7 @@ export const native = {
     invoke<NativeScope | null>('choose_scope', { kind, locale }),
   listScopes: () => invoke<NativeScope[]>('list_scopes'),
   forgetScope: (scopeId: string) => invoke<void>('forget_scope', { scopeId }),
+  beginAutomaticScan: () => invoke<string>('begin_automatic_scan'),
   beginScan: (scopeIds: string[]) => invoke<string>('begin_scan', { scopeIds }),
   pollScan: (jobId: string) => invoke<ScanPoll>('poll_scan', { jobId }),
   controlScan: (jobId: string, action: 'pause' | 'resume' | 'cancel') =>

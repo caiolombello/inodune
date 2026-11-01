@@ -123,7 +123,13 @@ test('history presents persisted reports and exports only after explicit selecti
   });
 
   await page.goto('/');
-  await page.getByRole('button', { name: 'Explorar sem analisar' }).click();
+  await page
+    .getByRole('button', { name: 'Configurações', exact: true })
+    .first()
+    .click();
+  await page
+    .getByLabel('Modo de análise', { exact: true })
+    .selectOption('manual');
   await page.getByRole('button', { name: 'Histórico', exact: true }).click();
   await expect(
     page.getByRole('heading', { name: 'Histórico local' }),
@@ -216,7 +222,13 @@ test('scope exclusions send only opaque scope ID and literal relative prefixes, 
   });
 
   await page.goto('/');
-  await page.getByRole('button', { name: 'Explorar sem analisar' }).click();
+  await page
+    .getByRole('button', { name: 'Configurações', exact: true })
+    .first()
+    .click();
+  await page
+    .getByLabel('Modo de análise', { exact: true })
+    .selectOption('manual');
   await page
     .getByRole('button', { name: 'Configurações', exact: true })
     .last()

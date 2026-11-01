@@ -1,6 +1,15 @@
 export type Locale = 'pt-BR' | 'en-US';
 
 const catalog: Record<string, string> = {
+  'Análise automática · limpeza com confirmação':
+    'Automatic analysis · cleanup requires confirmation',
+  'A home e as unidades locais montadas são descobertas automaticamente. Áreas protegidas ficam fora da limpeza.':
+    'Your home and mounted local volumes are discovered automatically. Protected areas are excluded from cleanup.',
+  'Clique em Analisar computador. Não é necessário escolher pastas.':
+    'Click Analyze computer. No folder selection is required.',
+  'Subpasta de miniaturas na localização XDG confirmada pelo backend.':
+    'Thumbnail subfolder in the XDG location confirmed by the backend.',
+
   'Movido à Lixeira; ainda ocupa espaço.': 'Moved to Trash; still uses space.',
   'Removido; verifique variação observada do volume.':
     'Removed; check the observed volume change.',
@@ -111,8 +120,24 @@ const catalog: Record<string, string> = {
   'Decisões claras, com você no controle.':
     'Clear decisions, with you in control.',
   'Analisar pastas': 'Analyze folders',
+  'Analisar computador': 'Analyze computer',
+  'Analisa automaticamente volumes locais acessíveis sem privilégios. Áreas protegidas e limitações serão relatadas; nada será removido.':
+    'Automatically scans accessible local volumes without elevated privileges. Protected areas and limitations are reported; nothing is removed.',
+  'Analisa automaticamente volumes locais acessíveis sem privilégios. Áreas do sistema, outros usuários, rede, links e caminhos sem leitura permanecem protegidos e podem aparecer como avisos. Nenhuma remoção ocorre durante a análise.':
+    'Automatically scans accessible local volumes without elevated privileges. System areas, other users, network paths, links, and unreadable paths stay protected and may appear as warnings. Nothing is removed during analysis.',
+  'Modo avançado: escolha escopos específicos. Links, mounts externos, sessões e estado são preservados.':
+    'Advanced mode: choose specific scopes. Links, external mounts, sessions, and state are preserved.',
+  'Modo avançado: escolha escopos específicos no diálogo nativo. A aprovação não inicia o scan.':
+    'Advanced mode: choose specific scopes in the native dialog. Approval does not start the scan.',
+  'O computador será analisado automaticamente em modo somente leitura. Áreas sem acesso ou protegidas serão informadas, nunca contornadas.':
+    'The computer is scanned automatically in read-only mode. Inaccessible or protected areas are reported, never bypassed.',
+  'O scanner Rust vai descobrir volumes locais acessíveis, sem privilégios e sem seguir links. Áreas do sistema, outros usuários, rede e caminhos sem leitura serão preservados e relatados. Você poderá pausar, cancelar e revisar os resultados.':
+    'The Rust scanner discovers accessible local volumes without elevated privileges or following links. System areas, other users, network paths, and unreadable paths are preserved and reported. You can pause, cancel, and review results.',
   'Analisar exemplo': 'Analyze sample',
   'Analisar novamente': 'Analyze again',
+  'Analisando volumes locais': 'Scanning local volumes',
+  'A análise tem áreas não examinadas. Este plano contém somente os itens selecionados com manifesto completo; nada fora dele será alterado.':
+    'Some areas were not examined. This plan contains only the selected items with complete manifests; nothing outside it will be changed.',
   'Análise local': 'Local analysis',
   'Protótipo navegável': 'Interactive demo',
   'Somente pastas aprovadas. Nenhuma remoção automática.':

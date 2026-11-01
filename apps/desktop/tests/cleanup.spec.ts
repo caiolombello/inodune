@@ -189,7 +189,14 @@ test('local cleanup reports every fixture file and never attributes volume delta
   );
 
   await page.goto('/');
-  await page.getByRole('button', { name: 'Explorar sem analisar' }).click();
+  await page
+    .getByRole('button', { name: 'Configurações', exact: true })
+    .first()
+    .click();
+  await page
+    .getByLabel('Modo de análise', { exact: true })
+    .selectOption('manual');
+  await page.getByRole('button', { name: 'Visão geral', exact: true }).click();
   await expect(
     page.getByRole('button', { name: 'Analisar pastas', exact: true }),
   ).toBeEnabled();
@@ -247,7 +254,7 @@ test('local cleanup reports every fixture file and never attributes volume delta
   await expect(page.getByText('/fixture/history/report.json')).toBeVisible();
   const path = resolve(
     process.cwd(),
-    '../../docs/evidence/f4/screenshots/chromium-cleanup-report.png',
+    '../../docs/evidence/automatic/renderer/screenshots/chromium-cleanup-report.png',
   );
   await mkdir(resolve(path, '..'), { recursive: true });
   await page.screenshot({ path, fullPage: true, animations: 'disabled' });

@@ -70,7 +70,16 @@ for (const count of [100, 1000, 10000]) {
       { items: candidates },
     );
     await page.goto('/');
-    await page.getByRole('button', { name: 'Explorar sem analisar' }).click();
+    await page
+      .getByRole('button', { name: 'Configurações', exact: true })
+      .first()
+      .click();
+    await page
+      .getByLabel('Modo de análise', { exact: true })
+      .selectOption('manual');
+    await page
+      .getByRole('button', { name: 'Visão geral', exact: true })
+      .click();
     await expect(
       page.getByRole('button', { name: 'Analisar pastas', exact: true }),
     ).toBeEnabled();
@@ -111,9 +120,9 @@ for (const count of [100, 1000, 10000]) {
         exact: true,
       }),
     ).toBeVisible();
-    await mkdir('../../docs/evidence/f4', { recursive: true });
+    await mkdir('../../docs/evidence/automatic/renderer', { recursive: true });
     await writeFile(
-      `../../docs/evidence/f4/${info.project.name}-renderer-${count}.json`,
+      `../../docs/evidence/automatic/renderer/${info.project.name}-renderer-${count}.json`,
       JSON.stringify(
         {
           count,

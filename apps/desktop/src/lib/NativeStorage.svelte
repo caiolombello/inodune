@@ -11,6 +11,7 @@
     busy,
     scanStatus,
     onreview,
+    automatic = false,
   }: {
     volumes: NativeVolume[];
     potential: number;
@@ -19,6 +20,7 @@
     busy: boolean;
     scanStatus: ScanState;
     onreview: () => void;
+    automatic?: boolean;
   } = $props();
   let device = $state(0);
   const unique = $derived([
@@ -55,7 +57,13 @@
           ? t('Espaço medido, no seu disco.')
           : t('Seu disco ainda não foi analisado.')}
       </h2>
-      <p>{t('Somente pastas que você aprovar entram na análise.')}</p>
+      <p>
+        {t(
+          automatic
+            ? 'A home e as unidades locais montadas são descobertas automaticamente. Áreas protegidas ficam fora da limpeza.'
+            : 'Somente pastas que você aprovar entram na análise.',
+        )}
+      </p>
       {#if volume}<div>
           <span
             ><i class="legend-dot used"></i> {t('Ocupado ou reservado')}</span
@@ -71,7 +79,9 @@
         <small>{volume.scope_path} · statvfs · medição deste scan</small
         >{:else}<small
           >{t(
-            'Escolha uma pasta para começar. Nenhum número de demonstração é usado neste modo.',
+            automatic
+              ? 'Clique em Analisar computador. Não é necessário escolher pastas.'
+              : 'Escolha uma pasta para começar. Nenhum número de demonstração é usado neste modo.',
           )}</small
         >{/if}
       {#if unique.length > 1}<label

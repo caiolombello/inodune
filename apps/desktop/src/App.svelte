@@ -105,11 +105,12 @@
     report: 'O resultado, sem atalhos.',
   };
   let page = $state<Page>('overview');
-  let onboarding = $state<number | null>(0);
+  let onboarding = $state<number | null>(isDesktop ? null : 0);
   let source = $state<'local' | 'demo'>(isDesktop ? 'local' : 'demo');
   let scopes = $state<string[]>(
     isDesktop ? [] : ['demo-cache', 'demo-projects', 'demo-agents'],
   );
+  let scanMode = $state<'automatic' | 'manual'>('automatic');
   let nativeScopes = $state<NativeScope[]>([]);
   let nativeResult = $state<NativeResult | null>(null);
   let nativeJob = $state<string | null>(null);
@@ -351,7 +352,10 @@
         : demo.candidates.filter((c) => scopes.includes(c.scope_id));
     if (source === 'local') {
       try {
-        nativeJob = await native.beginScan(scopes);
+        nativeJob =
+          scanMode === 'automatic'
+            ? await native.beginAutomaticScan()
+            : await native.beginScan(scopes);
         await pollNative();
       } catch (e) {
         nativeError = String(e);
@@ -429,6 +433,16 @@
       if (result.result) {
         nativeResult = result.result;
         candidates = result.result.candidates;
+        if (scanMode === 'automatic') {
+          try {
+            const discovered = await native.listScopes();
+            if (nativeJob !== jobId) return;
+            nativeScopes = discovered;
+            scopes = discovered.map((scope) => scope.id);
+          } catch (e) {
+            nativeError = `A análise terminou, mas não foi possível atualizar a lista das áreas descobertas: ${String(e)}`;
+          }
+        }
         scanState = result.result.cancelled ? 'cancelled' : 'complete';
         selected = result.result.complete
           ? source === 'local'
@@ -542,7 +556,9 @@
   async function prepareLocalCleanup() {
     if (
       source !== 'local' ||
-      !nativeResult?.complete ||
+      !nativeResult ||
+      nativeResult.cancelled ||
+      (!nativeResult.complete && scanMode !== 'automatic') ||
       !nativeResult.scan_id ||
       !selected.length ||
       selected.some((id) => !locallyEligible.some((item) => item.id === id)) ||
@@ -762,7 +778,9 @@
         <strong
           >{t(
             source === 'local'
-              ? 'Escopos aprovados · limpeza com confirmação'
+              ? scanMode === 'automatic'
+                ? 'Análise automática · limpeza com confirmação'
+                : 'Escopos aprovados · limpeza com confirmação'
               : 'Somente dados sintéticos',
           )}</strong
         >
@@ -825,12 +843,16 @@
             disabled={scanBusy ||
               executing ||
               preparingCleanup ||
-              scopes.length === 0}
+              (source === 'local' &&
+                scanMode === 'manual' &&
+                scopes.length === 0)}
             ><RefreshCw size={16} />
             {t(
               scanState === 'idle'
                 ? source === 'local'
-                  ? 'Analisar pastas'
+                  ? scanMode === 'automatic'
+                    ? 'Analisar computador'
+                    : 'Analisar pastas'
                   : 'Analisar exemplo'
                 : 'Analisar novamente',
             )}</button
@@ -845,7 +867,9 @@
           >
           · {t(
             source === 'local'
-              ? 'Somente pastas aprovadas. Nenhuma remoção automática.'
+              ? scanMode === 'automatic'
+                ? 'Descoberta local automática. Nenhuma remoção automática.'
+                : 'Pastas aprovadas. Nenhuma remoção automática.'
               : 'Pastas e valores fictícios. Seus arquivos não são acessados.',
           )}</span
         ><button
@@ -874,7 +898,9 @@
                 scanState === 'paused'
                   ? 'Análise pausada'
                   : source === 'local'
-                    ? 'Analisando pastas aprovadas'
+                    ? scanMode === 'automatic'
+                      ? 'Analisando volumes locais'
+                      : 'Analisando pastas aprovadas'
                     : 'Analisando exemplos locais',
               )}
             </h2>
@@ -969,6 +995,7 @@
         </section>{/if}
       {#if page === 'overview'}
         {#if source === 'local'}<NativeStorage
+            automatic={scanMode === 'automatic'}
             volumes={nativeResult?.volumes ?? []}
             {potential}
             count={available.length}
@@ -1101,14 +1128,23 @@
               <p>
                 {t(
                   source === 'local'
-                    ? 'Escolha pastas específicas para analisar. Nenhum scan é iniciado automaticamente.'
+                    ? scanMode === 'automatic'
+                      ? 'Analise automaticamente os volumes locais acessíveis. Áreas protegidas e limitações serão relatadas; nada será removido.'
+                      : 'Escolha os escopos avançados que deseja analisar.'
                     : 'Explore o fluxo com pastas de exemplo. Nada será lido do seu disco.',
                 )}
               </p>
-              <button class="button" onclick={() => (onboarding = 1)}
+              <button
+                class="button"
+                onclick={() =>
+                  source === 'local' && scanMode === 'automatic'
+                    ? startScan()
+                    : (onboarding = 1)}
                 >{t(
                   source === 'local'
-                    ? 'Escolher pastas'
+                    ? scanMode === 'automatic'
+                      ? 'Analisar computador'
+                      : 'Escolher pastas'
                     : 'Escolher escopos de exemplo',
                 )}</button
               >
@@ -1454,7 +1490,9 @@
                 preparingCleanup ||
                 localScanStale ||
                 (source === 'local' &&
-                  (!nativeResult?.complete ||
+                  (!nativeResult ||
+                    nativeResult.cancelled ||
+                    (!nativeResult.complete && scanMode !== 'automatic') ||
                     selected.some(
                       (id) => !locallyEligible.some((item) => item.id === id),
                     )))}
@@ -1813,11 +1851,35 @@
           <p>
             {t(
               source === 'local'
-                ? 'Selecione pastas específicas. Links, mounts externos, sessões e estado são preservados.'
+                ? scanMode === 'automatic'
+                  ? 'Analisa automaticamente volumes locais acessíveis sem privilégios. Áreas do sistema, outros usuários, rede, links e caminhos sem leitura permanecem protegidos e podem aparecer como avisos. Nenhuma remoção ocorre durante a análise.'
+                  : 'Modo avançado: escolha escopos específicos. Links, mounts externos, sessões e estado são preservados.'
                 : 'Os caminhos abaixo são fictícios e não são acessados.',
             )}
           </p>
-          {#if source === 'local'}<div class="inline-actions scope-actions">
+          {#if source === 'local'}<label class="setting-row">
+              <span
+                ><strong>{t('Modo de análise')}</strong><small
+                  >{t(
+                    'Automático percorre os volumes locais permitidos; manual usa somente os escopos marcados.',
+                  )}</small
+                ></span
+              >
+              <select
+                aria-label={t('Modo de análise')}
+                bind:value={scanMode}
+                disabled={scanBusy || executing || preparingCleanup}
+              >
+                <option value="automatic">{t('Automático · computador')}</option
+                >
+                <option value="manual"
+                  >{t('Avançado · escopos escolhidos')}</option
+                >
+              </select>
+            </label>{/if}
+          {#if source === 'local' && scanMode === 'manual'}<div
+              class="inline-actions scope-actions"
+            >
               <button
                 class="button"
                 disabled={choosingScope ||
@@ -1844,19 +1906,20 @@
                 ><Shield size={16} /> {t('Inventário protegido de IA')}</button
               >
             </div>{/if}
-          {#each scopeOptions as scope (scope.id)}<label class="scope-option"
-              ><input
-                type="checkbox"
-                checked={scopes.includes(scope.id)}
-                onchange={() => chooseScope(scope.id)}
-                disabled={scanBusy || executing || preparingCleanup}
-              /><span
-                ><strong
-                  >{source === 'local' ? scope.label : t(scope.label)}</strong
-                ><code>{scope.display_path}</code></span
-              ></label
-            >{/each}
-          {#if source === 'local'}
+          {#if source !== 'local' || scanMode === 'manual'}{#each scopeOptions as scope (scope.id)}<label
+                class="scope-option"
+                ><input
+                  type="checkbox"
+                  checked={scopes.includes(scope.id)}
+                  onchange={() => chooseScope(scope.id)}
+                  disabled={scanBusy || executing || preparingCleanup}
+                /><span
+                  ><strong
+                    >{source === 'local' ? scope.label : t(scope.label)}</strong
+                  ><code>{scope.display_path}</code></span
+                ></label
+              >{/each}{/if}
+          {#if source === 'local' && scanMode === 'manual'}
             {#if scanBusy || executing || preparingCleanup}
               <p class="inline-note">
                 {t(
@@ -1892,10 +1955,12 @@
             disabled={scanBusy ||
               executing ||
               preparingCleanup ||
-              !scopes.length}
+              (source === 'local' && scanMode === 'manual' && !scopes.length)}
             >{t(
               source === 'local'
-                ? 'Analisar pastas aprovadas'
+                ? scanMode === 'automatic'
+                  ? 'Analisar computador'
+                  : 'Analisar pastas aprovadas'
                 : 'Analisar cenário',
             )}</button
           >
@@ -2001,7 +2066,7 @@
         <p>
           {source === 'local'
             ? t(
-                'A análise é somente leitura. Você aprova cada pasta no diálogo nativo; nada é removido ao iniciar.',
+                'A análise é somente leitura e percorre automaticamente os volumes locais permitidos. Nenhuma pasta precisa ser escolhida e nada é removido ao iniciar.',
               )
             : t(
                 'Você está em um protótipo. Todos os caminhos e valores são exemplos; nenhum acesso aos seus arquivos será solicitado.',
@@ -2011,7 +2076,9 @@
     {:else if onboarding === 1}<p>
         {source === 'local'
           ? t(
-              'Escolha pastas específicas no diálogo nativo. A aprovação não inicia o scan.',
+              scanMode === 'automatic'
+                ? 'O computador será analisado automaticamente em modo somente leitura. Áreas sem acesso ou protegidas serão informadas, nunca contornadas.'
+                : 'Modo avançado: escolha escopos específicos no diálogo nativo. A aprovação não inicia o scan.',
             )
           : t(
               'Escolha quais exemplos entram na análise. Nenhuma pasta real será aberta.',
@@ -2058,7 +2125,9 @@
       <p>
         {source === 'local'
           ? t(
-              'O scanner Rust percorrerá somente as pastas aprovadas, sem seguir links ou mounts. Você poderá pausar, cancelar e revisar os resultados.',
+              scanMode === 'automatic'
+                ? 'O scanner Rust vai descobrir volumes locais acessíveis, sem privilégios e sem seguir links. Áreas do sistema, outros usuários, rede e caminhos sem leitura serão preservados e relatados. Você poderá pausar, cancelar e revisar os resultados.'
+                : 'O scanner Rust percorrerá somente as pastas aprovadas, sem seguir links ou mounts. Você poderá pausar, cancelar e revisar os resultados.',
             )
           : t(
               'O provedor de demonstração emitirá itens e estados de análise. Você poderá pausar, cancelar e revisar tudo antes de simular uma decisão.',
@@ -2196,6 +2265,17 @@
           {formatNumber(cleanupPlan.expires_in_seconds)}
           {t('segundos')}.
         </p>
+        {#if cleanupPlan.inventory_complete === false}<div
+            class="notice"
+            role="note"
+          >
+            <CircleAlert size={20} />
+            <p>
+              {t(
+                'A análise tem áreas não examinadas. Este plano contém somente os itens selecionados com manifesto completo; nada fora dele será alterado.',
+              )}
+            </p>
+          </div>{/if}
         {#if cleanupPlan.review_required || cleanupPlan.items.some((item) => item.risk === 'review' || candidates.find((candidate) => candidate.id === item.candidate_id)?.risk === 'review')}<div
             class="notice"
           >
