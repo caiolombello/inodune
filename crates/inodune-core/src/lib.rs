@@ -1,6 +1,8 @@
 //! Shared contracts, read-only discovery and conservative planning.
 #[cfg(target_os = "linux")]
 pub mod scan;
+#[cfg(target_os = "linux")]
+pub mod git;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 

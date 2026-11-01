@@ -28,6 +28,11 @@ pub enum ScopeKind {
     Thumbnails,
     Protected,
 }
+/// Known agent namespaces stay protected even when a descendant is approved as
+/// a generic project root. The selected scope kind cannot downgrade this rule.
+pub fn is_protected_agent_path(path: &Path) -> bool {
+    path.components().any(|c|matches!(c,Component::Normal(name) if name==".codex"||name==".claude"||name=="opencode"))
+}
 pub fn xdg_thumbnail_root() -> Option<PathBuf> {
     std::env::var_os("XDG_CACHE_HOME")
         .filter(|p| !p.is_empty() && Path::new(p).is_absolute())
@@ -206,7 +211,7 @@ impl ScanControl {
     pub fn is_cancelled(&self) -> bool {
         self.cancelled.load(Ordering::Acquire)
     }
-    fn checkpoint(&self) -> bool {
+    pub(crate) fn checkpoint(&self) -> bool {
         let mut paused = self.paused.lock().unwrap_or_else(|p| p.into_inner());
         while *paused && !self.is_cancelled() {
             paused = self.wake.wait(paused).unwrap_or_else(|p| p.into_inner());
@@ -586,7 +591,7 @@ impl<F: FnMut(ScanProgress)> Walker<'_, F> {
         });
     }
     fn walk_root(&mut self, root: &ApprovedRoot) {
-        if root.kind == ScopeKind::Protected {
+        if root.kind == ScopeKind::Protected || is_protected_agent_path(root.path()) {
             self.candidate(root,Path::new("."),&root.path.file_name().unwrap_or_default().to_string_lossy(),CandidatePolicy{detector:"ai.history",title:"Inventário protegido",category:"IA & Agentes",risk:Risk::Protected,reason:"Escopo de conteúdo não regenerável; apenas metadados e tamanhos são inventariados."});
             return;
         }
