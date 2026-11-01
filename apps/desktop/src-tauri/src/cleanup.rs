@@ -170,7 +170,19 @@ async fn begin_authorized(
         .items
         .iter()
         .take(12)
-        .map(|i| format!("• {}", i.display_path))
+        .map(|i| {
+            format!(
+                "• {}\n  Risco: {}\n  {}\n  {}",
+                i.display_path,
+                if i.risk == inodune_core::Risk::Review {
+                    "revisão individual"
+                } else {
+                    "baixo"
+                },
+                i.impact,
+                i.rebuild_hint
+            )
+        })
         .collect::<Vec<_>>()
         .join("\n");
     let action = if view.action == Action::Trash {

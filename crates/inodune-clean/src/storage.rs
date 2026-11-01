@@ -19,6 +19,7 @@ pub(crate) fn open_dir(path: &Path, create: bool, private: bool) -> Result<Owned
         Mode::empty(),
     )
     .map_err(|e| e.to_string())?;
+    check_storage_ancestor(&fd)?;
     for part in path.components() {
         let Component::Normal(name) = part else {
             continue;
@@ -52,11 +53,23 @@ pub(crate) fn open_dir(path: &Path, create: bool, private: bool) -> Result<Owned
                 ))
             }
         };
+        check_storage_ancestor(&fd)?;
     }
     if private {
         check_private(&fd)?;
     }
     Ok(fd)
+}
+fn check_storage_ancestor(fd: impl AsFd) -> Result<(), String> {
+    let st = fs::fstat(fd).map_err(|e| e.to_string())?;
+    let uid = rustix::process::getuid().as_raw();
+    // Root-owned sticky temporary directories protect an owned child against
+    // cross-user renames. Other writable ancestors cannot provide that boundary.
+    let root_sticky = st.st_uid == 0 && st.st_mode & 0o1000 != 0;
+    if (st.st_uid != 0 && st.st_uid != uid) || (st.st_mode & 0o022 != 0 && !root_sticky) {
+        return Err("Ancestral do armazenamento é gravável por terceiros ou tem proprietário inesperado. Nenhuma permissão foi alterada.".into());
+    }
+    Ok(())
 }
 pub(crate) fn open_child(fd: impl AsFd, name: &Path) -> Result<OwnedFd, Errno> {
     fs::openat2(
@@ -288,6 +301,16 @@ mod tests {
             fs::read(dir.path().join("Trash/info/existing.trashinfo")).unwrap(),
             b"existing metadata"
         );
+    }
+    #[test]
+    fn writable_ancestor_is_rejected_before_creating_private_storage() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let shared = dir.path().join("shared");
+        fs::create_dir(&shared).unwrap();
+        fs::set_permissions(&shared, fs::Permissions::from_mode(0o777)).unwrap();
+        assert!(Trash::open(&shared.join("Trash")).is_err());
+        assert!(!shared.join("Trash").exists());
     }
     #[test]
     fn symlinked_storage_and_public_existing_storage_are_rejected() {

@@ -17,7 +17,7 @@ use std::{
 };
 
 const PLAN_TTL: Duration = Duration::from_secs(120);
-const PLAN_RULE_VERSION: &[u8] = b"inodune-cache-plan-v1";
+const PLAN_RULE_VERSION: &[u8] = b"inodune-cache-plan-v2";
 const MAX_PLAN_ITEMS: usize = 1000;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
@@ -33,6 +33,9 @@ pub struct PlanItem {
     pub display_path: String,
     pub logical_bytes: u64,
     pub allocated_bytes_estimate: Option<u64>,
+    pub risk: Risk,
+    pub impact: String,
+    pub rebuild_hint: String,
 }
 
 /// This structure may cross IPC. It never carries filesystem authority.
@@ -41,6 +44,7 @@ pub struct PlanView {
     pub id: String,
     pub hash: String,
     pub snapshot_id: String,
+    pub review_required: bool,
     pub action: Action,
     pub expires_in_seconds: u64,
     pub items: Vec<PlanItem>,
@@ -93,6 +97,8 @@ impl PlanSession {
         let mut ids = Vec::with_capacity(requested_ids.len().min(MAX_PLAN_ITEMS));
         let mut seen_ids = HashSet::new();
         let mut seen_coverage = HashSet::new();
+        let mut review_required = false;
+        let mut total_files = 0usize;
         for id in requested_ids {
             if !seen_ids.insert(id.as_str()) {
                 continue;
@@ -103,15 +109,25 @@ impl PlanSession {
             let candidate = by_id
                 .get(id.as_str())
                 .ok_or_else(|| "O item não pertence à análise atual.".to_owned())?;
-            if candidate.risk != Risk::Low
-                || !matches!(candidate.supported_action, SupportedAction::CacheContents)
-                || !matches!(
+            let low = candidate.risk == Risk::Low
+                && matches!(candidate.supported_action, SupportedAction::CacheContents)
+                && matches!(
                     candidate.detector_id.as_str(),
                     "python.pycache" | "thumbnails"
+                );
+            let reviewed = candidate.risk == Risk::Review
+                && matches!(
+                    candidate.supported_action,
+                    SupportedAction::ReviewedCacheContents
                 )
-            {
+                && matches!(
+                    candidate.detector_id.as_str(),
+                    "cargo.fingerprint-json" | "terraform.provider-package"
+                );
+            if !low && !reviewed {
                 return Err("O item está protegido ou ainda não tem uma ação aprovada.".into());
             }
+            review_required |= reviewed;
             let coverage = candidate
                 .coverage_key
                 .as_deref()
@@ -123,8 +139,28 @@ impl PlanSession {
                 .targets
                 .get(id)
                 .ok_or_else(|| "O manifesto do item está ausente.".to_owned())?;
+            if inodune_core::scan::is_protected_agent_path(
+                &target.root.path().join(&target.relative),
+            ) {
+                return Err(
+                    "Namespaces de agentes são protegidos independentemente do tipo de escopo."
+                        .into(),
+                );
+            }
             if !target.complete || target.files.is_empty() {
                 return Err("O manifesto do item está incompleto.".into());
+            }
+            total_files = total_files
+                .checked_add(target.files.len())
+                .ok_or("Manifesto excede o limite")?;
+            if total_files > 100_000 {
+                return Err("Plano excede 100.000 arquivos; divida a seleção.".into());
+            }
+            for (path, _) in &target.witnesses {
+                validate_relative(path)?;
+                if target.root.path().join(path).to_str().is_none() {
+                    return Err("Evidência com caminho ambíguo.".into());
+                }
             }
             validate_relative(&target.relative)?;
             let absolute = target.root.path().join(&target.relative);
@@ -133,7 +169,13 @@ impl PlanSession {
             }
             for (path, _) in &target.files {
                 validate_relative(path)?;
-                if path.strip_prefix(&target.relative).is_err() || path == &target.relative {
+                let leaf_target = target.files.len() == 1
+                    && path == &target.relative
+                    && rustix::fs::FileType::from_raw_mode(target.fingerprint.mode)
+                        == rustix::fs::FileType::RegularFile;
+                if path.strip_prefix(&target.relative).is_err()
+                    || (path == &target.relative && !leaf_target)
+                {
                     return Err("O manifesto contém um caminho fora do cache aprovado.".into());
                 }
                 if path.to_str().is_none() || target.root.path().join(path).to_str().is_none() {
@@ -148,6 +190,9 @@ impl PlanSession {
             return Err("Selecione ao menos um item elegível.".into());
         }
 
+        if review_required && ids.len() != 1 {
+            return Err("Itens que exigem revisão devem ser confirmados individualmente, sem misturar outros itens.".into());
+        }
         let mut items = Vec::with_capacity(ids.len());
         let mut logical_bytes_estimate = 0u64;
         let mut allocated_total = Some(0u64);
@@ -169,6 +214,9 @@ impl PlanSession {
                 display_path: candidate.display_path.clone(),
                 logical_bytes: candidate.logical_bytes,
                 allocated_bytes_estimate: candidate.allocated_bytes_estimate,
+                risk: candidate.risk.clone(),
+                impact: candidate.impact.clone(),
+                rebuild_hint: candidate.rebuild_hint.clone(),
             });
         }
 
@@ -179,6 +227,7 @@ impl PlanSession {
             id,
             hash,
             snapshot_id: snapshot.id.clone(),
+            review_required,
             action,
             expires_in_seconds: remaining.as_secs(),
             items,
@@ -270,6 +319,12 @@ fn plan_hash(snapshot: &ScanSnapshot, ids: &[String], action: Action) -> Result<
         hash_field(&mut hash, id.as_bytes());
         hash_field(&mut hash, candidate.detector_id.as_bytes());
         hash_field(&mut hash, candidate.detector_version.as_bytes());
+        hash_field(
+            &mut hash,
+            &serde_json::to_vec(&candidate.risk).map_err(|e| e.to_string())?,
+        );
+        hash_field(&mut hash, candidate.impact.as_bytes());
+        hash_field(&mut hash, candidate.rebuild_hint.as_bytes());
         hash_field(&mut hash, candidate.display_path.as_bytes());
         hash_field(&mut hash, &candidate.logical_bytes.to_le_bytes());
         match candidate.allocated_bytes_estimate {
@@ -289,6 +344,11 @@ fn plan_hash(snapshot: &ScanSnapshot, ids: &[String], action: Action) -> Result<
         hash_fingerprint(&mut hash, &target.fingerprint);
         hash_field(&mut hash, &(target.files.len() as u64).to_le_bytes());
         for (path, fingerprint) in &target.files {
+            hash_field(&mut hash, path.as_os_str().as_bytes());
+            hash_fingerprint(&mut hash, fingerprint);
+        }
+        hash_field(&mut hash, &(target.witnesses.len() as u64).to_le_bytes());
+        for (path, fingerprint) in &target.witnesses {
             hash_field(&mut hash, path.as_os_str().as_bytes());
             hash_fingerprint(&mut hash, fingerprint);
         }

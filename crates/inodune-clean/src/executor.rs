@@ -92,6 +92,24 @@ impl ExecutionOptions {
     }
 }
 #[derive(Clone, Copy)]
+enum CacheKind {
+    Python,
+    Thumbnails,
+    CargoMetadata,
+    TerraformProvider,
+}
+impl CacheKind {
+    fn detector(id: &str) -> Option<Self> {
+        Some(match id {
+            "python.pycache" => Self::Python,
+            "thumbnails" => Self::Thumbnails,
+            "cargo.fingerprint-json" => Self::CargoMetadata,
+            "terraform.provider-package" => Self::TerraformProvider,
+            _ => return None,
+        })
+    }
+}
+#[derive(Clone, Copy)]
 enum Phase {
     Pinned,
     Captured,
@@ -180,6 +198,12 @@ fn execute_inner(
             report.warnings.push("Manifesto ausente".into());
             continue;
         };
+        let kind = plan
+            .snapshot
+            .candidates
+            .iter()
+            .find(|c| c.id == id)
+            .and_then(|c| CacheKind::detector(&c.detector_id));
         let mut item = ItemResult {
             candidate_id: id,
             files: vec![],
@@ -190,15 +214,17 @@ fn execute_inner(
         } else if control.is_cancelled() {
             Err("Cancelado antes do item".into())
         } else {
-            validate_target(target).and_then(|_| {
-                trash.as_ref().map_err(Clone::clone).and_then(|t| {
-                    if let Some(t) = t {
-                        t.revalidate(target.fingerprint.dev)
-                    } else {
-                        Ok(())
-                    }
+            validate_target(target)
+                .and_then(|_| validate_policy(target, kind, control))
+                .and_then(|_| {
+                    trash.as_ref().map_err(Clone::clone).and_then(|t| {
+                        if let Some(t) = t {
+                            t.revalidate(target.fingerprint.dev)
+                        } else {
+                            Ok(())
+                        }
+                    })
                 })
-            })
         };
         match preflight {
             Err(e) => {
@@ -251,12 +277,13 @@ fn execute_inner(
                                     "Cancelado antes desta operação",
                                     None,
                                 )
-                            } else if let Ok(journal) = &mut journal {
+                            } else if let (Some(kind), Ok(journal)) = (kind, &mut journal) {
                                 process_file(
                                     Leaf {
                                         target,
                                         relative,
                                         expected,
+                                        kind,
                                     },
                                     &stage,
                                     trash.as_ref().ok().and_then(|t| t.as_ref()),
@@ -357,6 +384,14 @@ fn execute_inner(
     report
 }
 fn remaining_cache_entries(target: &ScannedTarget) -> Result<bool, String> {
+    if FileType::from_raw_mode(target.fingerprint.mode) == FileType::RegularFile {
+        return match target.root.open_relative(&target.relative, OFlags::PATH) {
+            Ok(_) => Ok(true),
+            Err(rustix::io::Errno::NOENT) => Ok(false),
+            Err(e) => Err(e.to_string()),
+        };
+    }
+
     let fd = target
         .root
         .open_relative(
@@ -377,12 +412,24 @@ fn remaining_cache_entries(target: &ScannedTarget) -> Result<bool, String> {
 }
 fn validate_target(target: &ScannedTarget) -> Result<(), String> {
     target.root.revalidate()?;
-    validate_ancestors(target, &target.relative)?;
+    let leaf_target = FileType::from_raw_mode(target.fingerprint.mode) == FileType::RegularFile;
+    validate_ancestors(
+        target,
+        if leaf_target {
+            target.relative.parent().unwrap_or(Path::new("."))
+        } else {
+            &target.relative
+        },
+    )?;
     let fd = target
         .root
         .open_relative(
             &target.relative,
-            OFlags::RDONLY | OFlags::DIRECTORY | OFlags::NOATIME,
+            if leaf_target {
+                OFlags::PATH
+            } else {
+                OFlags::RDONLY | OFlags::DIRECTORY | OFlags::NOATIME
+            },
         )
         .map_err(|e| e.to_string())?;
     let fp = Fingerprint::from_stat(&fs::fstat(&fd).map_err(|e| e.to_string())?);
@@ -391,14 +438,64 @@ fn validate_target(target: &ScannedTarget) -> Result<(), String> {
     }
     // Phase 2 operates only on flat cache leaves. A later detector cannot silently
     // turn this into a recursive executor.
-    if target
-        .files
-        .iter()
-        .any(|(p, _)| p.parent() != Some(target.relative.as_path()))
-    {
+    if target.files.iter().any(|(p, _)| {
+        if leaf_target {
+            target.files.len() != 1 || p != &target.relative
+        } else {
+            p.parent() != Some(target.relative.as_path())
+        }
+    }) {
         return Err("Manifesto não é um cache plano verificado.".into());
     }
+    validate_witnesses(target)
+}
+fn validate_witnesses(target: &ScannedTarget) -> Result<(), String> {
+    for (path, expected) in &target.witnesses {
+        if expected.mode & 0o022 != 0 {
+            return Err(
+                "Evidência gravável por terceiros; limpeza recusada sem alterar permissões.".into(),
+            );
+        }
+        let fd = target
+            .root
+            .open_relative(path, OFlags::PATH)
+            .map_err(|e| format!("Evidência desapareceu: {e}"))?;
+        if Fingerprint::from_stat(&fs::fstat(fd).map_err(|e| e.to_string())?) != *expected {
+            return Err("Manifest, fonte ou lockfile mudou desde a análise; preserve o cache e analise novamente.".into());
+        }
+    }
     Ok(())
+}
+fn validate_policy(
+    target: &ScannedTarget,
+    kind: Option<CacheKind>,
+    control: &ScanControl,
+) -> Result<(), String> {
+    match kind.ok_or("Detector sem ação aprovada")? {
+        CacheKind::CargoMetadata => {
+            if inodune_core::cache_rules::validate_leaf(&target.root, &target.relative).as_ref()
+                != Some(&target.fingerprint)
+            {
+                return Err("Metadado Cargo não confere mais com o formato aprovado.".into());
+            }
+        }
+        CacheKind::TerraformProvider => {
+            let check = inodune_core::terraform::verify_provider(
+                &target.root,
+                &target.relative,
+                &target.files,
+                control,
+            );
+            if !check.eligible {
+                return Err(format!(
+                    "Integridade do provider não comprovada: {}",
+                    check.reason
+                ));
+            }
+        }
+        _ => {}
+    }
+    validate_witnesses(target)
 }
 struct Stage {
     fd: OwnedFd,
@@ -513,6 +610,7 @@ struct Leaf<'a> {
     target: &'a ScannedTarget,
     relative: &'a Path,
     expected: &'a Fingerprint,
+    kind: CacheKind,
 }
 fn process_file(
     leaf: Leaf<'_>,
@@ -526,6 +624,7 @@ fn process_file(
         target,
         relative,
         expected,
+        kind,
     } = leaf;
     let original = target.root.path().join(relative);
     let fail = |e: &str| outcome(&original, FileStatus::SkippedChanged, 0, e, None);
@@ -555,15 +654,26 @@ fn process_file(
     {
         return fail("Arquivo mudou ou não é regular de link único.");
     }
-    let python = target
-        .relative
-        .file_name()
-        .is_some_and(|n| n == "__pycache__");
-    if fp.mode & 0o022 != 0
-        || !inodune_core::scan::cache_header_valid(&target.root, relative, python)
-        || (python && !inodune_core::scan::matching_source(&target.root, relative))
-    {
+    let python = matches!(kind, CacheKind::Python);
+    let valid = match kind {
+        CacheKind::Python => {
+            inodune_core::scan::cache_header_valid(&target.root, relative, true)
+                && inodune_core::scan::matching_source(&target.root, relative)
+        }
+        CacheKind::Thumbnails => {
+            inodune_core::scan::cache_header_valid(&target.root, relative, false)
+        }
+        CacheKind::CargoMetadata => {
+            inodune_core::cache_rules::validate_leaf(&target.root, relative).as_ref()
+                == Some(expected)
+        }
+        CacheKind::TerraformProvider => true, // Complete package h1 was checked before staging.
+    };
+    if fp.mode & 0o022 != 0 || !valid {
         return fail("Formato, fonte ou permissões do cache mudaram; preservado.");
+    }
+    if let Err(e) = validate_witnesses(target) {
+        return fail(&e);
     }
     hook(Phase::Pinned, &original);
     if let Err(e) =
@@ -583,6 +693,7 @@ fn process_file(
     let verification: Result<Fingerprint, String> = (|| {
         parent_stable(target, &parent, parent_rel)?;
         stage.revalidate(&target.root)?;
+        validate_witnesses(target)?;
         if python && !inodune_core::scan::matching_source(&target.root, relative) {
             return Err("A fonte Python desapareceu; bytecode preservado.".into());
         }
@@ -607,6 +718,7 @@ fn process_file(
     let result = (|| -> Result<Option<PathBuf>, String> {
         stage.revalidate(&target.root)?;
         parent_stable(target, &parent, parent_rel)?;
+        validate_witnesses(target)?;
         if leaf_fingerprint(&stage.fd, std::ffi::OsStr::new(&captured))? != after {
             return Err("Arquivo alterado após a captura.".into());
         }

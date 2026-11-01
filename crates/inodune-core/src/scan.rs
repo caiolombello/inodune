@@ -256,6 +256,8 @@ pub struct ScannedTarget {
     pub relative: PathBuf,
     pub fingerprint: Fingerprint,
     pub files: Vec<(PathBuf, Fingerprint)>,
+    /// Non-deletable evidence (manifest/lock/source) bound to an eventual plan.
+    pub witnesses: Vec<(PathBuf, Fingerprint)>,
     pub complete: bool,
 }
 #[derive(Clone)]
@@ -320,6 +322,8 @@ struct Walker<'a, F: FnMut(ScanProgress)> {
     last: Instant,
     on_progress: F,
     identities: HashSet<(u64, u64)>,
+    git_paths: HashSet<PathBuf>,
+    validation_bytes_left: u64,
 }
 impl<F: FnMut(ScanProgress)> Walker<'_, F> {
     fn issue(&mut self, path: &Path, code: &str, message: &str) {
@@ -578,6 +582,7 @@ impl<F: FnMut(ScanProgress)> Walker<'_, F> {
                 relative: rel.to_path_buf(),
                 fingerprint: Fingerprint::from_stat(&st),
                 files,
+                witnesses: Vec::new(),
                 complete,
             },
         );
@@ -589,6 +594,195 @@ impl<F: FnMut(ScanProgress)> Walker<'_, F> {
             rebuild_hint:if py {"Bytecode recriado ao importar o módulo.".into()}else if thumbs{"Miniaturas recriadas pelo aplicativo.".into()}else{"Custo não medido; revisão necessária.".into()},
             preserved:"Código, estado, configuração, credenciais, sessões e memória nunca entram em remoção genérica.".into(),evidence:vec!["root-approved".into(),"openat2-no-symlinks-no-xdev".into(),if complete{"coverage-complete"}else{"coverage-incomplete"}.into()],activity:format!("mtime Unix {} (metadado; não comprova desuso)",st.st_mtime),supported_action:if complete && (py||thumbs){SupportedAction::CacheContents}else{SupportedAction::None},
         });
+    }
+    fn build_subsets(
+        &mut self,
+        root: &ApprovedRoot,
+        container_id: &str,
+        project: &str,
+        providers: bool,
+    ) {
+        let Some(container) = self.out.targets.get(container_id).cloned() else {
+            return;
+        };
+        if !container.complete {
+            return;
+        }
+        let mut proposals = Vec::new();
+        if providers {
+            let mut groups: std::collections::BTreeMap<PathBuf, Vec<(PathBuf, Fingerprint)>> =
+                std::collections::BTreeMap::new();
+            for (p, fp) in &container.files {
+                if let Some(parent) = p.parent() {
+                    if crate::terraform::is_provider_package_path(parent) {
+                        groups
+                            .entry(parent.to_owned())
+                            .or_default()
+                            .push((p.clone(), fp.clone()));
+                    }
+                }
+            }
+            for (path, files) in groups {
+                if !self.allowed() {
+                    break;
+                }
+                let bytes = files
+                    .iter()
+                    .try_fold(0u64, |n, (_, fp)| n.checked_add(fp.size))
+                    .unwrap_or(u64::MAX);
+                if bytes > self.validation_bytes_left {
+                    continue;
+                }
+                self.validation_bytes_left -= bytes;
+                (self.on_progress)(ScanProgress {
+                    visited: self.out.stats.visited,
+                    candidates: self.out.candidates.len(),
+                    stage: "Verificando checksum de provider local".into(),
+                });
+                let check = crate::terraform::verify_provider(root, &path, &files, self.control);
+                if !check.eligible {
+                    continue;
+                }
+                let Some(st) = self.metadata(root, &path) else {
+                    continue;
+                };
+                let witnesses = check
+                    .lock_relative
+                    .zip(check.lock_fingerprint)
+                    .into_iter()
+                    .collect();
+                proposals.push((
+                    path,
+                    Fingerprint::from_stat(&st),
+                    files,
+                    witnesses,
+                    "terraform.provider-package",
+                    "Provider Terraform verificado",
+                    check.evidence,
+                ));
+            }
+        } else {
+            for (path, fp) in &container.files {
+                if !self.allowed() {
+                    break;
+                }
+                if !crate::cache_rules::classify(root, path, &container.files).eligible {
+                    continue;
+                }
+                let charge = fp.size.saturating_add(1024 * 1024 + 16);
+                if charge > self.validation_bytes_left {
+                    continue;
+                }
+                self.validation_bytes_left -= charge;
+                if crate::cache_rules::validate_leaf(root, path).as_ref() != Some(fp) {
+                    continue;
+                }
+                let Some(witnesses) = crate::cache_rules::witnesses(root, path) else {
+                    continue;
+                };
+                proposals.push((
+                    path.clone(),
+                    fp.clone(),
+                    vec![(path.clone(), fp.clone())],
+                    witnesses,
+                    "cargo.fingerprint-json",
+                    "Metadado de fingerprint Cargo",
+                    vec![
+                        "cargo-rust-1.93.0-schema".into(),
+                        "json-and-paired-hash-validated".into(),
+                    ],
+                ));
+            }
+        }
+        for (path, fp, files, witnesses, detector, title, evidence) in proposals {
+            if !self.allowed() {
+                break;
+            }
+            let bytes = files.iter().map(|(_, f)| f.size).sum::<u64>();
+            let allocated = files
+                .iter()
+                .map(|(_, f)| f.blocks.saturating_mul(512))
+                .sum::<u64>();
+            let id = format!("{}-{}", self.out.id, self.out.candidates.len());
+            self.out.targets.insert(
+                id.clone(),
+                ScannedTarget {
+                    root: root.clone(),
+                    relative: path.clone(),
+                    fingerprint: fp.clone(),
+                    files,
+                    witnesses,
+                    complete: true,
+                },
+            );
+            self.out.candidates.push(Candidate{id,title:title.into(),display_path:root.path.join(path).to_string_lossy().into(),detector_id:detector.into(),detector_version:"f3-v1".into(),scope_id:root.display_path(),category:"Desenvolvimento".into(),project:project.into(),risk:Risk::Review,logical_bytes:bytes,allocated_bytes_estimate:Some(allocated),identity:Some(Identity{dev:fp.dev,ino:fp.ino,mtime_unix:fp.mtime}),coverage_key:Some(format!("{}:{}",fp.dev,fp.ino)),selected_by_default:false,reason:if providers{"Pacote local confere com checksum h1 do lockfile e layout conhecido. Isso não prova assinatura de publicação; revisão individual obrigatória."}else{"Somente JSON diagnóstico Cargo 1.93 reconhecido. Hashes, binários, fontes e demais artefatos permanecem protegidos."}.into(),impact:if providers{"A próxima inicialização Terraform poderá precisar baixar o provider novamente. Não executamos terraform init."}else{"Cargo pode reconstruir artefatos ao perder o metadado de fingerprint; custo não medido."}.into(),rebuild_hint:if providers{"Reinstalação pelo Terraform, conforme lockfile preservado; sem estimativa de tempo/rede."}else{"Cargo regenera metadados; uma recompilação pode ser necessária."}.into(),preserved:"Pastas, manifests, lockfiles, scripts, estado, configuração e conteúdo desconhecido permanecem.".into(),evidence,activity:"Revisão por item; idade não comprova desuso.".into(),supported_action:SupportedAction::ReviewedCacheContents});
+            // Partition coverage: the container now describes only the remainder.
+            if let Some(parent) = self
+                .out
+                .candidates
+                .iter_mut()
+                .find(|c| c.id == container_id)
+            {
+                parent.logical_bytes = parent.logical_bytes.saturating_sub(bytes);
+                parent.allocated_bytes_estimate = parent
+                    .allocated_bytes_estimate
+                    .map(|n| n.saturating_sub(allocated));
+                parent.risk = Risk::Protected;
+                parent.selected_by_default = false;
+                parent.supported_action = SupportedAction::None;
+                parent.coverage_key = parent.coverage_key.as_ref().map(|key| {
+                    if key.starts_with("remainder:") {
+                        key.clone()
+                    } else {
+                        format!("remainder:{key}")
+                    }
+                });
+                parent.reason="Conteúdo remanescente protegido; subconjuntos verificados aparecem separadamente, sem dupla contagem.".into();
+            }
+        }
+    }
+    fn git_inventory(&mut self, root: &ApprovedRoot, rel: &Path, project: &str) {
+        let path = root.path.join(rel);
+        if self.git_paths.contains(&path) {
+            return;
+        }
+        (self.on_progress)(ScanProgress {
+            visited: self.out.stats.visited,
+            candidates: self.out.candidates.len(),
+            stage: "Verificando worktrees Git em sandbox somente leitura".into(),
+        });
+        let inventory = crate::git::inspect(root, rel, self.control);
+        let git_complete = inventory.complete;
+        let records = if inventory.worktrees.is_empty() {
+            vec![(path, None, inventory.reasons.clone())]
+        } else {
+            inventory.worktrees.into_iter().map(|tree|{let summary=format!("main={} dirty={} untracked={} locked={} detached={} prunable={} upstream={:?} ahead={:?} behind={:?}",tree.is_main,tree.dirty,tree.untracked,tree.locked,tree.detached,tree.prunable,tree.upstream,tree.ahead,tree.behind);(tree.path,Some(summary),tree.reasons)}).collect()
+        };
+        for (path, summary, reasons) in records {
+            if !self.allowed() {
+                break;
+            }
+            if !self.git_paths.insert(path.clone()) {
+                continue;
+            }
+            let id = format!("{}-{}", self.out.id, self.out.candidates.len());
+            let mut evidence = vec![
+                if git_complete {
+                    "git-porcelain-worktree-and-status-verified"
+                } else {
+                    "git-inspection-incomplete-protected"
+                }
+                .into(),
+                "read-only-sandbox-required".into(),
+                "agent-namespace-content-excluded".into(),
+            ];
+            if git_complete {
+                if let Some(summary) = summary {
+                    evidence.push(summary);
+                }
+            }
+            self.out.candidates.push(Candidate{id,title:"Worktree / repositório Git".into(),display_path:path.to_string_lossy().into(),detector_id:"git.worktree".into(),detector_version:"f3-v1".into(),scope_id:root.display_path(),category:"Git Worktrees".into(),project:project.into(),risk:Risk::Protected,logical_bytes:0,allocated_bytes_estimate:None,identity:None,coverage_key:None,selected_by_default:false,reason:if reasons.is_empty(){"Atividade e publicação remota atuais não comprovadas. Worktree preservada.".into()}else{reasons.join(" ")},impact:"Remoção Git opcional permanece indisponível quando atividade/publicação são incertas.".into(),rebuild_hint:"Commits locais, conteúdo ignorado e sessões não têm garantia de recriação.".into(),preserved:"Worktree, arquivos ignorados, registro Git e metadados completos.".into(),evidence,activity:"Somente refs locais; não há fetch, inferência por idade nem teste sobre repositório do usuário.".into(),supported_action:SupportedAction::None});
+        }
     }
     fn walk_root(&mut self, root: &ApprovedRoot) {
         if root.kind == ScopeKind::Protected || is_protected_agent_path(root.path()) {
@@ -620,6 +814,7 @@ impl<F: FnMut(ScanProgress)> Walker<'_, F> {
             };
             let has = |name: &str| names.iter().any(|n| n == name);
             let is_project = has("Cargo.toml")
+                || has("package.json")
                 || has("pyproject.toml")
                 || has(".git")
                 || names
@@ -653,9 +848,7 @@ impl<F: FnMut(ScanProgress)> Walker<'_, F> {
                     continue;
                 }
                 if name == ".git" {
-                    // F1 does not invoke Git or follow gitdir pointers. All worktrees remain protected.
-                    let id = format!("{}-{}", self.out.id, self.out.candidates.len());
-                    self.out.candidates.push(Candidate{id,title:"Worktree / repositório Git".into(),display_path:root.path.join(&rel).to_string_lossy().into(),detector_id:"git.worktree".into(),detector_version:"1".into(),scope_id:root.display_path(),category:"Git Worktrees".into(),project:project.clone(),risk:Risk::Protected,logical_bytes:0,allocated_bytes_estimate:None,identity:None,coverage_key:None,selected_by_default:false,reason:"Marcador Git encontrado; status, registro e publicação não verificados. Protegido por incerteza; idade não prova desuso.".into(),impact:"Pode conter alterações, commits exclusivos e sessões ativas.".into(),rebuild_hint:"Não há garantia de recriação.".into(),preserved:"Worktree e metadados Git inteiros.".into(),evidence:vec!["git-marker-only".into()],activity:"Estado Git ainda não verificado".into(),supported_action:SupportedAction::None});
+                    self.git_inventory(root, &rel, &project);
                     continue;
                 }
                 if kind == FileType::RegularFile {
@@ -707,6 +900,22 @@ impl<F: FnMut(ScanProgress)> Walker<'_, F> {
                     );
                     continue;
                 }
+                if (n == "cache" && rel.file_name().is_some_and(|p| p == ".next"))
+                    || n == "_cacache"
+                    || (n == "pip"
+                        && root.path.join(&path).parent()
+                            == xdg_thumbnail_root().as_deref().and_then(Path::parent))
+                {
+                    let (detector, title) = if n == "cache" {
+                        ("next.cache", "Cache Next.js (protegido)")
+                    } else if n == "_cacache" {
+                        ("npm.cache", "Possível cache npm (protegido)")
+                    } else {
+                        ("python.pip-cache", "Cache pip (protegido)")
+                    };
+                    self.candidate(root,&path,&project,CandidatePolicy{detector,title,category:"Desenvolvimento",risk:Risk::Protected,reason:"Localização documentada; formato/conteúdo por versão e uso atual não verificados. Inventário sem ação de remoção."});
+                    continue;
+                }
                 if n == "__pycache__" {
                     let source = names
                         .iter()
@@ -719,7 +928,10 @@ impl<F: FnMut(ScanProgress)> Walker<'_, F> {
                     continue;
                 }
                 if n == "target" && has("Cargo.toml") {
-                    self.candidate(root,&path,&project,CandidatePolicy{detector:"rust.target",title:"Artefatos Cargo",category:"Desenvolvimento",risk:Risk::Review,reason:"target junto de Cargo.toml; pode conter binários finais e exige revisão."});
+                    self.candidate(root,&path,&project,CandidatePolicy{detector:"rust.target",title:"Artefatos Cargo",category:"Desenvolvimento",risk:Risk::Protected,reason:"target junto de Cargo.toml; pode conter binários finais e exige revisão."});
+                    if let Some(id) = self.out.candidates.last().map(|c| c.id.clone()) {
+                        self.build_subsets(root, &id, &project, false);
+                    }
                     continue;
                 }
                 if root.kind == ScopeKind::Thumbnails
@@ -753,6 +965,11 @@ impl<F: FnMut(ScanProgress)> Walker<'_, F> {
                                 "Inventário Terraform; uso, links e backend não autorizam remoção.",
                         },
                     );
+                    if n == "providers" {
+                        if let Some(id) = self.out.candidates.last().map(|c| c.id.clone()) {
+                            self.build_subsets(root, &id, &project, true);
+                        }
+                    }
                     continue;
                 }
                 pending.push((path, depth + 1, project.clone()));
@@ -919,6 +1136,8 @@ pub fn scan(
         last: now,
         on_progress,
         identities: HashSet::new(),
+        git_paths: HashSet::new(),
+        validation_bytes_left: 512 * 1024 * 1024,
     };
     for root in roots {
         match root.volume() {

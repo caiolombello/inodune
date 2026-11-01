@@ -366,3 +366,130 @@ fn ambiguous_control_character_paths_are_inventory_only() {
     assert_eq!(snapshot.candidates[0].risk, inodune_core::Risk::Protected);
     assert!(!snapshot.candidates[0].selected_by_default);
 }
+
+#[test]
+fn opaque_next_and_package_manager_formats_are_protected_inventory() {
+    let root = tempfile::tempdir().unwrap();
+    for dir in ["web/.next/cache", "tools/.npm/_cacache"] {
+        fs::create_dir_all(root.path().join(dir)).unwrap();
+        fs::write(
+            root.path().join(dir).join("unknown.bin"),
+            b"fixture cache or personal content",
+        )
+        .unwrap();
+    }
+    fs::write(root.path().join("web/package.json"), b"{}").unwrap();
+    let result = scan(
+        &[ApprovedRoot::open(root.path(), ScopeKind::Projects).unwrap()],
+        &ScanControl::default(),
+        &ScanLimits::default(),
+        |_| {},
+    )
+    .unwrap();
+    for detector in ["next.cache", "npm.cache"] {
+        let c = result
+            .candidates
+            .iter()
+            .find(|c| c.detector_id == detector)
+            .unwrap();
+        assert_eq!(c.risk, inodune_core::Risk::Protected);
+        assert!(!c.selected_by_default);
+        assert!(matches!(
+            c.supported_action,
+            inodune_core::SupportedAction::None
+        ));
+    }
+}
+
+#[test]
+fn directly_approved_agent_descendant_never_exposes_cache_actions() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join(".codex/sessions/project");
+    fs::create_dir_all(root.join("__pycache__")).unwrap();
+    fs::write(root.join("memory.py"), b"private fixture source").unwrap();
+    let mut bytes = vec![0u8; 64];
+    bytes[..4].copy_from_slice(&[0xa7, 0x0d, 13, 10]);
+    bytes[16] = b'c';
+    fs::write(root.join("__pycache__/memory.cpython-311.pyc"), bytes).unwrap();
+    let snapshot = scan(
+        &[ApprovedRoot::open(&root, ScopeKind::Projects).unwrap()],
+        &ScanControl::default(),
+        &ScanLimits::default(),
+        |_| {},
+    )
+    .unwrap();
+    assert!(snapshot
+        .candidates
+        .iter()
+        .all(|c| c.risk == inodune_core::Risk::Protected
+            && matches!(c.supported_action, inodune_core::SupportedAction::None)));
+    assert!(snapshot
+        .candidates
+        .iter()
+        .any(|c| c.detector_id == "ai.history"));
+}
+
+#[test]
+fn scanner_integrates_sandboxed_git_evidence_without_writing_index() {
+    use std::process::Command;
+    if !std::path::Path::new("/usr/bin/bwrap").exists() {
+        return;
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let repo = dir.path().join("repo");
+    fs::create_dir(&repo).unwrap();
+    let git = |args: &[&str]| {
+        Command::new("/usr/bin/git")
+            .current_dir(&repo)
+            .env("GIT_CONFIG_NOSYSTEM", "1")
+            .env("GIT_CONFIG_GLOBAL", "/dev/null")
+            .args(args)
+            .output()
+            .unwrap()
+            .status
+            .success()
+    };
+    assert!(git(&["init", "-q", "-b", "main"]));
+    fs::write(repo.join("source.txt"), b"fixture source").unwrap();
+    assert!(git(&["add", "source.txt"]));
+    assert!(git(&[
+        "-c",
+        "user.name=Fixture",
+        "-c",
+        "user.email=fixture@example.invalid",
+        "commit",
+        "-q",
+        "-m",
+        "fixture"
+    ]));
+    let index = fs::read(repo.join(".git/index")).unwrap();
+    let modified = fs::metadata(repo.join(".git/index"))
+        .unwrap()
+        .modified()
+        .unwrap();
+    for base in [dir.path(), repo.as_path()] {
+        let snapshot = scan(
+            &[ApprovedRoot::open(base, ScopeKind::Projects).unwrap()],
+            &ScanControl::default(),
+            &ScanLimits::default(),
+            |_| {},
+        )
+        .unwrap();
+        let c = snapshot
+            .candidates
+            .iter()
+            .find(|c| c.detector_id == "git.worktree")
+            .unwrap();
+        assert_eq!(c.risk, inodune_core::Risk::Protected);
+        assert!(c.evidence.iter().any(|e| e.contains("main=true")), "{c:?}");
+        assert!(c.coverage_key.is_none());
+    }
+    assert_eq!(fs::read(repo.join(".git/index")).unwrap(), index);
+    assert_eq!(
+        fs::metadata(repo.join(".git/index"))
+            .unwrap()
+            .modified()
+            .unwrap(),
+        modified
+    );
+}
