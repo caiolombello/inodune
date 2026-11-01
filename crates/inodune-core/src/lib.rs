@@ -1,4 +1,6 @@
-//! Pure contracts and conservative simulation policy. No filesystem authority.
+//! Shared contracts, read-only discovery and conservative planning.
+#[cfg(target_os = "linux")]
+pub mod scan;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 

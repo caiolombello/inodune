@@ -1,0 +1,27 @@
+# Detectores e boundaries de Fase 1
+
+Implementação: `crates/inodune-core/src/scan.rs`. Nenhum detector autoriza mutação; `supported_action` permanece `none` nesta fase. API/CLI compartilham o mesmo scanner. O renderer só solicita IDs aprovados por picker Rust; não fornece paths a operações de filesystem.
+
+| Detector | Reconhecimento / classificação | Fonte oficial consultada em 01/11/2026 UTC |
+| --- | --- | --- |
+| thumbnails | Apenas root XDG_CACHE_HOME/thumbnails (fallback HOME/.cache/thumbnails), subpastas normal/large/x-large/xx-large, nomes hash hex de 32 caracteres + PNG, assinatura/IHDR reconhecidos. Conteúdo desconhecido é protegido. `fail` não é limpo genericamente. | https://specifications.freedesktop.org/thumbnail/latest/directory.html |
+| python.pycache | __pycache__ ao lado do arquivo .py correspondente, apenas layout CPython 3.11–3.15 com tag normal/opt-1/opt-2, magic/header/flags e prefixo marshal de code object reconhecidos. Não executa Python nem lê fonte. Assinatura não é uma validação semântica completa do bytecode. | https://docs.python.org/3/tutorial/modules.html#compiled-python-files ; https://peps.python.org/pep-3147/ ; https://peps.python.org/pep-0488/ ; https://peps.python.org/pep-0552/ |
+| python.toolcache | .pytest_cache, .mypy_cache, .ruff_cache em roots aprovadas: inventário protegido, configurações/formato ainda não autorizam mutação. .venv/venv ignorados. | https://docs.pytest.org/en/stable/reference/customize.html ; https://mypy.readthedocs.io/en/stable/command_line.html ; https://docs.astral.sh/ruff/settings/ |
+| rust.target | target junto de Cargo.toml: Revisar, sem remoção habilitada. Caminhos redirecionados não são presumidos. | https://doc.rust-lang.org/cargo/reference/build-cache.html ; https://doc.rust-lang.org/cargo/reference/config.html |
+| terraform.providers/modules | Somente subdiretórios individuais inventariados, protegidos. Estado, backend, locks, scripts e configuração não entram em remoção genérica. | https://developer.hashicorp.com/terraform/cli/init ; https://developer.hashicorp.com/terraform/language/backend ; https://developer.hashicorp.com/terraform/language/files/dependency-lock |
+| git.worktree | Marcador .git identificado sem entrar na metadata ou seguir gitdir: inventário protegido, tamanho não determinado/sem dupla contagem com caches. Parsing de registros e estado autoritativo são o incremento F3. | https://git-scm.com/docs/git-worktree |
+| ai.history | Roots escolhidas como inventário protegido e marcadores .codex/.claude/opencode: somente tamanho e metadados. Não abrir transcripts/config/auth, não enviar conteúdo para modelo. Formatos alternativos não confirmados seguem protegidos. | https://github.com/openai/codex/blob/main/codex-rs/rollout/src/lib.rs ; https://support.claude.com/en/articles/14554000-claude-code-power-user-tips ; https://dev.opencode.ai/docs/troubleshooting/ |
+
+Magic numbers CPython verificados no código oficial: branches 3.11 (3495), 3.12 (3531), 3.13 (3571) em `Lib/importlib/_bootstrap_external.py`; 3.14 (3627) e 3.15 (3666) em `Include/internal/pycore_magic_number.h`. Fonte: https://github.com/python/cpython . Versões não reconhecidas e arquivos truncados são protegidos. Só até 33 bytes de assinatura são lidos para classificação; conteúdo não é persistido/logado. Os testes usam saída de `/usr/bin/python3 -I -S` apenas sobre fonte gerada em temporário.
+
+## Travessia
+
+Linux 5.6+ com openat2. Não há fallback inseguro. Raiz retida por descritor, revalidada após aprovação; BENEATH/NO_SYMLINKS/NO_MAGICLINKS/NO_XDEV em acessos relativos. O_NOATIME ao enumerar/ler assinaturas; dono deve ser o UID atual. Não aceitar `/`, home inteira, roots de sistema/pseudo-filesystems ou scopes sobrepostos. Hardlinks, arquivos especiais, permissões e mudanças tornam o item protegido ou a cobertura parcial. Reflinks/CoW/sparse continuam estimativas; statvfs mede disponibilidade do volume e não atribui ganho à limpeza.
+
+Limites rígidos: até 1 milhão de entradas, 50 mil candidatos, profundidade 128 e 2 mil diagnósticos; padrão depth 64/issues 1000. Cada diretório tem limite de 65.536 nomes e cada manifesto de candidato 100 mil arquivos. Ao exceder, parar/preservar e declarar cobertura incompleta. O scanner usa pilha iterativa, não recursão de call stack. Progresso é contagem real limitada a cerca de 10Hz, sem porcentagem inventada. Pausa usa condvar; cancelamento acorda espera e retorna parcial. CLI retorna exit 3 em cobertura parcial e 2 em erro.
+
+APIs consultadas e fontes disponíveis também no cache Cargo da versão fixada: https://docs.rs/rustix/1.1.6/rustix/fs/fn.openat2.html ; https://docs.rs/rustix/1.1.6/rustix/fs/struct.RawDir.html ; https://man7.org/linux/man-pages/man2/openat2.2.html . GUI: https://v2.tauri.app/plugin/dialog/ ; https://v2.tauri.app/security/capabilities/ . Listas: https://tanstack.com/virtual/latest/docs/framework/svelte/svelte-virtual e implementação instalada de @tanstack/svelte-virtual 3.13.50 (adapter usa stores, apesar de assinatura resumida na documentação).
+
+## Queda de confiança antes do executor
+
+Nenhuma sequência stat→unlink é compare-and-delete atômico em Linux. F2 deverá capturar itens em staging privado, comparar objetos/metadados e manter qualquer divergência preservada; não prometer imunidade a um processo hostil do mesmo UID nem rollback universal. Uma revisão estática não certifica segurança do executor. Testes destrutivos somente em fixtures temporárias isoladas.
