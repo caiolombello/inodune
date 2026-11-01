@@ -1058,6 +1058,66 @@ select {
 .outcome-row > span.outcome-warning {
   color: var(--warning-text);
 }
+.item-policy-note {
+  display: block;
+  margin-top: 4px;
+  color: var(--secondary-text);
+  font-size: 12px;
+}
+.cleanup-progress,
+.plan-identity {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 20px;
+  padding: 16px 0;
+  border-block: 1px solid var(--stroke);
+}
+.cleanup-progress span,
+.plan-identity span {
+  color: var(--secondary-text);
+  font-size: 12px;
+}
+.cleanup-report-item,
+.volume-observations,
+.cleanup-warnings {
+  padding: 18px 0;
+  border-bottom: 1px solid var(--stroke);
+}
+.cleanup-report-item h3,
+.volume-observations h3,
+.cleanup-warnings h3 {
+  display: inline-block;
+  margin: 0 10px 12px 0;
+  font-size: 14px;
+}
+.cleanup-file-row {
+  align-items: flex-start;
+}
+.cleanup-file-row > div {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.cleanup-file-row code,
+.cleanup-file-row small {
+  display: block;
+}
+.cleanup-file-row small {
+  margin-top: 5px;
+  color: var(--secondary-text);
+}
+.cleanup-file-row > span:last-child {
+  flex: 0 0 auto;
+  text-align: right;
+}
+.measurement-note,
+.volume-observations > p,
+.cleanup-warnings li {
+  color: var(--secondary-text);
+  font-size: 12px;
+}
+.plan-identity code {
+  overflow-wrap: anywhere;
+}
 .inline-note {
   color: var(--secondary-text);
   font-size: 12px;

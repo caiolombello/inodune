@@ -111,9 +111,9 @@ for (const count of [100, 1000, 10000]) {
         exact: true,
       }),
     ).toBeVisible();
-    await mkdir('../../docs/evidence/f1', { recursive: true });
+    await mkdir('../../docs/evidence/f2', { recursive: true });
     await writeFile(
-      `../../docs/evidence/f1/${info.project.name}-renderer-${count}.json`,
+      `../../docs/evidence/f2/${info.project.name}-renderer-${count}.json`,
       JSON.stringify(
         {
           count,

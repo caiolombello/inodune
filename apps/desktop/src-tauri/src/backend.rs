@@ -31,6 +31,7 @@ struct RootEntry {
 #[derive(Default)]
 pub struct Backend {
     roots: Mutex<HashMap<String, RootEntry>>,
+    pub cleanup: crate::cleanup::CleanupState,
     job: Mutex<Option<Arc<Mutex<Job>>>>,
     sequence: AtomicU64,
     #[cfg(feature = "fixture-tests")]
@@ -75,6 +76,9 @@ pub async fn choose_scope(
     state: State<'_, Backend>,
     kind: ScopeKind,
 ) -> Result<Option<ScopeInfo>, String> {
+    if state.cleanup.active()? {
+        return Err("Aguarde a limpeza em andamento.".into());
+    }
     let picked = tauri::async_runtime::spawn_blocking(move || {
         app.dialog()
             .file()
@@ -89,6 +93,9 @@ pub async fn choose_scope(
     let path = path.into_path().map_err(|e| e.to_string())?;
     if kind == ScopeKind::Thumbnails && path.file_name().is_none_or(|n| n != "thumbnails") {
         return Err("Para miniaturas, selecione a pasta XDG chamada thumbnails. Nenhum outro diretório de imagens é tratado como cache.".into());
+    }
+    if state.cleanup.active()? {
+        return Err("Aguarde a limpeza em andamento.".into());
     }
     let root = ApprovedRoot::open(&path, kind)?;
     let mut roots = state.roots.lock().map_err(|_| "Estado indisponível")?;
@@ -135,6 +142,10 @@ pub fn list_scopes(state: State<'_, Backend>) -> Result<Vec<ScopeInfo>, String> 
 }
 #[tauri::command]
 pub fn forget_scope(state: State<'_, Backend>, scope_id: String) -> Result<(), String> {
+    if state.cleanup.active()? {
+        return Err("Aguarde a limpeza em andamento.".into());
+    }
+    state.cleanup.invalidate()?;
     state
         .roots
         .lock()
@@ -144,6 +155,10 @@ pub fn forget_scope(state: State<'_, Backend>, scope_id: String) -> Result<(), S
 }
 #[tauri::command]
 pub fn begin_scan(state: State<'_, Backend>, scope_ids: Vec<String>) -> Result<String, String> {
+    if state.cleanup.active()? {
+        return Err("Aguarde a limpeza em andamento.".into());
+    }
+    state.cleanup.invalidate()?;
     if scope_ids.is_empty() || scope_ids.len() > 32 {
         return Err("Escolha entre 1 e 32 escopos aprovados.".into());
     }
@@ -260,7 +275,15 @@ impl Backend {
         let thumbnails = dir.path().join("cache/thumbnails");
         // fixture-tests runs before Tauri/runtime threads are started. This modifies
         // only this test process, never the user's shell or persistent configuration.
-        std::env::set_var("XDG_CACHE_HOME", dir.path().join("cache"));
+        for (var, relative) in [
+            ("XDG_CACHE_HOME", "cache"),
+            ("XDG_DATA_HOME", "data"),
+            ("XDG_STATE_HOME", "state"),
+            ("XDG_CONFIG_HOME", "config"),
+        ] {
+            fs::create_dir_all(dir.path().join(relative)).map_err(|e| e.to_string())?;
+            std::env::set_var(var, dir.path().join(relative));
+        }
         for rel in [
             "projects/orbit/target",
             "projects/infra/.terraform/providers",
@@ -320,5 +343,45 @@ impl Backend {
         }
         backend.fixture_guard = Some(dir);
         Ok(backend)
+    }
+}
+
+impl Backend {
+    pub fn snapshot(&self, id: &str) -> Result<Arc<ScanSnapshot>, String> {
+        let slot = self.job.lock().map_err(|_| "Estado indisponível")?;
+        let job = slot.as_ref().ok_or("Análise inexistente")?;
+        let j = job.lock().map_err(|_| "Estado indisponível")?;
+        let snapshot = j.snapshot.as_ref().ok_or("Aguarde a análise terminar")?;
+        if snapshot.id != id {
+            return Err("Análise expirada ou desconhecida".into());
+        }
+        Ok(snapshot.clone())
+    }
+    pub fn check_approved(&self, snapshot: &ScanSnapshot, ids: &[String]) -> Result<(), String> {
+        let roots = self.roots.lock().map_err(|_| "Estado indisponível")?;
+        for id in ids {
+            let target = snapshot.targets.get(id).ok_or("Item não aprovado")?;
+            if !roots.values().any(|r| r.root.path() == target.root.path()) {
+                return Err("A aprovação da pasta foi revogada.".into());
+            }
+            target.root.revalidate()?;
+        }
+        Ok(())
+    }
+    pub fn fixture_consent(&self, snapshot: &ScanSnapshot, ids: &[String]) -> bool {
+        #[cfg(feature = "fixture-tests")]
+        if std::env::var("INODUNE_FIXTURE_CONFIRM").as_deref() == Ok("1") {
+            return self.fixture_guard.as_ref().is_some_and(|dir| {
+                !ids.is_empty()
+                    && ids.iter().all(|id| {
+                        snapshot
+                            .targets
+                            .get(id)
+                            .is_some_and(|t| t.root.path().starts_with(dir.path()))
+                    })
+            });
+        }
+        let _ = (snapshot, ids);
+        false
     }
 }

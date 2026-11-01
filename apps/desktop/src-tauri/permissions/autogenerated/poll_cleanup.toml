@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-poll-cleanup"
+description = "Enables the poll_cleanup command without any pre-configured scope."
+commands.allow = ["poll_cleanup"]
+
+[[permission]]
+identifier = "deny-poll-cleanup"
+description = "Denies the poll_cleanup command without any pre-configured scope."
+commands.deny = ["poll_cleanup"]

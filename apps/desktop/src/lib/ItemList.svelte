@@ -8,6 +8,7 @@
     selected,
     ontoggle,
     ondetail,
+    localMode = false,
     disabled = false,
   }: {
     items: Candidate[];
@@ -15,7 +16,12 @@
     selected: string[];
     ontoggle: (item: Candidate) => void;
     ondetail: (item: Candidate) => void;
+    localMode?: boolean;
   } = $props();
+  const isSelectable = (item: Candidate) =>
+    localMode
+      ? item.risk === 'low' && item.supported_action === 'cache_contents'
+      : item.risk !== 'protected';
 </script>
 
 <div class="item-list">
@@ -33,7 +39,7 @@
               >
             {:else}<input
                 type="checkbox"
-                {disabled}
+                disabled={disabled || !isSelectable(item)}
                 aria-label={'Selecionar ' + item.title}
                 checked={selected.includes(item.id)}
                 onchange={() => ontoggle(item)}
@@ -50,7 +56,12 @@
               ? formatBytes(item.logical_bytes)
               : 'Não somado'}</strong
           >
-          <RiskBadge risk={item.risk} />
+          <div>
+            <RiskBadge risk={item.risk} />
+            {#if !isSelectable(item)}<small class="item-policy-note"
+                >Somente análise</small
+              >{/if}
+          </div>
           <button
             class="icon-button detail-trigger"
             aria-label={'Por que apareceu: ' + item.title}

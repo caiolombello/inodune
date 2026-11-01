@@ -35,6 +35,70 @@ export interface ScanPoll {
   result: NativeResult | null;
   error: string | null;
 }
+export interface CleanupPlanItem {
+  candidate_id: string;
+  display_path: string;
+  logical_bytes: number;
+  allocated_bytes_estimate: number | null;
+}
+export interface CleanupPlan {
+  id: string;
+  hash: string;
+  snapshot_id: string;
+  action: 'trash' | 'permanent';
+  expires_in_seconds: number;
+  items: CleanupPlanItem[];
+  logical_bytes_estimate: number;
+  allocated_bytes_estimate: number | null;
+}
+export type CleanupFileStatus =
+  | 'trashed'
+  | 'removed'
+  | 'skipped_changed'
+  | 'failed'
+  | 'cancelled'
+  | 'quarantined';
+export interface CleanupFileResult {
+  display_path: string;
+  status: CleanupFileStatus;
+  logical_bytes: number;
+  message: string | null;
+  preserved_at: string | null;
+}
+export interface CleanupExecutionReport {
+  schema_version: number;
+  plan_id: string;
+  action: 'trash' | 'permanent';
+  items: {
+    candidate_id: string;
+    files: CleanupFileResult[];
+    complete: boolean;
+  }[];
+  volumes: {
+    device: number;
+    available_before: number;
+    available_after: number | null;
+    observed_delta: number | null;
+  }[];
+  complete: boolean;
+  cancelled: boolean;
+  logical_bytes_processed: number;
+  attributed_freed_bytes: number | null;
+  measurement_note: string;
+  warnings: string[];
+  history_path: string | null;
+}
+export interface CleanupPoll {
+  status: 'running' | 'done' | 'error';
+  progress: {
+    completed_files: number;
+    total_files: number;
+    completed_items: number;
+    total_items: number;
+  };
+  report: CleanupExecutionReport | null;
+  error: string | null;
+}
 export const native = {
   chooseScope: (kind: ScopeKind) =>
     invoke<NativeScope | null>('choose_scope', { kind }),
@@ -44,4 +108,14 @@ export const native = {
   pollScan: (jobId: string) => invoke<ScanPoll>('poll_scan', { jobId }),
   controlScan: (jobId: string, action: 'pause' | 'resume' | 'cancel') =>
     invoke<void>('control_scan', { jobId, action }),
+  prepareCleanup: (
+    scanId: string,
+    candidateIds: string[],
+    action: 'trash' | 'permanent',
+  ) => invoke<CleanupPlan>('prepare_cleanup', { scanId, candidateIds, action }),
+  beginCleanup: (planId: string, hash: string) =>
+    invoke<string>('begin_cleanup', { planId, hash }),
+  pollCleanup: (jobId: string) =>
+    invoke<CleanupPoll>('poll_cleanup', { jobId }),
+  cancelCleanup: (jobId: string) => invoke<void>('cancel_cleanup', { jobId }),
 };

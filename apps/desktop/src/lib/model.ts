@@ -32,7 +32,7 @@ export interface Candidate {
   preserved: string;
   evidence: string[];
   activity: string;
-  supported_action: 'none';
+  supported_action: 'none' | 'cache_contents';
 }
 export interface Inventory {
   schema_version: number;
@@ -72,10 +72,22 @@ export function formatBytes(bytes: number): string {
     bytes >= 1024 ** 3 ? 3 : bytes >= 1024 ** 2 ? 2 : bytes >= 1024 ? 1 : 0;
   return `${new Intl.NumberFormat('pt-BR', { maximumFractionDigits: 1 }).format(bytes / 1024 ** unit)} ${['B', 'KiB', 'MiB', 'GiB'][unit]}`;
 }
+export function formatSignedBytes(bytes: number): string {
+  const sign = bytes > 0 ? '+' : bytes < 0 ? '−' : '';
+  return sign + formatBytes(Math.abs(bytes));
+}
 export function selectDefaults(items: Candidate[]): string[] {
   return items
     .filter((c) => c.risk === 'low' && c.selected_by_default)
     .map((c) => c.id);
+}
+export function isLocallyEligible(item: Candidate): boolean {
+  return item.risk === 'low' && item.supported_action === 'cache_contents';
+}
+export function selectLocalDefaults(items: Candidate[]): string[] {
+  return items
+    .filter((item) => item.selected_by_default && isLocallyEligible(item))
+    .map((item) => item.id);
 }
 export function toggleSelection(ids: string[], item: Candidate): string[] {
   if (item.risk === 'protected') return ids;

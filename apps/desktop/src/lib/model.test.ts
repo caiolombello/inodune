@@ -5,8 +5,30 @@ import {
   simulateBudget,
   toggleSelection,
   executeDemo,
+  isLocallyEligible,
+  selectLocalDefaults,
+  formatSignedBytes,
 } from './model';
 describe('conservative simulation policy', () => {
+  it('formats signed observed volume deltas by magnitude', () => {
+    expect(formatSignedBytes(1024)).toBe('+1 KiB');
+    expect(formatSignedBytes(-1024)).toBe('−1 KiB');
+    expect(formatSignedBytes(0)).toBe('0 B');
+  });
+  it('allows local cleanup only for low-risk cache-content candidates', () => {
+    const lowCache = {
+      ...demo.candidates[0],
+      supported_action: 'cache_contents' as const,
+    };
+    const reviewCache = { ...lowCache, risk: 'review' as const };
+    const unsupportedLow = { ...demo.candidates[0] };
+    expect(isLocallyEligible(lowCache)).toBe(true);
+    expect(isLocallyEligible(reviewCache)).toBe(false);
+    expect(isLocallyEligible(unsupportedLow)).toBe(false);
+    expect(
+      selectLocalDefaults([lowCache, reviewCache, unsupportedLow]),
+    ).toEqual([lowCache.id]);
+  });
   it('suggests only low risk and rejects protected IDs even from a forged selection', () => {
     expect(selectDefaults(demo.candidates)).toEqual(['thumbs', 'py']);
     expect(

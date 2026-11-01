@@ -7,6 +7,10 @@ fn main() {
             "begin_scan",
             "poll_scan",
             "control_scan",
+            "prepare_cleanup",
+            "begin_cleanup",
+            "poll_cleanup",
+            "cancel_cleanup",
         ]),
     ))
     .expect("failed to build native command permissions");

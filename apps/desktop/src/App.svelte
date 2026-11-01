@@ -41,11 +41,17 @@
     type NativeScope,
     type NativeResult,
     type ScopeKind,
+    type CleanupPlan,
+    type CleanupExecutionReport,
+    type CleanupPoll,
   } from './lib/backend';
   import {
     demo,
     formatBytes,
+    formatSignedBytes,
     selectDefaults,
+    selectLocalDefaults,
+    isLocallyEligible,
     toggleSelection,
     simulateBudget,
     executeDemo,
@@ -105,8 +111,23 @@
   let nativeJob = $state<string | null>(null);
   let nativeProgress = $state({ visited: 0, candidates: 0, stage: '' });
   let nativeError = $state('');
+  let cleanupError = $state('');
+  let cleanupPlan = $state<CleanupPlan | null>(null);
+  let cleanupReport = $state<CleanupExecutionReport | null>(null);
+  let cleanupProgress = $state<CleanupPoll['progress']>({
+    completed_files: 0,
+    total_files: 0,
+    completed_items: 0,
+    total_items: 0,
+  });
+  let cleanupJob = $state<string | null>(null);
+  let preparingCleanup = $state(false);
+  let localScanStale = $state(false);
+  let cleanupPollFailures = $state(0);
+  let cleanupStateUnknown = $state(false);
   let choosingScope = $state(false);
   let nativeTimer: ReturnType<typeof setTimeout>;
+  let cleanupTimer: ReturnType<typeof setTimeout>;
   const scopeOptions = $derived(
     source === 'local' ? nativeScopes : demo.scopes,
   );
@@ -140,6 +161,7 @@
     candidates.filter((c) => c.risk === 'protected'),
   );
   const available = $derived(candidates.filter((c) => c.risk !== 'protected'));
+  const locallyEligible = $derived(candidates.filter(isLocallyEligible));
   const potential = $derived(
     available.reduce((n, c) => n + c.logical_bytes, 0),
   );
@@ -223,6 +245,7 @@
       clearTimeout(scanTimer);
       clearTimeout(executionTimer);
       clearTimeout(nativeTimer);
+      clearTimeout(cleanupTimer);
     };
   });
   function applyPreferences() {
@@ -251,10 +274,23 @@
   }
   async function startScan() {
     clearTimeout(scanTimer);
+    localScanStale = false;
     candidates = [];
     selected = [];
     outcomes = [];
     reportAvailable = false;
+    cleanupError = '';
+    cleanupPlan = null;
+    cleanupReport = null;
+    cleanupJob = null;
+    cleanupProgress = {
+      completed_files: 0,
+      total_files: 0,
+      completed_items: 0,
+      total_items: 0,
+    };
+    cleanupPollFailures = 0;
+    cleanupStateUnknown = false;
     nativeError = '';
     nativeResult = null;
     nativeJob = null;
@@ -315,11 +351,19 @@
   function changeSource() {
     clearTimeout(nativeTimer);
     clearTimeout(scanTimer);
+    clearTimeout(cleanupTimer);
+    localScanStale = false;
     candidates = [];
     selected = [];
     nativeResult = null;
     nativeJob = null;
     reportAvailable = false;
+    cleanupPlan = null;
+    cleanupReport = null;
+    cleanupJob = null;
+    cleanupError = '';
+    cleanupPollFailures = 0;
+    cleanupStateUnknown = false;
     outcomes = [];
     scanState = 'idle';
     scopes =
@@ -343,7 +387,11 @@
         nativeResult = result.result;
         candidates = result.result.candidates;
         scanState = result.result.cancelled ? 'cancelled' : 'complete';
-        selected = result.result.complete ? selectDefaults(candidates) : [];
+        selected = result.result.complete
+          ? source === 'local'
+            ? selectLocalDefaults(candidates)
+            : selectDefaults(candidates)
+          : [];
         return;
       }
       nativeTimer = setTimeout(() => void pollNative(), 150);
@@ -394,7 +442,9 @@
     selected = [];
   }
   function toggle(item: Candidate) {
-    if (!scanBusy && !executing) selected = toggleSelection(selected, item);
+    if (source === 'local' && !isLocallyEligible(item)) return;
+    if (!scanBusy && !executing && !preparingCleanup && !localScanStale)
+      selected = toggleSelection(selected, item);
   }
   async function copyPath(path: string) {
     try {
@@ -407,8 +457,11 @@
     }
   }
   async function startExecution() {
-    if (source === 'local' || !consent || !budget.picked.length || executing)
+    if (!consent || !budget.picked.length || executing) return;
+    if (source === 'local') {
+      await beginLocalCleanup();
       return;
+    }
     confirmation = false;
     executing = true;
     reportAvailable = true;
@@ -423,6 +476,107 @@
     processItem();
     await tick();
     heading?.focus();
+  }
+  async function prepareLocalCleanup() {
+    if (
+      source !== 'local' ||
+      !nativeResult?.complete ||
+      !nativeResult.scan_id ||
+      !selected.length ||
+      selected.some((id) => !locallyEligible.some((item) => item.id === id)) ||
+      preparingCleanup ||
+      executing
+    )
+      return;
+    preparingCleanup = true;
+    cleanupError = '';
+    cleanupPlan = null;
+    cleanupReport = null;
+    cleanupProgress = {
+      completed_files: 0,
+      total_files: 0,
+      completed_items: 0,
+      total_items: 0,
+    };
+    try {
+      cleanupPlan = await native.prepareCleanup(
+        nativeResult.scan_id,
+        [...selected],
+        policy,
+      );
+      consent = false;
+      confirmation = true;
+    } catch (e) {
+      cleanupError = String(e);
+    } finally {
+      preparingCleanup = false;
+    }
+  }
+  async function beginLocalCleanup() {
+    const plan = cleanupPlan;
+    if (!plan || !consent || executing || source !== 'local') return;
+    confirmation = false;
+    preparingCleanup = true;
+    cleanupError = '';
+    try {
+      const jobId = await native.beginCleanup(plan.id, plan.hash);
+      cleanupJob = jobId;
+      localScanStale = true;
+      cleanupPollFailures = 0;
+      cleanupStateUnknown = false;
+      cleanupReport = null;
+      reportAvailable = true;
+      executing = true;
+      page = 'report';
+      await tick();
+      heading?.focus();
+      void pollCleanup();
+    } catch (e) {
+      cleanupError = String(e);
+      cleanupPlan = null;
+      consent = false;
+    } finally {
+      preparingCleanup = false;
+    }
+  }
+  async function pollCleanup() {
+    if (!cleanupJob || !executing) return;
+    const jobId = cleanupJob;
+    try {
+      const result = await native.pollCleanup(jobId);
+      if (cleanupJob !== jobId) return;
+      cleanupPollFailures = 0;
+      cleanupStateUnknown = false;
+      cleanupError = '';
+      cleanupProgress = result.progress;
+      if (result.status === 'error') {
+        cleanupError = result.error ?? 'A execução foi interrompida.';
+        executing = false;
+        return;
+      }
+      if (result.status === 'done') {
+        cleanupReport = result.report;
+        if (!result.report)
+          cleanupError =
+            'O executor encerrou sem fornecer um relatório de execução.';
+        executing = false;
+        cleanupJob = null;
+        cleanupPlan = null;
+        return;
+      }
+      cleanupTimer = setTimeout(() => void pollCleanup(), 180);
+    } catch {
+      cleanupPollFailures += 1;
+      cleanupError = `Não foi possível consultar o executor (${cleanupPollFailures}/3).`;
+      if (cleanupPollFailures < 3) {
+        cleanupTimer = setTimeout(
+          () => void pollCleanup(),
+          200 * cleanupPollFailures,
+        );
+      } else {
+        cleanupStateUnknown = true;
+      }
+    }
   }
   function processItem() {
     if (!executing) return;
@@ -443,6 +597,12 @@
     }, 620);
   }
   function cancelExecution() {
+    if (source === 'local' && cleanupJob) {
+      void native.cancelCleanup(cleanupJob).catch((e) => {
+        cleanupError = String(e);
+      });
+      return;
+    }
     // Complete the current demo event, then cancel every not-yet-started item.
     if (!executing) return;
     clearTimeout(executionTimer);
@@ -534,7 +694,7 @@
         <span class="topbar-separator">/</span>
         <strong
           >{source === 'local'
-            ? 'Escopos explícitos · somente leitura'
+            ? 'Escopos aprovados · limpeza com confirmação'
             : 'Somente dados sintéticos'}</strong
         >
       </div>
@@ -582,7 +742,10 @@
         {#if !['settings', 'catalog', 'impact', 'report'].includes(page)}<button
             class="button primary"
             onclick={startScan}
-            disabled={scanBusy || executing || scopes.length === 0}
+            disabled={scanBusy ||
+              executing ||
+              preparingCleanup ||
+              scopes.length === 0}
             ><RefreshCw size={16} />
             {scanState === 'idle'
               ? source === 'local'
@@ -605,7 +768,7 @@
           onclick={() => {
             onboarding = 0;
           }}
-          disabled={executing || scanBusy}
+          disabled={executing || scanBusy || preparingCleanup}
           >Conhecer o fluxo <ArrowUpRight size={14} /></button
         >
       </div>
@@ -762,10 +925,10 @@
               <button
                 class="button primary"
                 onclick={() => go('review')}
-                disabled={!available.length || scanBusy}
+                disabled={!available.length || scanBusy || preparingCleanup}
                 >Revisar candidatos <ArrowRight size={17} /></button
               ><small
-                ><ShieldCheck size={14} /> Nenhuma limpeza está habilitada.</small
+                ><ShieldCheck size={14} /> Limpeza real indisponível na demonstração.</small
               >
             </div>
           </section>
@@ -848,7 +1011,8 @@
               <div class="skeleton"></div>
               <div class="skeleton"></div>
             </div>{:else}<ItemList
-              disabled={executing}
+              disabled={executing || preparingCleanup || localScanStale}
+              localMode={source === 'local'}
               items={available}
               {selected}
               ontoggle={toggle}
@@ -979,9 +1143,22 @@
           {#if scanBusy}<p class="inline-note">
               Seleção indisponível durante análise. Aguarde ou cancele.
             </p>{/if}
+          {#if source === 'local' && localScanStale}<p
+              class="notice"
+              role="status"
+            >
+              <CircleAlert size={18} /><span
+                >Esta análise antecede a última tentativa de limpeza. Analise
+                novamente antes de selecionar novos itens.</span
+              >
+            </p>{/if}
           <ItemList
             items={filtered}
-            disabled={scanBusy || executing}
+            disabled={scanBusy ||
+              executing ||
+              preparingCleanup ||
+              localScanStale}
+            localMode={source === 'local'}
             {selected}
             ontoggle={toggle}
             ondetail={(item) => (detail = item)}
@@ -998,13 +1175,21 @@
               <button
                 class="button"
                 onclick={() => (selected = [])}
-                disabled={!selected.length || scanBusy || executing}
-                >Desmarcar todos</button
+                disabled={!selected.length ||
+                  scanBusy ||
+                  executing ||
+                  preparingCleanup ||
+                  localScanStale}>Desmarcar todos</button
               ><button
                 class="button primary"
                 onclick={() => go('impact')}
-                disabled={!selected.length || scanBusy || executing}
-                >Simular impacto <ArrowRight size={16} /></button
+                disabled={!selected.length ||
+                  scanBusy ||
+                  executing ||
+                  preparingCleanup ||
+                  localScanStale}
+                >{source === 'local' ? 'Revisar impacto' : 'Simular impacto'}
+                <ArrowRight size={16} /></button
               >
             </div>
           </div>{/if}
@@ -1016,7 +1201,11 @@
             <p>{selected.length} itens · tamanho lógico estimado</p>
             <div class="compare-grid">
               <div>
-                <span>Antes · exemplo</span><strong
+                <span
+                  >{source === 'local'
+                    ? 'Antes · último scan'
+                    : 'Antes · exemplo'}</span
+                ><strong
                   >{source === 'demo'
                     ? '130 GiB livres'
                     : nativeResult?.volumes.length === 1
@@ -1048,15 +1237,28 @@
               </div>{/each}
           </section>
           <section class="panel padded">
-            <h2>Como seria o descarte?</h2>
+            <h2>
+              {source === 'local'
+                ? 'Preparar limpeza'
+                : 'Como seria o descarte?'}
+            </h2>
             <p>
-              Escolha apenas para explorar a confirmação. Nenhum arquivo será
-              movido ou apagado.
+              {source === 'local'
+                ? 'A seleção gera um plano explícito. Nenhum arquivo será alterado antes da confirmação do sistema.'
+                : 'Escolha apenas para explorar a confirmação. Nenhum arquivo será movido ou apagado.'}
             </p>
             <fieldset class="policy-options">
-              <legend>Política da simulação</legend><label
-                class:chosen={policy === 'trash'}
-                ><input type="radio" bind:group={policy} value="trash" /><span
+              <legend
+                >{source === 'local'
+                  ? 'Ação para os arquivos'
+                  : 'Política da simulação'}</legend
+              ><label class:chosen={policy === 'trash'}
+                ><input
+                  type="radio"
+                  bind:group={policy}
+                  value="trash"
+                  disabled={preparingCleanup}
+                /><span
                   ><strong>Lixeira</strong><small
                     >Geralmente reversível · sem ganho imediato na mesma unidade</small
                   ></span
@@ -1066,6 +1268,7 @@
                   type="radio"
                   bind:group={policy}
                   value="permanent"
+                  disabled={preparingCleanup}
                 /><span
                   ><strong>Exclusão permanente</strong><small
                     >Irreversível em operação real · confirmação explícita</small
@@ -1077,18 +1280,40 @@
             <p>
               {budget.reviewCount
                 ? 'Inclui build com custo de reconstrução. Revise individualmente.'
-                : 'Apenas exemplos de caches recriáveis selecionados.'}
+                : source === 'local'
+                  ? 'Somente caches de baixo risco com ação de limpeza suportada podem ser executados.'
+                  : 'Apenas exemplos de caches recriáveis selecionados.'}
             </p>
             <button
               class="button primary full"
-              disabled={!selected.length || executing || source === 'local'}
+              disabled={!selected.length ||
+                executing ||
+                preparingCleanup ||
+                localScanStale ||
+                (source === 'local' &&
+                  (!nativeResult?.complete ||
+                    selected.some(
+                      (id) => !locallyEligible.some((item) => item.id === id),
+                    )))}
               onclick={() => {
                 consent = false;
-                confirmation = true;
-              }}>Revisar confirmação <ArrowRight size={16} /></button
-            >{#if source === 'local'}<p class="inline-note">
-                Executor ainda não habilitado neste incremento. A simulação de
-                impacto não altera seus arquivos.
+                if (source === 'local') void prepareLocalCleanup();
+                else confirmation = true;
+              }}
+              >{preparingCleanup
+                ? 'Preparando plano…'
+                : source === 'local'
+                  ? 'Preparar limpeza segura'
+                  : 'Revisar confirmação'}
+              <ArrowRight size={16} /></button
+            >
+            {#if cleanupError}<div class="notice error" role="alert">
+                <CircleAlert size={20} />
+                <p>{cleanupError}</p>
+              </div>{/if}
+            {#if source === 'local'}<p class="inline-note">
+                A confirmação do sistema será exibida pelo backend antes de
+                qualquer alteração.
               </p>{/if}<button
               class="text-button full"
               onclick={() => go('review')}>Voltar à seleção</button
@@ -1097,70 +1322,251 @@
         </div>
       {:else if page === 'report' || page === 'history'}
         {#if reportAvailable}<section class="panel padded">
-            <div class="section-head">
-              <div>
-                <span class="eyebrow"
-                  >{executing
-                    ? 'EM ANDAMENTO'
-                    : 'RELATÓRIO DE DEMONSTRAÇÃO'}</span
-                >
-                <h2>
-                  {executing
-                    ? 'Processando exemplos, item a item.'
-                    : outcomes.some((o) =>
-                          ['failed', 'skipped_changed', 'cancelled'].includes(
-                            o.outcome,
-                          ),
-                        )
-                      ? 'Simulação com itens não concluídos.'
-                      : 'Simulação concluída.'}
-                </h2>
-                <p>
-                  Resultado somente desta sessão. Nenhum arquivo foi alterado.
-                </p>
+            {#if source === 'local'}
+              <div class="section-head">
+                <div>
+                  <span class="eyebrow"
+                    >{executing ? 'EM ANDAMENTO' : 'RELATÓRIO DE LIMPEZA'}</span
+                  >
+                  <h2>
+                    {executing
+                      ? 'Executando limpeza aprovada.'
+                      : cleanupReport?.complete
+                        ? 'Limpeza concluída.'
+                        : cleanupReport?.cancelled
+                          ? 'Limpeza cancelada.'
+                          : 'Limpeza encerrada com itens pendentes.'}
+                  </h2>
+                  <p>
+                    Ação: {(cleanupReport?.action ?? cleanupPlan?.action) ===
+                    'trash'
+                      ? 'Lixeira'
+                      : 'exclusão permanente'}. Relatório do executor local com
+                    cada arquivo processado.
+                  </p>
+                </div>
+                {#if executing}<button class="button" onclick={cancelExecution}
+                    >Cancelar limpeza</button
+                  >{/if}
               </div>
-              {#if executing}<button class="button" onclick={cancelExecution}
-                  >Cancelar entre itens</button
+              {#if cleanupError}<div class="notice error" role="alert">
+                  <CircleAlert size={20} />
+                  <p>{cleanupError}</p>
+                </div>{/if}
+              {#if cleanupStateUnknown}<div class="notice error" role="alert">
+                  <CircleAlert size={20} />
+                  <p>
+                    O estado da limpeza ainda não foi confirmado. A origem, os
+                    escopos e novas análises permanecem bloqueados até a
+                    consulta responder.
+                  </p>
+                </div>
+                <button
+                  class="button"
+                  onclick={() => {
+                    cleanupPollFailures = 0;
+                    cleanupStateUnknown = false;
+                    void pollCleanup();
+                  }}>Tentar consultar novamente</button
                 >{/if}
-            </div>
-            <div class="report-metrics">
-              <div>
-                <span>Tamanho lógico selecionado</span><strong
-                  >{formatBytes(reportBytes)}</strong
+              {#if executing}<div
+                  class="cleanup-progress"
+                  role="status"
+                  aria-live="polite"
                 >
+                  <strong
+                    >{cleanupProgress.completed_files} de {cleanupProgress.total_files}
+                    arquivos</strong
+                  >
+                  <span
+                    >{cleanupProgress.completed_items} de {cleanupProgress.total_items}
+                    itens concluídos</span
+                  >
+                </div>{/if}
+              {#if cleanupReport}
+                <div class="report-metrics">
+                  <div>
+                    <span>Bytes lógicos processados</span><strong
+                      >{formatBytes(
+                        cleanupReport.logical_bytes_processed,
+                      )}</strong
+                    >
+                  </div>
+                  <div>
+                    <span>Bytes liberados atribuídos</span><strong
+                      >{cleanupReport.attributed_freed_bytes === null
+                        ? 'Não atribuídos'
+                        : formatBytes(
+                            cleanupReport.attributed_freed_bytes,
+                          )}</strong
+                    >
+                  </div>
+                  <div>
+                    <span>Arquivos relatados</span><strong
+                      >{cleanupReport.items.reduce(
+                        (n, item) => n + item.files.length,
+                        0,
+                      )}</strong
+                    >
+                  </div>
+                </div>
+                {#each cleanupReport.items as item (item.candidate_id)}
+                  <section class="cleanup-report-item">
+                    <h3>
+                      {candidates.find(
+                        (candidate) => candidate.id === item.candidate_id,
+                      )?.title ?? item.candidate_id}
+                    </h3>
+                    <span class="badge neutral"
+                      >{item.complete
+                        ? 'Item concluído'
+                        : 'Item incompleto'}</span
+                    >
+                    {#each item.files as file, index (`${item.candidate_id}-${index}`)}
+                      <div class="outcome-row cleanup-file-row">
+                        <div>
+                          <code>{file.display_path}</code><small
+                            >{formatBytes(file.logical_bytes)} lógicos</small
+                          >{#if file.message}<small>{file.message}</small
+                            >{/if}{#if file.preserved_at}<small
+                              >Preservado em: <code>{file.preserved_at}</code
+                              ></small
+                            >{/if}
+                        </div>
+                        <span
+                          class:outcome-error={file.status === 'failed'}
+                          class:outcome-warning={[
+                            'skipped_changed',
+                            'cancelled',
+                            'quarantined',
+                          ].includes(file.status)}
+                          >{file.status === 'trashed'
+                            ? 'Enviado à Lixeira'
+                            : file.status === 'removed'
+                              ? 'Removido'
+                              : file.status === 'skipped_changed'
+                                ? 'Ignorado · alterado'
+                                : file.status === 'quarantined'
+                                  ? 'Preservado · verificar recuperação'
+                                  : file.status === 'cancelled'
+                                    ? 'Cancelado'
+                                    : 'Falhou'}</span
+                        >
+                      </div>
+                    {/each}
+                  </section>
+                {/each}
+                {#if cleanupReport.volumes.length}<section
+                    class="volume-observations"
+                  >
+                    <h3>Variação observada por volume</h3>
+                    <p>
+                      Variações observadas não são atribuídas à limpeza.
+                      Arquivos enviados à Lixeira não são contabilizados como
+                      espaço liberado.
+                    </p>
+                    {#each cleanupReport.volumes as volume (volume.device)}<div
+                        class="outcome-row"
+                      >
+                        <span>Dispositivo {volume.device}</span><span
+                          >Antes {formatBytes(volume.available_before)} · depois {volume.available_after ===
+                          null
+                            ? 'não medido'
+                            : formatBytes(volume.available_after)} · variação {volume.observed_delta ===
+                          null
+                            ? 'não medida'
+                            : formatSignedBytes(volume.observed_delta)}</span
+                        >
+                      </div>{/each}
+                  </section>{/if}
+                <p class="measurement-note">{cleanupReport.measurement_note}</p>
+                {#if cleanupReport.warnings.length}<section
+                    class="cleanup-warnings"
+                    aria-label="Avisos do executor"
+                  >
+                    <h3>Avisos e limites</h3>
+                    <ul>
+                      {#each cleanupReport.warnings as warning, index (`${index}-${warning}`)}<li
+                        >
+                          {warning}
+                        </li>{/each}
+                    </ul>
+                  </section>{/if}
+                {#if cleanupReport.history_path}<p class="inline-note">
+                    Relatório salvo em <code>{cleanupReport.history_path}</code>
+                  </p>{/if}
+              {/if}
+              <button
+                class="button"
+                onclick={() => go('review')}
+                disabled={executing}>Voltar à revisão</button
+              >
+            {:else}
+              <div class="section-head">
+                <div>
+                  <span class="eyebrow"
+                    >{executing
+                      ? 'EM ANDAMENTO'
+                      : 'RELATÓRIO DE DEMONSTRAÇÃO'}</span
+                  >
+                  <h2>
+                    {executing
+                      ? 'Processando exemplos, item a item.'
+                      : outcomes.some((o) =>
+                            ['failed', 'skipped_changed', 'cancelled'].includes(
+                              o.outcome,
+                            ),
+                          )
+                        ? 'Simulação com itens não concluídos.'
+                        : 'Simulação concluída.'}
+                  </h2>
+                  <p>
+                    Resultado somente desta sessão. Nenhum arquivo foi alterado.
+                  </p>
+                </div>
+                {#if executing}<button class="button" onclick={cancelExecution}
+                    >Cancelar entre itens</button
+                  >{/if}
               </div>
-              <div>
-                <span>Espaço efetivamente recuperado</span><strong
-                  >Não medido</strong
-                >
+              <div class="report-metrics">
+                <div>
+                  <span>Tamanho lógico selecionado</span><strong
+                    >{formatBytes(reportBytes)}</strong
+                  >
+                </div>
+                <div>
+                  <span>Espaço efetivamente recuperado</span><strong
+                    >Não medido</strong
+                  >
+                </div>
+                <div><span>Operações reais</span><strong>Nenhuma</strong></div>
               </div>
-              <div><span>Operações reais</span><strong>Nenhuma</strong></div>
-            </div>
-            {#each outcomes as outcome (outcome.id)}<div class="outcome-row">
-                <span>{outcome.title}</span><span
-                  class:outcome-error={outcome.outcome === 'failed'}
-                  class:outcome-warning={[
-                    'cancelled',
-                    'skipped_changed',
-                  ].includes(outcome.outcome)}
-                  >{#if outcome.outcome === 'simulated'}<Check
-                      size={16}
-                    />{:else if outcome.outcome === 'processing'}<CircleDashed
-                      size={16}
-                    />{:else}<CircleAlert size={16} />{/if}{outcomeLabel[
-                    outcome.outcome
-                  ]}</span
-                >
-              </div>{/each}
-            <p class="inline-note">
-              Lixeira e exclusão permanente não foram executadas. Não existe
-              desfazer para este exemplo, pois nada foi modificado.
-            </p>
-            <button
-              class="button"
-              onclick={() => go('review')}
-              disabled={executing}>Voltar à revisão</button
-            >
+              {#each outcomes as outcome (outcome.id)}<div class="outcome-row">
+                  <span>{outcome.title}</span><span
+                    class:outcome-error={outcome.outcome === 'failed'}
+                    class:outcome-warning={[
+                      'cancelled',
+                      'skipped_changed',
+                    ].includes(outcome.outcome)}
+                    >{#if outcome.outcome === 'simulated'}<Check
+                        size={16}
+                      />{:else if outcome.outcome === 'processing'}<CircleDashed
+                        size={16}
+                      />{:else}<CircleAlert size={16} />{/if}{outcomeLabel[
+                      outcome.outcome
+                    ]}</span
+                  >
+                </div>{/each}
+              <p class="inline-note">
+                Lixeira e exclusão permanente não foram executadas. Não existe
+                desfazer para este exemplo, pois nada foi modificado.
+              </p>
+              <button
+                class="button"
+                onclick={() => go('review')}
+                disabled={executing}>Voltar à revisão</button
+              >
+            {/if}
           </section>{:else}<section class="panel empty-state">
             <History size={30} />
             <h2>Ainda não há relatórios.</h2>
@@ -1206,7 +1612,7 @@
               aria-label="Fonte de dados"
               bind:value={source}
               onchange={changeSource}
-              disabled={!isDesktop || scanBusy || executing}
+              disabled={!isDesktop || scanBusy || executing || preparingCleanup}
               ><option value="local">Meu computador</option><option value="demo"
                 >Demonstração</option
               ></select
@@ -1220,17 +1626,26 @@
           {#if source === 'local'}<div class="inline-actions scope-actions">
               <button
                 class="button"
-                disabled={choosingScope || scanBusy || executing}
+                disabled={choosingScope ||
+                  scanBusy ||
+                  executing ||
+                  preparingCleanup}
                 onclick={() => addNativeScope('projects')}
                 ><Folder size={16} /> Adicionar pasta de projetos</button
               ><button
                 class="button"
-                disabled={choosingScope || scanBusy || executing}
+                disabled={choosingScope ||
+                  scanBusy ||
+                  executing ||
+                  preparingCleanup}
                 onclick={() => addNativeScope('thumbnails')}
                 >Escolher thumbnails</button
               ><button
                 class="button"
-                disabled={choosingScope || scanBusy || executing}
+                disabled={choosingScope ||
+                  scanBusy ||
+                  executing ||
+                  preparingCleanup}
                 onclick={() => addNativeScope('protected')}
                 ><Shield size={16} /> Inventário protegido de IA</button
               >
@@ -1240,7 +1655,7 @@
                 type="checkbox"
                 checked={scopes.includes(scope.id)}
                 onchange={() => chooseScope(scope.id)}
-                disabled={scanBusy || executing}
+                disabled={scanBusy || executing || preparingCleanup}
               /><span
                 ><strong>{scope.label}</strong><code>{scope.display_path}</code
                 ></span
@@ -1253,7 +1668,7 @@
               ><select
                 aria-label="Cenário de demonstração"
                 bind:value={scenario}
-                disabled={scanBusy || executing}
+                disabled={scanBusy || executing || preparingCleanup}
                 ><option value="normal">Resultados normais</option><option
                   value="partial">Falha e item alterado na execução</option
                 ><option value="empty">Nenhum resultado</option><option
@@ -1263,7 +1678,10 @@
             >{/if}<button
             class="button primary"
             onclick={startScan}
-            disabled={scanBusy || executing || !scopes.length}
+            disabled={scanBusy ||
+              executing ||
+              preparingCleanup ||
+              !scopes.length}
             >{source === 'local'
               ? 'Analisar pastas aprovadas'
               : 'Analisar cenário'}</button
@@ -1368,17 +1786,26 @@
       {#if source === 'local'}<div class="inline-actions scope-actions">
           <button
             class="button"
-            disabled={choosingScope || scanBusy || executing}
+            disabled={choosingScope ||
+              scanBusy ||
+              executing ||
+              preparingCleanup}
             onclick={() => addNativeScope('projects')}
             ><Folder size={16} /> Adicionar pasta de projetos</button
           ><button
             class="button"
-            disabled={choosingScope || scanBusy || executing}
+            disabled={choosingScope ||
+              scanBusy ||
+              executing ||
+              preparingCleanup}
             onclick={() => addNativeScope('thumbnails')}
             >Escolher thumbnails</button
           ><button
             class="button"
-            disabled={choosingScope || scanBusy || executing}
+            disabled={choosingScope ||
+              scanBusy ||
+              executing ||
+              preparingCleanup}
             onclick={() => addNativeScope('protected')}
             ><Shield size={16} /> Inventário protegido de IA</button
           >
@@ -1481,8 +1908,10 @@
         {#each detail.evidence as evidence (evidence)}<li>{evidence}</li>{/each}
       </ul>
       <p>
-        Identidade de filesystem não coletada. Ação suportada: nenhuma. Fixture
-        sintética, não prova de segurança de um detector.
+        Ação suportada: {detail.supported_action === 'cache_contents'
+          ? 'conteúdo de cache'
+          : 'nenhuma'}. A identidade observada pelo scanner local é conferida
+        pelo executor antes da operação.
       </p>
     </details>
     <div class="dialog-actions">
@@ -1494,44 +1923,105 @@
 {/if}
 {#if confirmation}
   <Modal
-    title={policy === 'trash'
-      ? 'Simular envio para a Lixeira?'
-      : 'Simular exclusão permanente?'}
-    onclose={() => (confirmation = false)}
+    title={source === 'local'
+      ? policy === 'trash'
+        ? 'Confirmar envio para a Lixeira'
+        : 'Confirmar exclusão permanente'
+      : policy === 'trash'
+        ? 'Simular envio para a Lixeira?'
+        : 'Simular exclusão permanente?'}
+    onclose={() => {
+      confirmation = false;
+      cleanupPlan = null;
+      consent = false;
+    }}
   >
-    <span class="badge neutral"
-      ><FlaskConical size={14} /> Demonstração, sem operações reais</span
-    >
-    <p>
-      {selected.length} itens · {formatBytes(budget.logicalBytes)} lógicos estimados.
-    </p>
+    {#if source === 'local'}
+      <span class="badge neutral"
+        ><ShieldCheck size={14} /> Plano local preparado pelo executor</span
+      >
+      {#if cleanupPlan}<p>
+          {cleanupPlan.items.length} itens · {formatBytes(
+            cleanupPlan.logical_bytes_estimate,
+          )} lógicos estimados · válido por {cleanupPlan.expires_in_seconds} segundos.
+        </p>
+        <div class="plan-identity">
+          <span>Plano <code>{cleanupPlan.id}</code></span><span
+            >Snapshot <code>{cleanupPlan.snapshot_id}</code></span
+          ><span>Hash <code>{cleanupPlan.hash}</code></span>
+        </div>
+      {:else}<p>Preparando o plano validado pelo executor.</p>{/if}
+    {:else}<span class="badge neutral"
+        ><FlaskConical size={14} /> Demonstração, sem operações reais</span
+      >
+      <p>
+        {selected.length} itens · {formatBytes(budget.logicalBytes)} lógicos estimados.
+      </p>
+    {/if}
     <ul class="confirmation-list">
-      {#each budget.picked as item (item.id)}<li>
-          <strong>{item.title}</strong><code>{item.display_path}</code
-          ><RiskBadge risk={item.risk} />
-        </li>{/each}
+      {#if source === 'local' && cleanupPlan}
+        {#each cleanupPlan.items as item (item.candidate_id)}<li>
+            <strong
+              >{candidates.find(
+                (candidate) => candidate.id === item.candidate_id,
+              )?.title ?? item.candidate_id}</strong
+            ><code>{item.display_path}</code><span
+              >{formatBytes(item.logical_bytes)} lógicos · {item.allocated_bytes_estimate ===
+              null
+                ? 'alocado não estimado'
+                : formatBytes(item.allocated_bytes_estimate) +
+                  ' alocados estimados'}</span
+            >
+          </li>{/each}
+      {:else}
+        {#each budget.picked as item (item.id)}<li>
+            <strong>{item.title}</strong><code>{item.display_path}</code
+            ><RiskBadge risk={item.risk} />
+          </li>{/each}
+      {/if}
     </ul>
     <div class="notice" class:error={policy === 'permanent'}>
       <CircleAlert size={20} />
       <p>
-        {policy === 'trash'
-          ? 'Na mesma unidade, mover para a Lixeira não libera espaço. Uma operação real seria em geral reversível.'
-          : 'Uma exclusão permanente real não pode ser desfeita pelo Inodune. Este protótipo não exclui arquivos.'}
+        {source === 'local'
+          ? policy === 'trash'
+            ? 'Enviar arquivos à Lixeira normalmente preserva a possibilidade de restauração e não libera espaço na mesma unidade. A confirmação nativa do backend ainda será necessária.'
+            : 'A exclusão permanente é irreversível. A confirmação nativa do backend ainda será necessária antes de executar o plano.'
+          : policy === 'trash'
+            ? 'Na mesma unidade, mover para a Lixeira não libera espaço. Uma operação real seria em geral reversível.'
+            : 'Uma exclusão permanente real não pode ser desfeita pelo Inodune. Este protótipo não exclui arquivos.'}
       </p>
     </div>
+    {#if source === 'local' && cleanupError}<div
+        class="notice error"
+        role="alert"
+      >
+        <CircleAlert size={20} />
+        <p>{cleanupError}</p>
+      </div>{/if}
     <label class="consent"
       ><input type="checkbox" bind:checked={consent} /><span
-        >Revisei os itens e entendo que esta é uma simulação sem alterações no
-        disco.</span
+        >{source === 'local'
+          ? 'Revisei os caminhos e autorizo o executor a prosseguir para a confirmação nativa do sistema.'
+          : 'Revisei os itens e entendo que esta é uma simulação sem alterações no disco.'}</span
       ></label
     >
     <div class="dialog-actions">
-      <button class="button" onclick={() => (confirmation = false)}
-        >Voltar</button
+      <button
+        class="button"
+        onclick={() => {
+          confirmation = false;
+          cleanupPlan = null;
+          consent = false;
+        }}>Voltar</button
       ><button
         class="button primary"
-        disabled={!consent}
-        onclick={startExecution}>Confirmar simulação</button
+        disabled={!consent ||
+          (source === 'local' && (!cleanupPlan || preparingCleanup))}
+        onclick={startExecution}
+        >{source === 'local'
+          ? 'Prosseguir para confirmação nativa'
+          : 'Confirmar simulação'}</button
       >
     </div>
   </Modal>
