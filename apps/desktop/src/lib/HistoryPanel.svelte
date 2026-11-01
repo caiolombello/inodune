@@ -133,7 +133,7 @@
           <header>
             <h3>{t('Detalhes do relatório')}</h3>
             <p>{t('Plano')}: <code>{report.plan_id}</code></p>
-            <p>{report.measurement_note}</p>
+            <p>{t(report.measurement_note)}</p>
             <button onclick={exportSelected} disabled={exporting}>
               {exporting ? t('Exportando…') : t('Exportar JSON local')}
             </button>
@@ -153,7 +153,7 @@
             {#each report.warnings as warning, index (`${index}-${warning}`)}<p
                 class="error"
               >
-                {warning}
+                {t(warning)}
               </p>{/each}
           </header>
           <FileOutcomes files={report.items.flatMap((item) => item.files)} />

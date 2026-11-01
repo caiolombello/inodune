@@ -30,7 +30,7 @@
             >
           </div>
           <code class="path">{file.display_path}</code>
-          <p>{file.message ?? t('Sem mensagem registrada.')}</p>
+          <p>{t(file.message ?? 'Sem mensagem registrada.')}</p>
           {#if file.preserved_at}<p>
               {t('Preservado em')}: <code>{file.preserved_at}</code>
             </p>{/if}

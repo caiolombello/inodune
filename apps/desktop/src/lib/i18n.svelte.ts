@@ -1,6 +1,9 @@
 export type Locale = 'pt-BR' | 'en-US';
 
 const catalog: Record<string, string> = {
+  'Movido à Lixeira; ainda ocupa espaço.': 'Moved to Trash; still uses space.',
+  'Removido; verifique variação observada do volume.':
+    'Removed; check the observed volume change.',
   'VISÃO GERAL': 'OVERVIEW',
   'Analise o exemplo para encontrar candidatos.':
     'Analyze the sample to find candidates.',
