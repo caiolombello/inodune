@@ -62,6 +62,12 @@ impl ApprovedRoot {
         kind: ScopeKind,
         exclusions: Vec<PathBuf>,
     ) -> Result<Self, String> {
+        if path
+            .to_str()
+            .is_none_or(|s| s.chars().any(char::is_control))
+        {
+            return Err("Caminho da raiz contém bytes ou controles ambíguos; protegido.".into());
+        }
         if kind == ScopeKind::Thumbnails && xdg_thumbnail_root().as_deref() != Some(path) {
             return Err("A pasta não corresponde a XDG_CACHE_HOME/thumbnails. Use inventário protegido para localizações não confirmadas.".into());
         }

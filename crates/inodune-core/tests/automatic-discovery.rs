@@ -5,6 +5,29 @@ use inodune_core::{
 use std::fs;
 
 #[test]
+fn mount_names_with_controls_never_become_cleanup_roots() {
+    let temp = tempfile::tempdir().unwrap();
+    let home = temp.path().join("home");
+    let disk = temp.path().join("disk\ncontrol");
+    fs::create_dir(&home).unwrap();
+    fs::create_dir(&disk).unwrap();
+    let table = format!(
+        "42 1 8:1 / {} rw - ext4 /dev/fake rw\n",
+        disk.display().to_string().replace('\n', "\\012")
+    );
+    let result = discover_from(
+        &home,
+        &table,
+        &[],
+        &ScanControl::default(),
+        &ScanLimits::default(),
+    )
+    .unwrap();
+    assert!(!result.complete);
+    assert!(!result.roots.iter().any(|root| root.path() == disk));
+}
+
+#[test]
 fn discovers_home_and_local_mount_roots_without_emitting_filesystem_root() {
     let t = tempfile::tempdir().unwrap();
     let home = t.path().join("home");
