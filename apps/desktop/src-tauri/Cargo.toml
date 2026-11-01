@@ -5,6 +5,7 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
+inodune-apps.workspace = true
 tauri = { version = "2", features = [] }
 inodune-core.workspace = true
 inodune-clean.workspace = true

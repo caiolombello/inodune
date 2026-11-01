@@ -63,3 +63,7 @@ Para cada fase:
 - Documentação honesta de limitações e riscos.
 
 Comece agora com uma leitura dos quatro documentos (incluindo este prompt), uma lista das decisões/ambiguidades realmente bloqueantes (se houver) e a implementação da **Fase 0 com protótipo navegável, design system e motion tokens**. Não escreva um segundo planejamento genérico: siga o plano existente e transforme-o em código incremental, com resultados verificáveis.
+
+## Extensão autorizada: inventário de programas e jogos
+
+`inodune-apps` é uma exceção somente leitura ao escopo original do MVP e à allowlist de processos. A gramática, limites e comandos RPM/DNF, APT/dpkg, Flatpak e Snap estão em [docs/apps-readonly.md](docs/apps-readonly.md). Não autoriza remoção, escalada, shell, integração com candidatos de limpeza ou mudança das proteções do scanner existente. Steam usa exclusivamente leitura de metadados.

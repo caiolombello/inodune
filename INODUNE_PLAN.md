@@ -305,3 +305,7 @@ Métricas de qualidade: **zero perda de dados em corpus adversarial**, nenhum ac
 11. W3C reduced motion — https://www.w3.org/WAI/WCAG22/Understanding/animation-from-interactions
 
 **Importante:** padrões de diretórios, dependências e APIs mudam. Revalidar documentação oficial e versões antes de implementar cada detector. No README distinguir claramente suportado / experimental / inventário protegido.
+
+## Extensão autorizada: inventário de programas e jogos
+
+`inodune-apps` é uma exceção somente leitura ao escopo original do MVP e à allowlist de processos. A gramática, limites e comandos RPM/DNF, APT/dpkg, Flatpak e Snap estão em [docs/apps-readonly.md](docs/apps-readonly.md). Não autoriza remoção, escalada, shell, integração com candidatos de limpeza ou mudança das proteções do scanner existente. Steam usa exclusivamente leitura de metadados.

@@ -1,10 +1,12 @@
 [package]
 name = "inodune-cli"
+default-run = "inodune-cli"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 
 [dependencies]
+inodune-apps.workspace = true
 inodune-core.workspace = true
 serde_json.workspace = true
 serde.workspace = true
@@ -13,3 +15,7 @@ ctrlc = "3"
 
 [dev-dependencies]
 tempfile = "3.27.0"
+
+[[bin]]
+name = "inodune"
+path = "src/bin/inodune.rs"
