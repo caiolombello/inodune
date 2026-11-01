@@ -384,7 +384,9 @@ mod packagekit {
                                     reply.error = Some("Simulação acima do limite".into());
                                 }
                             } else {
-                                reply.error = Some("PackageKit retornou uma lista incompleta ou ambígua".into());
+                                reply.error = Some(
+                                    "PackageKit retornou uma lista incompleta ou ambígua".into(),
+                                );
                             }
                         }
                         "ErrorCode" => reply.error = Some(
