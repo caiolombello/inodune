@@ -16,9 +16,21 @@ use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
 
 #[derive(Default)]
 pub struct CleanupState {
-    plans: Mutex<HashMap<String, PlanSession>>,
+    plans: Mutex<HashMap<String, PreparedCleanup>>,
     job: Mutex<Option<Arc<Mutex<CleanupJob>>>>,
     sequence: AtomicU64,
+}
+#[derive(Clone, Copy, Default, Deserialize)]
+pub enum PromptLocale {
+    #[default]
+    #[serde(rename = "pt-BR")]
+    PtBr,
+    #[serde(rename = "en-US")]
+    EnUs,
+}
+struct PreparedCleanup {
+    session: PlanSession,
+    locale: PromptLocale,
 }
 struct CleanupJob {
     id: String,
@@ -73,7 +85,12 @@ pub fn prepare_cleanup(
     scan_id: String,
     candidate_ids: Vec<String>,
     action: RequestedAction,
+    locale: Option<PromptLocale>,
 ) -> Result<PlanView, String> {
+    let _gate = state
+        .operation_gate
+        .lock()
+        .map_err(|_| "Estado indisponível")?;
     if state.cleanup.active()? {
         return Err("Já existe uma limpeza em andamento.".into());
     }
@@ -94,7 +111,13 @@ pub fn prepare_cleanup(
         .lock()
         .map_err(|_| "Estado indisponível")?;
     plans.clear();
-    plans.insert(view.id.clone(), plan);
+    plans.insert(
+        view.id.clone(),
+        PreparedCleanup {
+            session: plan,
+            locale: locale.unwrap_or_default(),
+        },
+    );
     Ok(view)
 }
 #[tauri::command]
@@ -106,6 +129,10 @@ pub async fn begin_cleanup(
 ) -> Result<String, String> {
     // Reserve the single execution slot before displaying a native prompt.
     let job = {
+        let _gate = state
+            .operation_gate
+            .lock()
+            .map_err(|_| "Estado indisponível")?;
         let mut slot = state
             .cleanup
             .job
@@ -158,6 +185,11 @@ async fn begin_authorized(
         .map_err(|_| "Estado indisponível")?
         .remove(plan_id)
         .ok_or("Plano expirado, consumido ou desconhecido")?;
+    let PreparedCleanup {
+        session: plan,
+        locale,
+    } = plan;
+    let english = matches!(locale, PromptLocale::EnUs);
     let view = plan.view();
     let ids = view
         .items
@@ -166,31 +198,30 @@ async fn begin_authorized(
         .collect::<Vec<_>>();
     let snapshot = state.snapshot(&view.snapshot_id)?;
     state.check_approved(&snapshot, &ids)?;
-    let paths = view
-        .items
-        .iter()
-        .take(12)
-        .map(|i| {
-            format!(
-                "• {}\n  Risco: {}\n  {}\n  {}",
-                i.display_path,
-                if i.risk == inodune_core::Risk::Review {
-                    "revisão individual"
-                } else {
-                    "baixo"
-                },
-                i.impact,
-                i.rebuild_hint
-            )
-        })
-        .collect::<Vec<_>>()
-        .join("\n");
-    let action = if view.action == Action::Trash {
-        "Mover arquivos de cache à Lixeira. Eles continuarão ocupando espaço."
-    } else {
-        "REMOVER PERMANENTEMENTE os arquivos de cache selecionados. Não há desfazer nem garantia de apagamento seguro."
+    let paths=view.items.iter().take(12).map(|i|{
+        if english {
+            let detector=snapshot.candidates.iter().find(|c|c.id==i.candidate_id).map(|c|c.detector_id.as_str()).unwrap_or("");
+            let impact=match detector {
+                "python.pycache"=>"Python can regenerate bytecode from the preserved source. The first import may be slower.",
+                "thumbnails"=>"Applications can regenerate thumbnails. The first view may be slower.",
+                "cargo.fingerprint-json"=>"Cargo may rebuild after diagnostic metadata is removed. Manifests, hashes and final binaries are preserved.",
+                "terraform.provider-package"=>"Terraform may need to download this provider again. State, backend and lock files are preserved. Local h1 matches the lock; publisher signature and future availability are unverified.",
+                _=>"Rebuild cost is unmeasured; preserve uncertain data.",
+            };
+            format!("• {}\n  Risk: {}\n  {impact}",i.display_path,if i.risk==inodune_core::Risk::Review{"individual review"}else{"low"})
+        } else {format!("• {}\n  Risco: {}\n  {}\n  {}",i.display_path,if i.risk==inodune_core::Risk::Review{"revisão individual"}else{"baixo"},i.impact,i.rebuild_hint)}
+    }).collect::<Vec<_>>().join("\n");
+    let action=match (english,view.action) {
+        (true,Action::Trash)=>"Move selected cache files to Trash. They will continue to occupy space.",
+        (true,Action::Permanent)=>"PERMANENTLY REMOVE the selected cache files. There is no undo or secure-erasure guarantee.",
+        (false,Action::Trash)=>"Mover arquivos de cache à Lixeira. Eles continuarão ocupando espaço.",
+        (false,Action::Permanent)=>"REMOVER PERMANENTEMENTE os arquivos de cache selecionados. Não há desfazer nem garantia de apagamento seguro.",
     };
-    let prompt=format!("{action}\n\n{} itens · {} bytes lógicos estimados\n{}\n{}\nPlano: {}\n\nArquivos alterados serão preservados. Pastas, código e estado não serão removidos.",view.items.len(),view.logical_bytes_estimate,paths,if view.items.len()>12{"Demais itens estão na revisão do aplicativo."}else{""},view.hash);
+    let prompt = if english {
+        format!("{action}\n\n{} items · {} estimated logical bytes\n{paths}\nPlan: {}\n\nChanged files will be preserved. Folders, source code and state will not be removed.",view.items.len(),view.logical_bytes_estimate,view.hash)
+    } else {
+        format!("{action}\n\n{} itens · {} bytes lógicos estimados\n{paths}\nPlano: {}\n\nArquivos alterados serão preservados. Pastas, código e estado não serão removidos.",view.items.len(),view.logical_bytes_estimate,view.hash)
+    };
     // Test-only consent is restricted to roots generated by this process's fixture factory.
     let fixture_consent = state.fixture_consent(&snapshot, &ids);
     let confirmed = if fixture_consent {
@@ -199,7 +230,11 @@ async fn begin_authorized(
         tauri::async_runtime::spawn_blocking(move || {
             app.dialog()
                 .message(prompt)
-                .title("Inodune · Confirmar plano de limpeza")
+                .title(if english {
+                    "Inodune · Confirm cleanup plan"
+                } else {
+                    "Inodune · Confirmar plano de limpeza"
+                })
                 .kind(MessageDialogKind::Warning)
                 .buttons(MessageDialogButtons::OkCancel)
                 .blocking_show()

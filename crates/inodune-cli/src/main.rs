@@ -10,6 +10,7 @@ use std::{
 };
 
 fn main() -> ExitCode {
+    inodune_clean::diagnostics::install_local_panic_reporter();
     let args: Vec<String> = std::env::args().skip(1).collect();
     if args.iter().any(|arg| arg == "--help" || arg == "-h") {
         println!("{}", usage());
@@ -86,6 +87,7 @@ fn run_with_control(args: Vec<String>, control: &ScanControl) -> Result<(String,
 
 fn run_scan(args: &[String], control: &ScanControl) -> Result<(String, bool), String> {
     let mut paths = Vec::new();
+    let mut exclusions = Vec::new();
     let mut kind = ScopeKind::Projects;
     let mut json = false;
     let mut index = 1;
@@ -94,6 +96,10 @@ fn run_scan(args: &[String], control: &ScanControl) -> Result<(String, bool), St
             "--root" => {
                 index += 1;
                 paths.push(PathBuf::from(args.get(index).ok_or_else(usage)?));
+            }
+            "--exclude" => {
+                index += 1;
+                exclusions.push(PathBuf::from(args.get(index).ok_or_else(usage)?));
             }
             "--scope" => {
                 index += 1;
@@ -107,7 +113,7 @@ fn run_scan(args: &[String], control: &ScanControl) -> Result<(String, bool), St
     validate_root_count(paths.len())?;
     let roots = paths
         .iter()
-        .map(|p| ApprovedRoot::open(p, kind))
+        .map(|p| ApprovedRoot::open(p, kind)?.with_exclusions(exclusions.clone()))
         .collect::<Result<Vec<_>, _>>()?;
     let result = scan::scan(&roots, control, &ScanLimits::default(), |_| {})?;
     let partial = !result.complete;
@@ -135,6 +141,7 @@ struct CleanView {
 
 fn run_clean(args: &[String], control: &ScanControl) -> Result<(String, bool), String> {
     let mut paths = Vec::new();
+    let mut exclusions = Vec::new();
     let mut kind = ScopeKind::Projects;
     let mut json = false;
     let mut apply = false;
@@ -147,6 +154,10 @@ fn run_clean(args: &[String], control: &ScanControl) -> Result<(String, bool), S
             "--root" => {
                 index += 1;
                 paths.push(PathBuf::from(args.get(index).ok_or_else(usage)?));
+            }
+            "--exclude" => {
+                index += 1;
+                exclusions.push(PathBuf::from(args.get(index).ok_or_else(usage)?));
             }
             "--scope" => {
                 index += 1;
@@ -179,7 +190,7 @@ fn run_clean(args: &[String], control: &ScanControl) -> Result<(String, bool), S
     validate_root_count(paths.len())?;
     let roots = paths
         .iter()
-        .map(|p| ApprovedRoot::open(p, kind))
+        .map(|p| ApprovedRoot::open(p, kind)?.with_exclusions(exclusions.clone()))
         .collect::<Result<Vec<_>, _>>()?;
     let snapshot = scan::scan(&roots, control, &ScanLimits::default(), |_| {})?;
     if !snapshot.complete || snapshot.cancelled {
@@ -419,7 +430,7 @@ fn validate_root_count(count: usize) -> Result<(), String> {
 }
 
 fn usage() -> String {
-    "Uso: inodune-cli [--help|-h] [--version|-V]\n     inodune-cli scan --root ABS [--root ABS] [--scope projects|thumbnails|protected] [--json]\n     inodune-cli clean --root ABS [--root ABS] [--scope projects|thumbnails|protected] [--dry-run|--apply] [--review cargo.fingerprint-json|terraform.provider-package] [--permanent] [--json]\nDemonstração: scan --demo --json | clean --demo --dry-run. --review seleciona um único candidato verificado e não aplica a limpeza; por padrão, apenas itens de baixo risco entram no plano. A limpeza real começa em simulação; --apply exige confirmação interativa e digitação exata. Exit 2: erro; exit 3: cobertura ou execução parcial.".into()
+    "Uso: inodune-cli [--help|-h] [--version|-V]\n     inodune-cli scan --root ABS [--root ABS] [--exclude REL]... [--scope projects|thumbnails|protected] [--json]\n     inodune-cli clean --root ABS [--root ABS] [--exclude REL]... [--scope projects|thumbnails|protected] [--dry-run|--apply] [--review cargo.fingerprint-json|terraform.provider-package] [--permanent] [--json]\nDemonstração: scan --demo --json | clean --demo --dry-run. --exclude aceita caminhos relativos literais; '.' exclui a root inteira. --review seleciona um único candidato verificado e não aplica a limpeza; por padrão, apenas itens de baixo risco entram no plano. A limpeza real começa em simulação; --apply exige confirmação interativa e digitação exata. Exit 2: erro; exit 3: cobertura ou execução parcial.".into()
 }
 
 #[cfg(test)]
@@ -459,6 +470,44 @@ mod tests {
         ] {
             assert!(run(args.into_iter().map(str::to_string).collect()).is_err());
         }
+    }
+
+    #[test]
+    fn scan_and_clean_apply_repeatable_relative_exclusions() {
+        let root = tempfile::tempdir().unwrap();
+        fs::create_dir_all(root.path().join("app/__pycache__")).unwrap();
+        fs::write(root.path().join("app/main.py"), b"pass").unwrap();
+        fs::write(root.path().join("app/__pycache__/note.txt"), b"private").unwrap();
+        let scan = run(vec![
+            "scan".into(),
+            "--root".into(),
+            root.path().to_string_lossy().into(),
+            "--exclude".into(),
+            "app/__pycache__".into(),
+            "--json".into(),
+        ])
+        .unwrap();
+        assert!(scan.0.contains("policy_excluded"));
+        let clean = run(vec![
+            "clean".into(),
+            "--root".into(),
+            root.path().to_string_lossy().into(),
+            "--exclude".into(),
+            "app".into(),
+            "--dry-run".into(),
+            "--json".into(),
+        ])
+        .unwrap();
+        assert!(clean.0.contains("\"complete\": true"));
+        assert!(clean.0.contains("\"eligible_items\": 0"));
+        assert!(run(vec![
+            "scan".into(),
+            "--root".into(),
+            root.path().to_string_lossy().into(),
+            "--exclude".into(),
+            "../escape".into()
+        ])
+        .is_err());
     }
 
     #[test]

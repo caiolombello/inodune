@@ -1,8 +1,8 @@
 //! Native authority: roots can only be approved through a Rust-owned picker.
 use inodune_core::{
     scan::{
-        self, ApprovedRoot, ScanControl, ScanIssue, ScanLimits, ScanProgress, ScanSnapshot,
-        ScanStats, ScopeKind, VolumeInfo,
+        self, is_protected_agent_path, ApprovedRoot, ScanControl, ScanIssue, ScanLimits,
+        ScanProgress, ScanSnapshot, ScanStats, ScopeKind, VolumeInfo,
     },
     Candidate,
 };
@@ -23,6 +23,7 @@ pub struct ScopeInfo {
     label: String,
     display_path: String,
     kind: ScopeKind,
+    exclusions: Vec<String>,
 }
 struct RootEntry {
     info: ScopeInfo,
@@ -31,6 +32,7 @@ struct RootEntry {
 #[derive(Default)]
 pub struct Backend {
     roots: Mutex<HashMap<String, RootEntry>>,
+    pub operation_gate: Mutex<()>,
     pub cleanup: crate::cleanup::CleanupState,
     job: Mutex<Option<Arc<Mutex<Job>>>>,
     sequence: AtomicU64,
@@ -82,7 +84,12 @@ pub async fn choose_scope(
     let picked = tauri::async_runtime::spawn_blocking(move || {
         app.dialog()
             .file()
-            .set_title("Inodune · Escolha uma pasta para analisar (somente leitura)")
+            .set_title(match kind {
+                ScopeKind::Protected => {
+                    "Inodune · Escolha conteúdo para inventário protegido (somente leitura)"
+                }
+                _ => "Inodune · Escolha uma pasta de projetos para analisar (somente leitura)",
+            })
             .blocking_pick_folder()
     })
     .await
@@ -94,16 +101,52 @@ pub async fn choose_scope(
     if kind == ScopeKind::Thumbnails && path.file_name().is_none_or(|n| n != "thumbnails") {
         return Err("Para miniaturas, selecione a pasta XDG chamada thumbnails. Nenhum outro diretório de imagens é tratado como cache.".into());
     }
+    let root = ApprovedRoot::open(&path, kind)?;
+    let _gate = state
+        .operation_gate
+        .lock()
+        .map_err(|_| "Estado indisponível")?;
+    let mut job_slot = state.job.lock().map_err(|_| "Estado indisponível")?;
+    if job_slot.as_ref().is_some_and(|job| {
+        job.lock()
+            .map(|j| j.snapshot.is_none() && j.error.is_none())
+            .unwrap_or(true)
+    }) {
+        return Err("Aguarde a análise em andamento.".into());
+    }
     if state.cleanup.active()? {
         return Err("Aguarde a limpeza em andamento.".into());
     }
-    let root = ApprovedRoot::open(&path, kind)?;
     let mut roots = state.roots.lock().map_err(|_| "Estado indisponível")?;
-    if let Some(existing) = roots
-        .values()
-        .find(|r| r.info.display_path == root.display_path())
+    if let Some((existing_id, existing)) = roots
+        .iter()
+        .find(|(_, r)| r.info.display_path == root.display_path())
     {
-        return Ok(Some(existing.info.clone()));
+        if existing.info.kind == kind && existing.root.revalidate().is_ok() {
+            return Ok(Some(existing.info.clone()));
+        }
+        let id = existing_id.clone();
+        let info = ScopeInfo {
+            id: id.clone(),
+            label: path
+                .file_name()
+                .unwrap_or_default()
+                .to_string_lossy()
+                .into(),
+            display_path: root.display_path(),
+            kind,
+            exclusions: Vec::new(),
+        };
+        roots.insert(
+            id,
+            RootEntry {
+                info: info.clone(),
+                root,
+            },
+        );
+        state.cleanup.invalidate()?;
+        *job_slot = None;
+        return Ok(Some(info));
     }
     if roots.len() >= 32 {
         return Err("Limite de 32 escopos aprovados; remova um antes de adicionar outro.".into());
@@ -118,6 +161,7 @@ pub async fn choose_scope(
             .into(),
         display_path: root.display_path(),
         kind,
+        exclusions: Vec::new(),
     };
     roots.insert(
         id,
@@ -142,10 +186,31 @@ pub fn list_scopes(state: State<'_, Backend>) -> Result<Vec<ScopeInfo>, String> 
 }
 #[tauri::command]
 pub fn forget_scope(state: State<'_, Backend>, scope_id: String) -> Result<(), String> {
+    let _gate = state
+        .operation_gate
+        .lock()
+        .map_err(|_| "Estado indisponível")?;
+    let mut job_slot = state.job.lock().map_err(|_| "Estado indisponível")?;
+    if job_slot.as_ref().is_some_and(|job| {
+        job.lock()
+            .map(|j| j.snapshot.is_none() && j.error.is_none())
+            .unwrap_or(true)
+    }) {
+        return Err("Aguarde a análise em andamento.".into());
+    }
     if state.cleanup.active()? {
         return Err("Aguarde a limpeza em andamento.".into());
     }
+    if !state
+        .roots
+        .lock()
+        .map_err(|_| "Estado indisponível")?
+        .contains_key(&scope_id)
+    {
+        return Err("Escopo não aprovado".into());
+    }
     state.cleanup.invalidate()?;
+    *job_slot = None;
     state
         .roots
         .lock()
@@ -154,11 +219,53 @@ pub fn forget_scope(state: State<'_, Backend>, scope_id: String) -> Result<(), S
     Ok(())
 }
 #[tauri::command]
-pub fn begin_scan(state: State<'_, Backend>, scope_ids: Vec<String>) -> Result<String, String> {
+pub fn set_scope_exclusions(
+    state: State<'_, Backend>,
+    scope_id: String,
+    relative_paths: Vec<String>,
+) -> Result<ScopeInfo, String> {
+    let _gate = state
+        .operation_gate
+        .lock()
+        .map_err(|_| "Estado indisponível")?;
+    let mut job_slot = state.job.lock().map_err(|_| "Estado indisponível")?;
+    if job_slot.as_ref().is_some_and(|job| {
+        job.lock()
+            .map(|j| j.snapshot.is_none() && j.error.is_none())
+            .unwrap_or(true)
+    }) {
+        return Err("Aguarde a análise em andamento.".into());
+    }
     if state.cleanup.active()? {
         return Err("Aguarde a limpeza em andamento.".into());
     }
+    let exclusions = relative_paths
+        .into_iter()
+        .map(std::path::PathBuf::from)
+        .collect();
+    let mut roots = state.roots.lock().map_err(|_| "Estado indisponível")?;
+    let entry = roots.get_mut(&scope_id).ok_or("Escopo não aprovado")?;
+    let root = entry.root.with_exclusions(exclusions)?;
+    let values = root
+        .exclusions()
+        .iter()
+        .map(|p| p.to_string_lossy().into_owned())
+        .collect();
+    entry.info.exclusions = values;
+    entry.root = root;
     state.cleanup.invalidate()?;
+    *job_slot = None;
+    Ok(entry.info.clone())
+}
+#[tauri::command]
+pub fn begin_scan(state: State<'_, Backend>, scope_ids: Vec<String>) -> Result<String, String> {
+    let _gate = state
+        .operation_gate
+        .lock()
+        .map_err(|_| "Estado indisponível")?;
+    if state.cleanup.active()? {
+        return Err("Aguarde a limpeza em andamento.".into());
+    }
     if scope_ids.is_empty() || scope_ids.len() > 32 {
         return Err("Escolha entre 1 e 32 escopos aprovados.".into());
     }
@@ -181,6 +288,7 @@ pub fn begin_scan(state: State<'_, Backend>, scope_ids: Vec<String>) -> Result<S
             })
             .collect::<Result<Vec<_>, _>>()?
     };
+    state.cleanup.invalidate()?;
     let id = format!("job-{}", state.sequence.fetch_add(1, Ordering::Relaxed));
     let control = Arc::new(ScanControl::default());
     let job = Arc::new(Mutex::new(Job {
@@ -363,6 +471,7 @@ impl Backend {
                     .into(),
                 display_path: root.display_path(),
                 kind,
+                exclusions: Vec::new(),
             };
             backend
                 .roots
@@ -390,10 +499,42 @@ impl Backend {
         let roots = self.roots.lock().map_err(|_| "Estado indisponível")?;
         for id in ids {
             let target = snapshot.targets.get(id).ok_or("Item não aprovado")?;
-            if !roots.values().any(|r| r.root.path() == target.root.path()) {
-                return Err("A aprovação da pasta foi revogada.".into());
+            let current = roots
+                .values()
+                .find(|r| r.root.path() == target.root.path())
+                .ok_or("A aprovação da pasta foi revogada.")?;
+            if current.root.kind == ScopeKind::Protected
+                || is_protected_agent_path(current.root.path())
+                || is_protected_agent_path(&target.relative)
+                || target
+                    .files
+                    .iter()
+                    .any(|(path, _)| is_protected_agent_path(path))
+                || target
+                    .witnesses
+                    .iter()
+                    .any(|(path, _)| is_protected_agent_path(path))
+            {
+                return Err("Conteúdo protegido não pode ser autorizado para limpeza.".into());
             }
-            target.root.revalidate()?;
+            if current.root.kind != target.root.kind
+                || current.info.display_path != target.root.display_path()
+            {
+                return Err("A identidade do escopo mudou; analise novamente.".into());
+            }
+            if current.root.is_excluded(&target.relative)
+                || target
+                    .files
+                    .iter()
+                    .any(|(p, _)| current.root.is_excluded(p))
+                || target
+                    .witnesses
+                    .iter()
+                    .any(|(p, _)| current.root.is_excluded(p))
+            {
+                return Err("O item foi excluído da política do escopo; analise novamente.".into());
+            }
+            current.root.revalidate()?;
         }
         Ok(())
     }
