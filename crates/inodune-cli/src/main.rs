@@ -13,12 +13,14 @@ fn main() -> ExitCode {
     inodune_clean::diagnostics::install_local_panic_reporter();
     let args: Vec<String> = std::env::args().skip(1).collect();
     if args.iter().any(|arg| arg == "--help" || arg == "-h") {
-        println!("{}", usage());
-        return ExitCode::SUCCESS;
+        return write_output(&mut std::io::stdout().lock(), &usage(), false);
     }
     if args.iter().any(|arg| arg == "--version" || arg == "-V") {
-        println!("inodune-cli {}", env!("CARGO_PKG_VERSION"));
-        return ExitCode::SUCCESS;
+        return write_output(
+            &mut std::io::stdout().lock(),
+            &format!("inodune-cli {}", env!("CARGO_PKG_VERSION")),
+            false,
+        );
     }
     let control = Arc::new(ScanControl::default());
     let signal_control = control.clone();
@@ -27,18 +29,20 @@ fn main() -> ExitCode {
         return ExitCode::from(2);
     }
     match run_with_control(args, &control) {
-        Ok((value, partial)) => {
-            println!("{value}");
-            if partial {
-                ExitCode::from(3)
-            } else {
-                ExitCode::SUCCESS
-            }
-        }
+        Ok((value, partial)) => write_output(&mut std::io::stdout().lock(), &value, partial),
         Err(message) => {
             eprintln!("{message}");
             ExitCode::from(2)
         }
+    }
+}
+
+fn write_output(output: &mut impl Write, value: &str, partial: bool) -> ExitCode {
+    match writeln!(output, "{value}").and_then(|_| output.flush()) {
+        Err(e) if e.kind() == std::io::ErrorKind::BrokenPipe => ExitCode::SUCCESS,
+        Err(_) => ExitCode::from(2),
+        Ok(()) if partial => ExitCode::from(3),
+        Ok(()) => ExitCode::SUCCESS,
     }
 }
 
@@ -505,6 +509,31 @@ fn usage() -> String {
 mod tests {
     use super::{confirmation_matches, present_apps, run};
     use std::fs;
+
+    #[test]
+    fn broken_pipe_exits_cleanly_without_hiding_other_output_errors() {
+        struct Failed(std::io::ErrorKind);
+        impl std::io::Write for Failed {
+            fn write(&mut self, _: &[u8]) -> std::io::Result<usize> {
+                Err(self.0.into())
+            }
+            fn flush(&mut self) -> std::io::Result<()> {
+                Ok(())
+            }
+        }
+        assert_eq!(
+            super::write_output(&mut Failed(std::io::ErrorKind::BrokenPipe), "fixture", true),
+            std::process::ExitCode::SUCCESS
+        );
+        assert_eq!(
+            super::write_output(&mut Failed(std::io::ErrorKind::Other), "fixture", false),
+            std::process::ExitCode::from(2)
+        );
+        assert_eq!(
+            super::write_output(&mut Vec::new(), "fixture", true),
+            std::process::ExitCode::from(3)
+        );
+    }
 
     #[test]
     fn automatic_scan_uses_discovery_without_paths_or_cleanup() {
