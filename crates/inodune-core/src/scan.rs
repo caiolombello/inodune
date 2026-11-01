@@ -33,7 +33,42 @@ pub enum ScopeKind {
 pub fn is_protected_agent_path(path: &Path) -> bool {
     path.components().any(|c|matches!(c,Component::Normal(name) if name==".codex"||name==".claude"||name=="opencode"))
 }
-pub fn xdg_thumbnail_root() -> Option<PathBuf> {
+pub fn cleanup_ancestors_allowed(root: &ApprovedRoot, relative: &Path) -> Result<(), String> {
+    let groups = crate::access::SystemGroups;
+    let mut current = Some(relative);
+    while let Some(rel) = current {
+        let fd = root
+            .open_relative(rel, OFlags::PATH | OFlags::DIRECTORY)
+            .map_err(|e| e.to_string())?;
+        let st = fs::fstat(&fd).map_err(|e| e.to_string())?;
+        if let Err(refusal) = crate::access::stat_write_allowed(
+            crate::access::WriteRole::CleanupComponent,
+            st.st_uid,
+            st.st_gid,
+            st.st_mode,
+            &groups,
+        ) {
+            return Err(crate::access::describe_write_refusal(refusal).into());
+        }
+        current = rel.parent().filter(|p| !p.as_os_str().is_empty());
+    }
+    let st = fs::fstat(root.directory_fd()).map_err(|e| e.to_string())?;
+    if let Err(refusal) = crate::access::stat_write_allowed(
+        crate::access::WriteRole::CleanupRoot,
+        st.st_uid,
+        st.st_gid,
+        st.st_mode,
+        &groups,
+    ) {
+        return Err(crate::access::describe_write_refusal(refusal).into());
+    }
+    Ok(())
+}
+fn xdg_cache_home() -> Option<PathBuf> {
+    #[cfg(test)]
+    if let Some(path) = CACHE_HOME_OVERRIDE.with(|slot| slot.borrow().clone()) {
+        return Some(path);
+    }
     std::env::var_os("XDG_CACHE_HOME")
         .filter(|p| !p.is_empty() && Path::new(p).is_absolute())
         .map(PathBuf::from)
@@ -42,7 +77,23 @@ pub fn xdg_thumbnail_root() -> Option<PathBuf> {
                 .filter(|p| Path::new(p).is_absolute())
                 .map(|p| PathBuf::from(p).join(".cache"))
         })
-        .map(|p| p.join("thumbnails"))
+}
+fn under_uv_cache(path: &Path) -> bool {
+    xdg_cache_home()
+        .map(|cache| path.starts_with(cache.join("uv")))
+        .unwrap_or(false)
+}
+fn directory_has_pyvenv_cfg(root: &ApprovedRoot, rel: &Path) -> bool {
+    root.open_relative(&rel.join("pyvenv.cfg"), OFlags::PATH)
+        .and_then(|fd| fs::fstat(&fd))
+        .is_ok_and(|st| FileType::from_raw_mode(st.st_mode) == FileType::RegularFile)
+}
+#[cfg(test)]
+thread_local! {
+    static CACHE_HOME_OVERRIDE: std::cell::RefCell<Option<PathBuf>> = const { std::cell::RefCell::new(None) };
+}
+pub fn xdg_thumbnail_root() -> Option<PathBuf> {
+    xdg_cache_home().map(|p| p.join("thumbnails"))
 }
 #[derive(Clone)]
 pub struct ApprovedRoot {
@@ -706,7 +757,13 @@ impl<F: FnMut(ScanProgress)> Walker<'_, F> {
             .and_then(|fd| fs::fstat(&fd))
             .is_ok_and(|after| Fingerprint::from_stat(&after) == Fingerprint::from_stat(&st));
         complete &= stable;
+        let ancestor_refusal = cleanup_ancestors_allowed(root, rel).err();
+        if ancestor_refusal.is_some() {
+            complete = false;
+        }
         let risk = if complete { risk } else { Risk::Protected };
+        let uv_managed = reason.contains("uv cache prune");
+        let low_cache = complete && risk == Risk::Low && (py || thumbs);
         let id = format!("{}-{}", self.out.id, self.out.candidates.len());
         self.out.targets.insert(
             id.clone(),
@@ -721,11 +778,11 @@ impl<F: FnMut(ScanProgress)> Walker<'_, F> {
         );
         self.out.candidates.push(Candidate{
             id, title:title.into(),display_path:root.path.join(rel).to_string_lossy().into(),detector_id:detector.into(),detector_version:"1".into(),scope_id:root.display_path(),category:category.into(),project:project.into(),
-            selected_by_default:risk==Risk::Low,risk,logical_bytes:logical,allocated_bytes_estimate:Some(allocated),identity:Some(Identity{dev:st.st_dev,ino:st.st_ino,mtime_unix:st.st_mtime}),coverage_key:(coverage_complete && stable).then(||format!("{}:{}",st.st_dev,st.st_ino)),
-            reason:if complete {reason.into()}else{format!("{reason} Cobertura incompleta, links, conteúdo desconhecido ou hardlinks: protegido.")},
+            selected_by_default:risk==Risk::Low,risk,logical_bytes:logical,allocated_bytes_estimate:Some(allocated),identity:Some(Identity{dev:st.st_dev,ino:st.st_ino,mtime_unix:st.st_mtime}),coverage_key:(ancestor_refusal.is_none() && coverage_complete && stable).then(||format!("{}:{}",st.st_dev,st.st_ino)),
+            reason:if let Some(why)=ancestor_refusal{format!("{reason} {why}")}else if complete{reason.into()}else{format!("{reason} Cobertura incompleta, links, conteúdo desconhecido ou hardlinks: protegido.")},
             impact:if py||thumbs {"O aplicativo recriará o cache; a primeira abertura pode ser mais lenta.".into()}else{"Pode conter dados de trabalho ou exigir reconstrução/download. Inventário não autoriza remoção.".into()},
-            rebuild_hint:if py {"Bytecode recriado ao importar o módulo.".into()}else if thumbs{"Miniaturas recriadas pelo aplicativo.".into()}else{"Custo não medido; revisão necessária.".into()},
-            preserved:"Código, estado, configuração, credenciais, sessões e memória nunca entram em remoção genérica.".into(),evidence:vec!["root-approved".into(),"openat2-no-symlinks-no-xdev".into(),if complete{"coverage-complete"}else{"coverage-incomplete"}.into()],activity:format!("mtime Unix {} (metadado; não comprova desuso)",st.st_mtime),supported_action:if complete && (py||thumbs){SupportedAction::CacheContents}else{SupportedAction::None},
+            rebuild_hint:if uv_managed{"use `uv cache prune`".into()}else if py {"Bytecode recriado ao importar o módulo.".into()}else if thumbs{"Miniaturas recriadas pelo aplicativo.".into()}else{"Custo não medido; revisão necessária.".into()},
+            preserved:"Código, estado, configuração, credenciais, sessões e memória nunca entram em remoção genérica.".into(),evidence:vec!["root-approved".into(),"openat2-no-symlinks-no-xdev".into(),if complete{"coverage-complete"}else{"coverage-incomplete"}.into()],activity:format!("mtime Unix {} (metadado; não comprova desuso)",st.st_mtime),supported_action:if low_cache{SupportedAction::CacheContents}else{SupportedAction::None},
         });
     }
     fn build_subsets(
@@ -1120,7 +1177,9 @@ impl<F: FnMut(ScanProgress)> Walker<'_, F> {
                     continue;
                 }
                 let n = name.to_string_lossy();
-                if ["node_modules", ".venv", "venv", ".ssh", ".gnupg"].contains(&n.as_ref()) {
+                if ["node_modules", ".venv", "venv", ".ssh", ".gnupg"].contains(&n.as_ref())
+                    || directory_has_pyvenv_cfg(root, &path)
+                {
                     continue;
                 }
                 if n.starts_with(".inodune-") {
@@ -1160,6 +1219,10 @@ impl<F: FnMut(ScanProgress)> Walker<'_, F> {
                     continue;
                 }
                 if n == "__pycache__" {
+                    if under_uv_cache(&root.path.join(&path)) {
+                        self.candidate(root,&path,&project,CandidatePolicy{detector:"python.pycache",title:"Bytecode Python do uv",category:"Desenvolvimento",risk:Risk::Protected,reason:"Cache gerenciado pelo uv. Não remova com o inodune; use `uv cache prune`."});
+                        continue;
+                    }
                     let source = names
                         .iter()
                         .any(|n| Path::new(n).extension().is_some_and(|e| e == "py"));
@@ -1475,5 +1538,45 @@ mod pytest_budget_tests {
         assert!(!stages
             .iter()
             .any(|stage| stage == "Validando índice de testes pytest"));
+    }
+}
+
+#[cfg(test)]
+mod uv_cache_tests {
+    use super::*;
+    use std::fs;
+
+    #[test]
+    fn pycache_under_the_uv_cache_is_protected() {
+        let root = tempfile::tempdir().unwrap();
+        let cache = root.path().join("xdg-cache");
+        let project = cache.join("uv/simple");
+        fs::create_dir_all(project.join("__pycache__")).unwrap();
+        fs::write(project.join("mod.py"), b"x = 1\n").unwrap();
+        fs::write(project.join("__pycache__/mod.cpython-313.pyc"), b"bytecode").unwrap();
+        struct Clear;
+        impl Drop for Clear {
+            fn drop(&mut self) {
+                CACHE_HOME_OVERRIDE.with(|slot| *slot.borrow_mut() = None);
+            }
+        }
+        let _clear = Clear;
+        CACHE_HOME_OVERRIDE.with(|slot| *slot.borrow_mut() = Some(cache));
+        let snapshot = scan(
+            &[ApprovedRoot::open(&project, ScopeKind::Projects).unwrap()],
+            &ScanControl::default(),
+            &ScanLimits::default(),
+            |_| {},
+        )
+        .unwrap();
+        let candidate = snapshot
+            .candidates
+            .iter()
+            .find(|c| c.detector_id == "python.pycache")
+            .unwrap();
+        assert_eq!(candidate.risk, Risk::Protected);
+        assert!(candidate.reason.contains("use `uv cache prune`"));
+        assert_eq!(candidate.rebuild_hint, "use `uv cache prune`");
+        assert!(matches!(candidate.supported_action, SupportedAction::None));
     }
 }

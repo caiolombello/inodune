@@ -324,9 +324,10 @@ fn run_clean(args: &[String], control: &ScanControl) -> Result<(String, bool), S
         return Ok((output, false));
     }
 
+    let options = inodune_clean::executor::ExecutionOptions::local()?;
+    inodune_clean::executor::preflight(&options, action)?;
     confirm_plan(&plan_view)?;
     let authorized = session.consume(&plan_view.hash)?;
-    let options = inodune_clean::executor::ExecutionOptions::local()?;
     let report = inodune_clean::executor::execute(authorized, &options, control, |_| {});
     let partial = !report.complete || report.cancelled;
     let output = if json {

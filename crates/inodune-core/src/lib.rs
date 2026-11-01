@@ -1,5 +1,7 @@
 //! Shared contracts, read-only discovery and conservative planning.
 #[cfg(target_os = "linux")]
+pub mod access;
+#[cfg(target_os = "linux")]
 pub mod cache_rules;
 #[cfg(target_os = "linux")]
 pub mod discovery;

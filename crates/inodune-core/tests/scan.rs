@@ -580,3 +580,80 @@ fn scanner_integrates_sandboxed_git_evidence_without_writing_index() {
         modified
     );
 }
+
+#[test]
+fn a_world_writable_root_is_protected_and_excluded_from_reclaimable_selection() {
+    use inodune_core::{Risk, SupportedAction};
+    use std::os::unix::fs::PermissionsExt;
+    let root = tempfile::tempdir().unwrap();
+    fs::create_dir(root.path().join("__pycache__")).unwrap();
+    fs::write(root.path().join("mod.py"), b"value = 1\n").unwrap();
+    fs::write(
+        root.path().join("__pycache__/mod.cpython-313.pyc"),
+        b"not-a-real-header-but-present",
+    )
+    .unwrap();
+    fs::set_permissions(root.path(), fs::Permissions::from_mode(0o777)).unwrap();
+    let snapshot = scan(
+        &[ApprovedRoot::open(root.path(), ScopeKind::Projects).unwrap()],
+        &ScanControl::default(),
+        &ScanLimits::default(),
+        |_| {},
+    )
+    .unwrap();
+    let candidate = snapshot
+        .candidates
+        .iter()
+        .find(|c| c.detector_id == "python.pycache")
+        .unwrap();
+    assert_eq!(candidate.risk, Risk::Protected);
+    assert!(!candidate.selected_by_default);
+    assert!(matches!(candidate.supported_action, SupportedAction::None));
+    assert!(candidate.coverage_key.is_none());
+    assert!(
+        candidate.reason.contains("gravável"),
+        "{}",
+        candidate.reason
+    );
+    assert_eq!(
+        fs::metadata(root.path()).unwrap().permissions().mode() & 0o777,
+        0o777
+    );
+}
+
+#[test]
+fn virtualenv_directories_are_skipped_like_venv() {
+    let root = tempfile::tempdir().unwrap();
+    fs::create_dir_all(root.path().join("fw-venv/__pycache__")).unwrap();
+    fs::write(root.path().join("fw-venv/pyvenv.cfg"), b"home = /usr\n").unwrap();
+    fs::write(root.path().join("fw-venv/mod.py"), b"x = 1\n").unwrap();
+    fs::write(
+        root.path().join("fw-venv/__pycache__/mod.cpython-313.pyc"),
+        b"bytecode",
+    )
+    .unwrap();
+    fs::create_dir_all(root.path().join(".venv/__pycache__")).unwrap();
+    fs::write(root.path().join(".venv/mod.py"), b"x = 1\n").unwrap();
+    fs::create_dir_all(root.path().join("app/__pycache__")).unwrap();
+    fs::write(root.path().join("app/mod.py"), b"x = 1\n").unwrap();
+    fs::write(
+        root.path().join("app/__pycache__/mod.cpython-313.pyc"),
+        b"bytecode",
+    )
+    .unwrap();
+    let snapshot = scan(
+        &[ApprovedRoot::open(root.path(), ScopeKind::Projects).unwrap()],
+        &ScanControl::default(),
+        &ScanLimits::default(),
+        |_| {},
+    )
+    .unwrap();
+    assert!(snapshot
+        .candidates
+        .iter()
+        .any(|c| c.display_path.contains("/app/__pycache__")));
+    assert!(snapshot
+        .candidates
+        .iter()
+        .all(|c| !c.display_path.contains("fw-venv") && !c.display_path.contains("/.venv")));
+}

@@ -280,22 +280,26 @@ fn open_dir_at(parent: &OwnedFd, name: impl rustix::path::Arg) -> Result<OwnedFd
 
 fn check_ancestor(fd: &OwnedFd) -> Result<(), Errno> {
     let metadata = fs::fstat(fd)?;
-    let uid = rustix::process::getuid().as_raw();
-    let root_sticky_temp = metadata.st_uid == 0 && metadata.st_mode & 0o1000 != 0;
-    if (metadata.st_uid != 0 && metadata.st_uid != uid)
-        || (metadata.st_mode & 0o022 != 0 && !root_sticky_temp)
-    {
-        return Err(Errno::ACCESS);
-    }
-    Ok(())
+    inodune_core::access::stat_write_allowed(
+        inodune_core::access::WriteRole::StorageAncestor,
+        metadata.st_uid,
+        metadata.st_gid,
+        metadata.st_mode,
+        &inodune_core::access::SystemGroups,
+    )
+    .map_err(|_| Errno::ACCESS)
 }
 
 fn check_private_dir(fd: &OwnedFd) -> Result<(), Errno> {
     let metadata = fs::fstat(fd)?;
-    if metadata.st_uid != rustix::process::getuid().as_raw() || metadata.st_mode & 0o077 != 0 {
-        return Err(Errno::ACCESS);
-    }
-    Ok(())
+    inodune_core::access::stat_write_allowed(
+        inodune_core::access::WriteRole::PrivateStore,
+        metadata.st_uid,
+        metadata.st_gid,
+        metadata.st_mode,
+        &inodune_core::access::SystemGroups,
+    )
+    .map_err(|_| Errno::ACCESS)
 }
 
 fn validate_policy(policy: &Policy) -> Result<(), String> {

@@ -119,6 +119,22 @@ enum Phase {
     Captured,
 }
 
+pub fn preflight(options: &ExecutionOptions, action: Action) -> Result<(), String> {
+    let history = options
+        .history_directory
+        .as_ref()
+        .ok_or("O registro da operação não está configurado.")?;
+    storage::probe_reports(history)
+        .map_err(|e| format!("O registro da operação não está utilizável: {e}"))?;
+    if action == Action::Trash {
+        let trash = options
+            .trash_directory
+            .as_ref()
+            .ok_or("A Lixeira não está configurada.")?;
+        storage::Trash::open(trash).map_err(|e| format!("A Lixeira não está utilizável: {e}"))?;
+    }
+    Ok(())
+}
 pub fn execute(
     plan: AuthorizedPlan,
     options: &ExecutionOptions,
@@ -558,26 +574,7 @@ impl Stage {
     }
 }
 fn validate_ancestors(target: &ScannedTarget, path: &Path) -> Result<(), String> {
-    let mut current = Some(path);
-    while let Some(relative) = current {
-        let fd = target
-            .root
-            .open_relative(relative, OFlags::PATH | OFlags::DIRECTORY)
-            .map_err(|e| e.to_string())?;
-        let st = fs::fstat(fd).map_err(|e| e.to_string())?;
-        if st.st_uid != rustix::process::getuid().as_raw() || st.st_mode & 0o022 != 0 {
-            return Err(
-                "Pasta gravável por outros usuários; limpeza recusada sem alterar permissões."
-                    .into(),
-            );
-        }
-        current = relative.parent().filter(|p| !p.as_os_str().is_empty());
-    }
-    let st = fs::fstat(target.root.directory_fd()).map_err(|e| e.to_string())?;
-    if st.st_mode & 0o022 != 0 {
-        return Err("Raiz gravável por outros usuários; limpeza recusada.".into());
-    }
-    Ok(())
+    inodune_core::scan::cleanup_ancestors_allowed(&target.root, path)
 }
 fn parent_stable(target: &ScannedTarget, parent: &OwnedFd, rel: &Path) -> Result<(), String> {
     target.root.revalidate()?;
@@ -658,8 +655,8 @@ fn process_file(
         Ok(fd) => fd,
         Err(e) => return fail(&e.to_string()),
     };
-    let fp = match fs::fstat(&pinned) {
-        Ok(st) => Fingerprint::from_stat(&st),
+    let (fp, leaf_gid) = match fs::fstat(&pinned) {
+        Ok(st) => (Fingerprint::from_stat(&st), st.st_gid),
         Err(e) => return fail(&e.to_string()),
     };
     if &fp != expected
@@ -688,7 +685,19 @@ fn process_file(
                 == Some(expected)
         }
     };
-    if fp.mode & 0o022 != 0 || !valid {
+    if let Err(refusal) = inodune_core::access::stat_write_allowed(
+        inodune_core::access::WriteRole::CacheLeaf,
+        fp.uid,
+        leaf_gid,
+        fp.mode,
+        &inodune_core::access::SystemGroups,
+    ) {
+        return fail(&format!(
+            "Formato, fonte ou permissões do cache mudaram; preservado. {}",
+            inodune_core::access::describe_write_refusal(refusal)
+        ));
+    }
+    if !valid {
         return fail("Formato, fonte ou permissões do cache mudaram; preservado.");
     }
     if let Err(e) = validate_witnesses(target) {
@@ -1162,6 +1171,46 @@ mod tests {
             2
         );
         assert_eq!(fs::read_dir(f.path.parent().unwrap()).unwrap().count(), 2);
+    }
+    #[test]
+    fn preflight_reports_an_unusable_registry_or_trash_before_execution() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let reports = dir.path().join("reports");
+        fs::create_dir(&reports).unwrap();
+        fs::set_permissions(&reports, fs::Permissions::from_mode(0o777)).unwrap();
+        let trash = dir.path().join("Trash");
+        let options = ExecutionOptions {
+            trash_directory: Some(trash.clone()),
+            history_directory: Some(reports.clone()),
+        };
+        let err = preflight(&options, Action::Trash).unwrap_err();
+        assert!(
+            err.contains("registro da operação não está utilizável"),
+            "{err}"
+        );
+        assert!(!trash.exists());
+        fs::set_permissions(&reports, fs::Permissions::from_mode(0o700)).unwrap();
+        fs::create_dir(&trash).unwrap();
+        fs::set_permissions(&trash, fs::Permissions::from_mode(0o777)).unwrap();
+        let err = preflight(&options, Action::Trash).unwrap_err();
+        assert!(err.contains("Lixeira não está utilizável"), "{err}");
+        assert_eq!(
+            fs::metadata(&trash).unwrap().permissions().mode() & 0o777,
+            0o777
+        );
+        fs::remove_dir(&trash).unwrap();
+        assert!(preflight(&options, Action::Permanent).is_ok());
+        let created = dir.path().join("fresh-trash");
+        let options = ExecutionOptions {
+            trash_directory: Some(created.clone()),
+            history_directory: Some(reports),
+        };
+        assert!(preflight(&options, Action::Trash).is_ok());
+        assert_eq!(
+            fs::metadata(&created).unwrap().permissions().mode() & 0o777,
+            0o700
+        );
     }
     #[test]
     fn unsafe_or_unavailable_trash_has_no_permanent_fallback() {

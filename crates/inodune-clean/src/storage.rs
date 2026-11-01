@@ -17,6 +17,14 @@ const MAX_JOURNAL_RECORD: usize = 8 * 1024 * 1024;
 const MAX_REPORT_BYTES: usize = 8 * 1024 * 1024;
 
 pub(crate) fn open_dir(path: &Path, create: bool, private: bool) -> Result<OwnedFd, String> {
+    open_dir_with(path, create, private, &inodune_core::access::SystemGroups)
+}
+fn open_dir_with(
+    path: &Path,
+    create: bool,
+    private: bool,
+    groups: &dyn inodune_core::access::GroupQuery,
+) -> Result<OwnedFd, String> {
     if !path.is_absolute() || path.components().any(|c| matches!(c, Component::ParentDir)) {
         return Err("Armazenamento requer caminho absoluto sem '..'.".into());
     }
@@ -26,7 +34,7 @@ pub(crate) fn open_dir(path: &Path, create: bool, private: bool) -> Result<Owned
         Mode::empty(),
     )
     .map_err(|e| e.to_string())?;
-    check_storage_ancestor(&fd)?;
+    check_storage_ancestor(&fd, groups)?;
     for part in path.components() {
         let Component::Normal(name) = part else {
             continue;
@@ -60,10 +68,10 @@ pub(crate) fn open_dir(path: &Path, create: bool, private: bool) -> Result<Owned
                 ))
             }
         };
-        check_storage_ancestor(&fd)?;
+        check_storage_ancestor(&fd, groups)?;
     }
     if private {
-        check_private(&fd)?;
+        check_private_with(&fd, groups)?;
     }
     Ok(fd)
 }
@@ -71,6 +79,13 @@ pub(crate) fn open_dir(path: &Path, create: bool, private: bool) -> Result<Owned
 /// Like `open_dir`, but distinguishes a genuinely missing component from every
 /// other failure so history listing never treats permission errors as empty.
 pub(crate) fn open_dir_optional(path: &Path, private: bool) -> Result<Option<OwnedFd>, String> {
+    open_dir_optional_with(path, private, &inodune_core::access::SystemGroups)
+}
+fn open_dir_optional_with(
+    path: &Path,
+    private: bool,
+    groups: &dyn inodune_core::access::GroupQuery,
+) -> Result<Option<OwnedFd>, String> {
     if !path.is_absolute() || path.components().any(|c| matches!(c, Component::ParentDir)) {
         return Err("Armazenamento requer caminho absoluto sem '..'.".into());
     }
@@ -80,7 +95,7 @@ pub(crate) fn open_dir_optional(path: &Path, private: bool) -> Result<Option<Own
         Mode::empty(),
     )
     .map_err(|e| e.to_string())?;
-    check_storage_ancestor(&fd)?;
+    check_storage_ancestor(&fd, groups)?;
     for part in path.components() {
         let Component::Normal(name) = part else {
             continue;
@@ -101,23 +116,33 @@ pub(crate) fn open_dir_optional(path: &Path, private: bool) -> Result<Option<Own
                 ))
             }
         };
-        check_storage_ancestor(&fd)?;
+        check_storage_ancestor(&fd, groups)?;
     }
     if private {
-        check_private(&fd)?;
+        check_private_with(&fd, groups)?;
     }
     Ok(Some(fd))
 }
-fn check_storage_ancestor(fd: impl AsFd) -> Result<(), String> {
+fn check_storage_ancestor(
+    fd: impl AsFd,
+    groups: &dyn inodune_core::access::GroupQuery,
+) -> Result<(), String> {
     let st = fs::fstat(fd).map_err(|e| e.to_string())?;
-    let uid = rustix::process::getuid().as_raw();
     // Root-owned sticky temporary directories protect an owned child against
     // cross-user renames. Other writable ancestors cannot provide that boundary.
-    let root_sticky = st.st_uid == 0 && st.st_mode & 0o1000 != 0;
-    if (st.st_uid != 0 && st.st_uid != uid) || (st.st_mode & 0o022 != 0 && !root_sticky) {
-        return Err("Ancestral do armazenamento é gravável por terceiros ou tem proprietário inesperado. Nenhuma permissão foi alterada.".into());
-    }
-    Ok(())
+    inodune_core::access::stat_write_allowed(
+        inodune_core::access::WriteRole::StorageAncestor,
+        st.st_uid,
+        st.st_gid,
+        st.st_mode,
+        groups,
+    )
+    .map_err(|refusal| {
+        format!(
+            "Ancestral do armazenamento é gravável por terceiros ou tem proprietário inesperado. {}. Nenhuma permissão foi alterada.",
+            inodune_core::access::describe_write_refusal(refusal)
+        )
+    })
 }
 pub(crate) fn open_child(fd: impl AsFd, name: &Path) -> Result<OwnedFd, Errno> {
     fs::openat2(
@@ -132,19 +157,38 @@ pub(crate) fn open_child(fd: impl AsFd, name: &Path) -> Result<OwnedFd, Errno> {
     )
 }
 pub(crate) fn check_private(fd: impl AsFd) -> Result<(), String> {
-    let st = fs::fstat(fd).map_err(|e| e.to_string())?;
-    if st.st_uid != rustix::process::getuid().as_raw() || st.st_mode & 0o077 != 0 {
-        return Err("Armazenamento deve pertencer ao usuário e ser privado (0700). Permissões existentes não foram alteradas.".into());
-    }
-    Ok(())
+    check_private_with(fd, &inodune_core::access::SystemGroups)
 }
-pub(crate) fn child_private(fd: impl AsFd, name: &str) -> Result<OwnedFd, String> {
+fn check_private_with(
+    fd: impl AsFd,
+    groups: &dyn inodune_core::access::GroupQuery,
+) -> Result<(), String> {
+    let st = fs::fstat(fd).map_err(|e| e.to_string())?;
+    inodune_core::access::stat_write_allowed(
+        inodune_core::access::WriteRole::PrivateStore,
+        st.st_uid,
+        st.st_gid,
+        st.st_mode,
+        groups,
+    )
+    .map_err(|refusal| {
+        format!(
+            "Armazenamento deve pertencer ao usuário, não pode ser gravável por outros e só aceita escrita de grupo quando o grupo é privado desse usuário. {}. Permissões existentes não foram alteradas.",
+            inodune_core::access::describe_write_refusal(refusal)
+        )
+    })
+}
+fn child_private_with(
+    fd: impl AsFd,
+    name: &str,
+    groups: &dyn inodune_core::access::GroupQuery,
+) -> Result<OwnedFd, String> {
     match fs::mkdirat(fd.as_fd(), name, Mode::from_raw_mode(0o700)) {
         Ok(()) | Err(Errno::EXIST) => {}
         Err(e) => return Err(e.to_string()),
     };
     let child = open_child(fd, Path::new(name)).map_err(|e| e.to_string())?;
-    check_private(&child)?;
+    check_private_with(&child, groups)?;
     Ok(child)
 }
 pub(crate) fn random_name(prefix: &str) -> Result<String, String> {
@@ -232,11 +276,17 @@ pub(crate) struct Trash {
 }
 impl Trash {
     pub fn open(path: &Path) -> Result<Self, String> {
-        let root = open_dir(path, true, true)?;
+        Self::open_with(path, &inodune_core::access::SystemGroups)
+    }
+    pub(crate) fn open_with(
+        path: &Path,
+        groups: &dyn inodune_core::access::GroupQuery,
+    ) -> Result<Self, String> {
+        let root = open_dir_with(path, true, true, groups)?;
         let st = fs::fstat(&root).map_err(|e| e.to_string())?;
         Ok(Self {
-            files: child_private(&root, "files")?,
-            info: child_private(&root, "info")?,
+            files: child_private_with(&root, "files", groups)?,
+            info: child_private_with(&root, "info", groups)?,
             path: path.to_owned(),
             identity: (st.st_dev, st.st_ino),
         })
@@ -363,6 +413,10 @@ impl Journal {
     }
 }
 
+pub fn probe_reports(directory: &Path) -> Result<(), String> {
+    let dir = open_dir(directory, true, true)?;
+    check_capacity(&dir, 1, 1)
+}
 fn check_capacity(dir: &OwnedFd, addition: u64, new_entries: u64) -> Result<(), String> {
     let mut count = 0u64;
     let mut total = 0u64;
@@ -397,7 +451,40 @@ fn check_capacity(dir: &OwnedFd, addition: u64, new_entries: u64) -> Result<(), 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use inodune_core::access::{GroupCensus, GroupQuery};
     use std::fs;
+    struct FakeGroups {
+        uid: u32,
+        gid: u32,
+        name: &'static str,
+        census: Result<GroupCensus, inodune_core::access::GroupLookupError>,
+    }
+    impl GroupQuery for FakeGroups {
+        fn uid_gid(&self) -> Result<(u32, u32), inodune_core::access::GroupLookupError> {
+            Ok((self.uid, self.gid))
+        }
+        fn user_name(&self) -> Result<String, inodune_core::access::GroupLookupError> {
+            Ok(self.name.into())
+        }
+        fn census(&self, _: u32) -> Result<GroupCensus, inodune_core::access::GroupLookupError> {
+            self.census.clone()
+        }
+    }
+    fn exclusive(uid: u32, gid: u32) -> FakeGroups {
+        FakeGroups {
+            uid,
+            gid,
+            name: "only",
+            census: Ok(GroupCensus {
+                supplementary: vec![],
+                primary_users: vec!["only".into()],
+            }),
+        }
+    }
+    fn mode_of(path: &Path) -> u32 {
+        use std::os::unix::fs::PermissionsExt;
+        fs::metadata(path).unwrap().permissions().mode() & 0o777
+    }
     #[test]
     fn trashinfo_percent_encodes_paths_and_existing_entries_are_preserved() {
         let dir = tempfile::tempdir().unwrap();
@@ -455,5 +542,85 @@ mod tests {
             fs::metadata(public).unwrap().permissions().mode() & 0o777,
             0o777
         );
+    }
+    #[test]
+    fn group_writable_ancestor_follows_the_private_group_rule() {
+        use std::os::unix::fs::PermissionsExt;
+        let uid = rustix::process::getuid().as_raw();
+        let gid = rustix::process::getgid().as_raw();
+        let dir = tempfile::tempdir().unwrap();
+        let ancestor = dir.path().join("ancestor");
+        let child = ancestor.join("reports");
+        fs::create_dir(&ancestor).unwrap();
+        fs::set_permissions(&ancestor, fs::Permissions::from_mode(0o775)).unwrap();
+        assert!(open_dir_with(&child, true, true, &exclusive(uid, gid)).is_ok());
+        assert_eq!(mode_of(&ancestor), 0o775);
+        fs::remove_dir_all(&child).unwrap();
+        let shared = FakeGroups {
+            uid,
+            gid,
+            name: "only",
+            census: Ok(GroupCensus {
+                supplementary: vec!["guest".into()],
+                primary_users: vec!["only".into()],
+            }),
+        };
+        assert!(open_dir_with(&child, true, true, &shared).is_err());
+        assert!(!child.exists());
+        let unknown = FakeGroups {
+            uid,
+            gid,
+            name: "only",
+            census: Err(inodune_core::access::GroupLookupError),
+        };
+        assert!(open_dir_with(&child, true, true, &unknown).is_err());
+        fs::set_permissions(&ancestor, fs::Permissions::from_mode(0o777)).unwrap();
+        assert!(open_dir_with(&child, true, true, &exclusive(uid, gid)).is_err());
+        assert!(!child.exists());
+    }
+    #[test]
+    fn existing_trash_may_be_group_writable_only_for_a_private_group_and_new_trash_stays_0700() {
+        use std::os::unix::fs::{symlink, PermissionsExt};
+        let uid = rustix::process::getuid().as_raw();
+        let gid = rustix::process::getgid().as_raw();
+        let dir = tempfile::tempdir().unwrap();
+        let created = dir.path().join("created");
+        let trash = Trash::open_with(&created, &exclusive(uid, gid)).unwrap();
+        drop(trash);
+        assert_eq!(mode_of(&created), 0o700);
+        assert_eq!(mode_of(&created.join("files")), 0o700);
+        assert_eq!(mode_of(&created.join("info")), 0o700);
+        let existing = dir.path().join("existing");
+        for name in ["", "files", "info"] {
+            let path = if name.is_empty() {
+                existing.clone()
+            } else {
+                existing.join(name)
+            };
+            fs::create_dir(&path).unwrap();
+            fs::set_permissions(&path, fs::Permissions::from_mode(0o775)).unwrap();
+        }
+        assert!(Trash::open_with(&existing, &exclusive(uid, gid)).is_ok());
+        assert_eq!(mode_of(&existing), 0o775);
+        assert_eq!(mode_of(&existing.join("files")), 0o775);
+        assert_eq!(mode_of(&existing.join("info")), 0o775);
+        fs::set_permissions(existing.join("files"), fs::Permissions::from_mode(0o777)).unwrap();
+        assert!(Trash::open_with(&existing, &exclusive(uid, gid)).is_err());
+        assert_eq!(mode_of(&existing.join("files")), 0o777);
+        fs::set_permissions(existing.join("files"), fs::Permissions::from_mode(0o775)).unwrap();
+        let shared = FakeGroups {
+            uid,
+            gid,
+            name: "only",
+            census: Ok(GroupCensus {
+                supplementary: vec![],
+                primary_users: vec!["only".into(), "guest".into()],
+            }),
+        };
+        assert!(Trash::open_with(&existing, &shared).is_err());
+        assert_eq!(mode_of(&existing), 0o775);
+        let link = dir.path().join("link");
+        symlink(&existing, &link).unwrap();
+        assert!(Trash::open_with(&link, &exclusive(uid, gid)).is_err());
     }
 }

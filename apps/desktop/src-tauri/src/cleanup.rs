@@ -101,14 +101,12 @@ pub fn prepare_cleanup(
     } else {
         PlanSession::prepare
     };
-    let plan = prepare(
-        snapshot,
-        &candidate_ids,
-        match action {
-            RequestedAction::Trash => Action::Trash,
-            RequestedAction::Permanent => Action::Permanent,
-        },
-    )?;
+    let requested = match action {
+        RequestedAction::Trash => Action::Trash,
+        RequestedAction::Permanent => Action::Permanent,
+    };
+    executor::preflight(&executor::ExecutionOptions::local()?, requested)?;
+    let plan = prepare(snapshot, &candidate_ids, requested)?;
     let view = plan.view();
     let mut plans = state
         .cleanup
