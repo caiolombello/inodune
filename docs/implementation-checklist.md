@@ -1,6 +1,6 @@
 # Checklist de implementação
 
-Fase 0 implementada, aceite nativo pendente — 31/10/2026. Os documentos normativos originais são preservados.
+Fase 0 implementada e abertura nativa verificada; Fase 1 em andamento — 31/10/2026. Os documentos normativos originais são preservados.
 
 ## Fase 0
 
@@ -13,8 +13,9 @@ Fase 0 implementada, aceite nativo pendente — 31/10/2026. Os documentos normat
 - [x] Explainability, Project Lens, Ledger e Simulator com dados sintéticos.
 - [x] Claro/escuro, janela estreita, teclado, erro/vazio/cancelamento/reduced motion verificados.
 - [x] cargo fmt/clippy/test dos default-members; frontend typecheck/lint/format/test/build; 7 E2E Chromium, axe e screenshots.
-- [ ] Check e abertura Tauri nativos; E2E WebKit. Bloqueados por dependências (DBus/GTK3/WebKitGTK; WebKit Playwright requer libicu74/libjpeg-turbo8 neste fallback).
-- [ ] Abre em Linux via WebKitGTK. Bloqueio conhecido: DBus development/GTK3/WebKitGTK 4.1 ausentes; não usar sudo.
+- [x] Build Tauri nativo e smoke visual WebKitGTK: [evidência](evidence/native/acceptance.md).
+- [ ] E2E Playwright WebKit: fallback requer libicu74/libjpeg-turbo8. Não confundir com o smoke nativo.
+- [x] Abre em Fedora 44 via WebKitGTK em X11/Xvfb isolado; dependências instaladas com autorização expressa posterior. Standalone/pacotes e Wayland interativo pendentes.
 
 ## Fases seguintes — não implementadas
 
