@@ -47,10 +47,10 @@ with tempfile.TemporaryDirectory(prefix='inodune-driver-') as temp:
             proxy_port=port();native_port=port()
             driver=subprocess.Popen([str(root/'.tools/tauri-driver/bin/tauri-driver'),'--port',str(proxy_port),'--native-port',str(native_port),'--native-driver',str(root/'.tools/webdriver/usr/bin/WebKitWebDriver')],env=env,stdout=log,stderr=log,start_new_session=True);processes.append(driver)
             base=f'http://127.0.0.1:{proxy_port}'
-            def request(method,path,payload=None):
+            def request(method,path,payload=None,timeout=35):
                 body=None if payload is None else json.dumps(payload).encode()
                 try:
-                    with urllib.request.urlopen(urllib.request.Request(base+path,data=body,headers={'Content-Type':'application/json'},method=method),timeout=35) as response:result=json.load(response)
+                    with urllib.request.urlopen(urllib.request.Request(base+path,data=body,headers={'Content-Type':'application/json'},method=method),timeout=timeout) as response:result=json.load(response)
                 except urllib.error.HTTPError as e:raise RuntimeError(e.read().decode()) from e
                 value=result.get('value')
                 if isinstance(value,dict) and 'error' in value and 'ok' not in value:raise RuntimeError(str(value))
@@ -83,9 +83,13 @@ with tempfile.TemporaryDirectory(prefix='inodune-driver-') as temp:
             until(lambda:'Meu computador' in script('return document.body.innerText'))
             assert '512 GiB' not in script('return document.body.innerText')
             screenshot('local-empty.png')
-            def invoke(command,args):return request('POST',prefix+'/execute/async',{'script':"const done=arguments[arguments.length-1];window.__TAURI_INTERNALS__.invoke(arguments[0],arguments[1]).then(v=>done({ok:true,value:v})).catch(e=>done({ok:false,error:String(e)}));",'args':[command,args]})
+            def invoke(command,args,timeout=35):return request('POST',prefix+'/execute/async',{'script':"const done=arguments[arguments.length-1];window.__TAURI_INTERNALS__.invoke(arguments[0],arguments[1]).then(v=>done({ok:true,value:v})).catch(e=>done({ok:false,error:String(e)}));",'args':[command,args]},timeout)
             assert invoke('list_scopes',{})=={'ok':True,'value':[]}
             assert invoke('list_history',{})=={'ok':True,'value':[]}
+            installed=invoke('list_installed_apps',{},60)
+            assert installed.get('ok') is True, installed
+            assert 'not allowed by ACL' not in json.dumps(installed), installed
+            assert installed['value'].get('read_only') is True, installed
             denied=invoke('begin_scan',{'scopeIds':[]})
             assert not denied['ok'],denied
             click('Histórico')
@@ -97,7 +101,7 @@ with tempfile.TemporaryDirectory(prefix='inodune-driver-') as temp:
             script("const select=document.querySelector('select[aria-label=Idioma]');select.value='en-US';select.dispatchEvent(new Event('change',{bubbles:true}));")
             until(lambda:script("return document.documentElement.lang==='en-US'"))
             screenshot('production-settings-english.png')
-            (out/'result.json').write_text(json.dumps({'production_release':True,'standalone_without_vite':True,'empty_approved_scopes':True,'empty_history':True,'unapproved_scan_rejected':True,'english_preferences':True,'graphics':'Xvfb software compositing fallback','no_data_scan_or_cleanup':True,'result':'passed'},indent=2)+'\n')
+            (out/'result.json').write_text(json.dumps({'production_release':True,'standalone_without_vite':True,'empty_approved_scopes':True,'empty_history':True,'installed_apps_acl':True,'unapproved_scan_rejected':True,'english_preferences':True,'graphics':'Xvfb software compositing fallback','no_data_scan_or_cleanup':True,'result':'passed'},indent=2)+'\n')
             print('PASS: production release opens standalone, loads canonical assets/CSP, has no approved scope, rejects unapproved scan and shows local empty history/English settings.')
         finally:
             if session:

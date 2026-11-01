@@ -5,6 +5,7 @@
     "main"
   ],
   "permissions": [
-    "allow-local-scan"
+    "allow-local-scan",
+    "allow-installed-apps-readonly"
   ]
 }

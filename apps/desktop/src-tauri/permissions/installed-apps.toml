@@ -1,0 +1,4 @@
+[[permission]]
+identifier = "allow-installed-apps-readonly"
+description = "Read the local package and game inventory. No install, remove, or shell access."
+commands.allow = ["list_installed_apps"]
