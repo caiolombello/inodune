@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-begin-automatic-scan"
+description = "Enables the begin_automatic_scan command without any pre-configured scope."
+commands.allow = ["begin_automatic_scan"]
+
+[[permission]]
+identifier = "deny-begin-automatic-scan"
+description = "Denies the begin_automatic_scan command without any pre-configured scope."
+commands.deny = ["begin_automatic_scan"]

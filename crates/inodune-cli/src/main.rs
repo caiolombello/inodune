@@ -86,6 +86,17 @@ fn run_with_control(args: Vec<String>, control: &ScanControl) -> Result<(String,
 }
 
 fn run_scan(args: &[String], control: &ScanControl) -> Result<(String, bool), String> {
+    run_scan_with_discovery(args, control, inodune_core::discovery::discover)
+}
+fn run_scan_with_discovery(
+    args: &[String],
+    control: &ScanControl,
+    discover: impl FnOnce(
+        &ScanControl,
+        &ScanLimits,
+    ) -> Result<inodune_core::discovery::DiscoveryResult, String>,
+) -> Result<(String, bool), String> {
+    let mut automatic = false;
     let mut paths = Vec::new();
     let mut exclusions = Vec::new();
     let mut kind = ScopeKind::Projects;
@@ -93,6 +104,7 @@ fn run_scan(args: &[String], control: &ScanControl) -> Result<(String, bool), St
     let mut index = 1;
     while index < args.len() {
         match args[index].as_str() {
+            "--auto" => automatic = true,
             "--root" => {
                 index += 1;
                 paths.push(PathBuf::from(args.get(index).ok_or_else(usage)?));
@@ -110,12 +122,25 @@ fn run_scan(args: &[String], control: &ScanControl) -> Result<(String, bool), St
         }
         index += 1;
     }
-    validate_root_count(paths.len())?;
-    let roots = paths
-        .iter()
-        .map(|p| ApprovedRoot::open(p, kind)?.with_exclusions(exclusions.clone()))
-        .collect::<Result<Vec<_>, _>>()?;
-    let result = scan::scan(&roots, control, &ScanLimits::default(), |_| {})?;
+    if automatic && (!paths.is_empty() || kind != ScopeKind::Projects || !exclusions.is_empty()) {
+        return Err("--auto não combina com --root/--scope/--exclude; configure exclusões pelo desktop ou use roots explícitas.".into());
+    }
+    let limits = ScanLimits::default();
+    let result = if automatic {
+        inodune_core::discovery::scan_discovered(
+            discover(control, &limits)?,
+            control,
+            &limits,
+            |_| {},
+        )?
+    } else {
+        validate_root_count(paths.len())?;
+        let roots = paths
+            .iter()
+            .map(|p| ApprovedRoot::open(p, kind)?.with_exclusions(exclusions.clone()))
+            .collect::<Result<Vec<_>, _>>()?;
+        scan::scan(&roots, control, &limits, |_| {})?
+    };
     let partial = !result.complete;
     let output = if json {
         serde_json::to_string_pretty(&result.view()).map_err(|e| e.to_string())?
@@ -430,13 +455,37 @@ fn validate_root_count(count: usize) -> Result<(), String> {
 }
 
 fn usage() -> String {
-    "Uso: inodune-cli [--help|-h] [--version|-V]\n     inodune-cli scan --root ABS [--root ABS] [--exclude REL]... [--scope projects|thumbnails|protected] [--json]\n     inodune-cli clean --root ABS [--root ABS] [--exclude REL]... [--scope projects|thumbnails|protected] [--dry-run|--apply] [--review cargo.fingerprint-json|terraform.provider-package] [--permanent] [--json]\nDemonstração: scan --demo --json | clean --demo --dry-run. --exclude aceita caminhos relativos literais; '.' exclui a root inteira. --review seleciona um único candidato verificado e não aplica a limpeza; por padrão, apenas itens de baixo risco entram no plano. A limpeza real começa em simulação; --apply exige confirmação interativa e digitação exata. Exit 2: erro; exit 3: cobertura ou execução parcial.".into()
+    "Uso: inodune-cli [--help|-h] [--version|-V]\n     inodune-cli scan --auto [--json]\n     inodune-cli scan --root ABS [--root ABS] [--exclude REL]... [--scope projects|thumbnails|protected] [--json]\n     inodune-cli clean --root ABS [--root ABS] [--exclude REL]... [--scope projects|thumbnails|protected] [--dry-run|--apply] [--review cargo.fingerprint-json|terraform.provider-package] [--permanent] [--json]\nDemonstração: scan --demo --json | clean --demo --dry-run. --exclude aceita caminhos relativos literais; '.' exclui a root inteira. --review seleciona um único candidato verificado e não aplica a limpeza; por padrão, apenas itens de baixo risco entram no plano. A limpeza real começa em simulação; --apply exige confirmação interativa e digitação exata. Exit 2: erro; exit 3: cobertura ou execução parcial.".into()
 }
 
 #[cfg(test)]
 mod tests {
     use super::{confirmation_matches, run};
     use std::fs;
+
+    #[test]
+    fn automatic_scan_uses_discovery_without_paths_or_cleanup() {
+        let temp = tempfile::tempdir().unwrap();
+        let project = cargo_fixture(temp.path(), "automatic");
+        let (output, _) = super::run_scan_with_discovery(
+            &["scan".into(), "--auto".into(), "--json".into()],
+            &Default::default(),
+            |control, limits| {
+                inodune_core::discovery::discover_from(temp.path(), "", &[], control, limits)
+            },
+        )
+        .unwrap();
+        assert!(output.contains("cargo.fingerprint-json"));
+        assert!(output.contains("read_only"));
+        assert!(project.join("Cargo.toml").exists());
+        assert!(run(vec![
+            "scan".into(),
+            "--auto".into(),
+            "--root".into(),
+            temp.path().to_string_lossy().into_owned()
+        ])
+        .is_err());
+    }
 
     fn cargo_fixture(parent: &std::path::Path, name: &str) -> std::path::PathBuf {
         let project = parent.join(name);

@@ -17,7 +17,7 @@ use std::{
 };
 
 const PLAN_TTL: Duration = Duration::from_secs(120);
-const PLAN_RULE_VERSION: &[u8] = b"inodune-cache-plan-v2";
+const PLAN_RULE_VERSION: &[u8] = b"inodune-cache-plan-v3";
 const MAX_PLAN_ITEMS: usize = 1000;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -45,6 +45,7 @@ pub struct PlanView {
     pub hash: String,
     pub snapshot_id: String,
     pub review_required: bool,
+    pub inventory_complete: bool,
     pub action: Action,
     pub expires_in_seconds: u64,
     pub items: Vec<PlanItem>,
@@ -83,7 +84,33 @@ impl PlanSession {
         action: Action,
         expires_at: Instant,
     ) -> Result<Self, String> {
-        if !snapshot.complete || snapshot.cancelled {
+        Self::prepare_with_coverage(snapshot, requested_ids, action, expires_at, false)
+    }
+
+    /// Broad discovery may have unrelated inaccessible areas. Each selected target
+    /// must still have a complete manifest and pass all existing validation.
+    pub fn prepare_verified_items(
+        snapshot: Arc<ScanSnapshot>,
+        requested_ids: &[String],
+        action: Action,
+    ) -> Result<Self, String> {
+        Self::prepare_with_coverage(
+            snapshot,
+            requested_ids,
+            action,
+            Instant::now() + PLAN_TTL,
+            true,
+        )
+    }
+
+    fn prepare_with_coverage(
+        snapshot: Arc<ScanSnapshot>,
+        requested_ids: &[String],
+        action: Action,
+        expires_at: Instant,
+        allow_partial: bool,
+    ) -> Result<Self, String> {
+        if snapshot.cancelled || (!snapshot.complete && !allow_partial) {
             return Err("A análise está incompleta ou cancelada; faça uma nova análise.".into());
         }
 
@@ -234,6 +261,7 @@ impl PlanSession {
             hash,
             snapshot_id: snapshot.id.clone(),
             review_required,
+            inventory_complete: snapshot.complete,
             action,
             expires_in_seconds: remaining.as_secs(),
             items,
@@ -404,6 +432,39 @@ mod tests {
     use super::*;
     use inodune_core::scan::{scan, ApprovedRoot, ScanControl, ScanLimits, ScopeKind};
     use std::fs;
+
+    #[test]
+    fn partial_discovery_only_authorizes_complete_selected_manifests() {
+        let fixture = Fixture::new();
+        let mut snapshot = (*fixture.snapshot).clone();
+        snapshot.complete = false;
+        let id = snapshot.candidates[0].id.clone();
+        assert!(PlanSession::prepare(
+            Arc::new(snapshot.clone()),
+            std::slice::from_ref(&id),
+            Action::Trash
+        )
+        .is_err());
+        let plan = PlanSession::prepare_verified_items(
+            Arc::new(snapshot.clone()),
+            std::slice::from_ref(&id),
+            Action::Trash,
+        )
+        .unwrap();
+        assert!(!plan.view().inventory_complete);
+        snapshot.targets.get_mut(&id).unwrap().complete = false;
+        assert!(PlanSession::prepare_verified_items(
+            Arc::new(snapshot.clone()),
+            std::slice::from_ref(&id),
+            Action::Trash
+        )
+        .is_err());
+        snapshot.targets.get_mut(&id).unwrap().complete = true;
+        snapshot.cancelled = true;
+        assert!(
+            PlanSession::prepare_verified_items(Arc::new(snapshot), &[id], Action::Trash).is_err()
+        );
+    }
 
     struct Fixture {
         _dir: tempfile::TempDir,

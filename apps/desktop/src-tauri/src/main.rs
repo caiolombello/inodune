@@ -29,6 +29,7 @@ fn main() {
             backend::forget_scope,
             backend::set_scope_exclusions,
             backend::begin_scan,
+            backend::begin_automatic_scan,
             backend::poll_scan,
             backend::control_scan,
             cleanup::prepare_cleanup,

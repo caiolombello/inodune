@@ -9,6 +9,7 @@ fn main() {
             "get_history_report",
             "export_history_report",
             "begin_scan",
+            "begin_automatic_scan",
             "poll_scan",
             "control_scan",
             "prepare_cleanup",
