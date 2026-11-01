@@ -23,8 +23,8 @@ Para uma primeira preparação, o build dos containers precisa de acesso aos rep
 Instale o pacote com o gerenciador da distribuição, que pode exigir autorização administrativa para gravar em `/usr`:
 
 ```sh
-sudo apt install ./target/packages/0.1.2/Inodune_0.1.2_amd64.deb
-sudo dnf install ./target/packages/0.1.2/Inodune-0.1.2-1.x86_64.rpm
+sudo apt install ./target/packages/0.1.3/Inodune_0.1.3_amd64.deb
+sudo dnf install ./target/packages/0.1.3/Inodune-0.1.3-1.x86_64.rpm
 ```
 
 A necessidade de privilégio é do gerenciador de pacotes ao instalar em caminhos de sistema. O executável não pede root e não tenta elevar privilégios.
@@ -32,8 +32,8 @@ A necessidade de privilégio é do gerenciador de pacotes ao instalar em caminho
 Para instalar sem root, mantenha `install-user.py` ao lado do tarball e execute o instalador com um prefixo absoluto gravável pelo usuário:
 
 ```sh
-python3 target/packages/0.1.2/install-user.py \
-  --archive target/packages/0.1.2/Inodune_0.1.2_linux_x86_64.tar.gz \
+python3 target/packages/0.1.3/install-user.py \
+  --archive target/packages/0.1.3/Inodune_0.1.3_linux_x86_64.tar.gz \
   --prefix "$HOME/.local"
 ```
 
@@ -42,8 +42,8 @@ O instalador lê somente os membros regulares esperados, em tamanho limitado, do
 Para remover uma versão instalada pelo instalador novo, informe o prefixo e a versão. O primeiro comando só mostra o que pretende fazer; `--apply` aplica a remoção:
 
 ```sh
-python3 scripts/install-user.py --prefix "$HOME/.local" --uninstall 0.1.2
-python3 scripts/install-user.py --prefix "$HOME/.local" --uninstall 0.1.2 --apply
+python3 scripts/install-user.py --prefix "$HOME/.local" --uninstall 0.1.3
+python3 scripts/install-user.py --prefix "$HOME/.local" --uninstall 0.1.3 --apply
 ```
 
 Em uma versão empacotada, use o `install-user.py` entregue junto do tarball. Os comandos acima usam o checkout de desenvolvimento.

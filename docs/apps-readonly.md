@@ -1,4 +1,4 @@
-# Programas & Jogos — inventário v0.1.2
+# Programas & Jogos — inventário v0.1.3
 
 Este módulo é somente leitura e independente de `inodune-core::Candidate` e do executor. Não há seleção, plano de limpeza, desinstalação, score de desuso ou persistência automática do inventário.
 
