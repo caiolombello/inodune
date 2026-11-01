@@ -455,7 +455,7 @@ fn ambiguous_control_character_paths_are_inventory_only() {
 }
 
 #[test]
-fn opaque_next_and_package_manager_formats_are_protected_inventory() {
+fn recreatable_next_and_npm_caches_require_individual_review() {
     let root = tempfile::tempdir().unwrap();
     for dir in ["web/.next/cache", "tools/.npm/_cacache"] {
         fs::create_dir_all(root.path().join(dir)).unwrap();
@@ -479,11 +479,11 @@ fn opaque_next_and_package_manager_formats_are_protected_inventory() {
             .iter()
             .find(|c| c.detector_id == detector)
             .unwrap();
-        assert_eq!(c.risk, inodune_core::Risk::Protected);
+        assert_eq!(c.risk, inodune_core::Risk::Review);
         assert!(!c.selected_by_default);
         assert!(matches!(
             c.supported_action,
-            inodune_core::SupportedAction::None
+            inodune_core::SupportedAction::ReviewedCacheContents
         ));
     }
 }

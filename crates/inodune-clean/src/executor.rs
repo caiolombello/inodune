@@ -100,6 +100,7 @@ enum CacheKind {
     CargoMetadata,
     TerraformProvider,
     PytestNodeIds,
+    Rebuildable,
 }
 impl CacheKind {
     fn detector(id: &str) -> Option<Self> {
@@ -109,6 +110,8 @@ impl CacheKind {
             "cargo.fingerprint-json" => Self::CargoMetadata,
             "terraform.provider-package" => Self::TerraformProvider,
             "python.pytest-nodeids" => Self::PytestNodeIds,
+            "rust.target" | "python.pip-cache" | "npm.cache" | "next.cache"
+            | "python.mypy-cache" | "python.ruff-cache" => Self::Rebuildable,
             _ => return None,
         })
     }
@@ -683,7 +686,7 @@ fn process_file(
             inodune_core::cache_rules::validate_leaf(&target.root, relative).as_ref()
                 == Some(expected)
         }
-        CacheKind::TerraformProvider => true, // Complete package h1 was checked before staging.
+        CacheKind::TerraformProvider | CacheKind::Rebuildable => true, // Política e manifesto revalidados antes do staging.
         CacheKind::PytestNodeIds => {
             inodune_core::cache_rules::validate_pytest_nodeids_leaf(&target.root, relative).as_ref()
                 == Some(expected)

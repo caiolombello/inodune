@@ -29,3 +29,7 @@ Nenhuma sequência stat→unlink é compare-and-delete atômico em Linux. F2 dev
 ## Fase 3
 
 O quadro F1 acima é histórico. Git agora recebe inspeção read-only em sandbox; o executor aceita somente o subconjunto individual de metadados Cargo e providers Terraform cujo h1 confere com o lock local. Detalhes, limites, fontes e alternativas seguras aos itens não comprovados: [f3-detector-policy.md](f3-detector-policy.md). Módulos Terraform, a maior parte dos artefatos de build, caches opacos e todas as worktrees permanecem protegidos. Assinaturas Python/PNG continuam limitadas; F3 também lê metadados de ferramenta e bytes de provider para hashing, sempre localmente e sem persistir conteúdo.
+
+## Caches recriáveis na 0.1.5
+
+Cache pip na localização XDG confirmada, `_cacache` npm, `.next/cache`, `.mypy_cache`, `.ruff_cache` e `target` com `Cargo.toml` irmão podem ser revisados individualmente. Não são selecionados por padrão e uso não é detectado. Mostramos `pip cache purge`, `npm cache clean --force` e `cargo clean` apenas como alternativas informativas; o app não executa esses comandos. Metadados Cargo particionados continuam aparecendo separadamente, sem dupla contagem. Symlink, hardlink, outro dono, permissões inseguras, namespaces de agentes, Git e credenciais encontrados dentro do cache impedem a ação. Mudanças após o scan são recusadas pelo executor; a Lixeira continua sendo o padrão.

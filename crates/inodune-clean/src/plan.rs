@@ -153,6 +153,12 @@ impl PlanSession {
                     "cargo.fingerprint-json"
                         | "terraform.provider-package"
                         | "python.pytest-nodeids"
+                        | "rust.target"
+                        | "python.pip-cache"
+                        | "npm.cache"
+                        | "next.cache"
+                        | "python.mypy-cache"
+                        | "python.ruff-cache"
                 );
             if !low && !reviewed {
                 return Err("O item está protegido ou ainda não tem uma ação aprovada.".into());

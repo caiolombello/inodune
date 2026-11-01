@@ -643,8 +643,19 @@ impl<F: FnMut(ScanProgress)> Walker<'_, F> {
                 complete = false;
                 continue;
             };
+            if is_protected_agent_path(&root.path.join(&path))
+                || path.file_name().is_some_and(|n| {
+                    n == ".git" || n == ".ssh" || n == ".gnupg" || protected_name(n)
+                })
+            {
+                complete = false;
+                continue;
+            }
             match FileType::from_raw_mode(st.st_mode) {
                 FileType::Directory => {
+                    if cleanup_ancestors_allowed(root, &path).is_err() {
+                        complete = false;
+                    }
                     if let Some(names) = self.names(root, &path) {
                         for name in names {
                             pending.push((path.join(name), depth + 1));
@@ -654,6 +665,9 @@ impl<F: FnMut(ScanProgress)> Walker<'_, F> {
                     }
                 }
                 FileType::RegularFile => {
+                    if st.st_mode & 0o022 != 0 {
+                        complete = false;
+                    }
                     if st.st_nlink != 1 {
                         self.issue(
                             &root.path.join(&path),
@@ -763,8 +777,29 @@ impl<F: FnMut(ScanProgress)> Walker<'_, F> {
         }
         let risk = if complete { risk } else { Risk::Protected };
         let uv_managed = reason.contains("uv cache prune");
+        let rebuildable = matches!(
+            detector,
+            "python.pip-cache"
+                | "npm.cache"
+                | "next.cache"
+                | "python.mypy-cache"
+                | "python.ruff-cache"
+                | "rust.target"
+        );
         let low_cache = complete && risk == Risk::Low && (py || thumbs);
+
+        let mut witnesses = Vec::new();
+        if detector == "rust.target" {
+            let manifest = rel.parent().unwrap_or(Path::new(".")).join("Cargo.toml");
+            if let Some(st) = self.metadata(root, &manifest) {
+                witnesses.push((manifest, Fingerprint::from_stat(&st)));
+            } else {
+                complete = false;
+            }
+        }
+
         let id = format!("{}-{}", self.out.id, self.out.candidates.len());
+        let reviewed_cache = complete && risk == Risk::Review && rebuildable;
         self.out.targets.insert(
             id.clone(),
             ScannedTarget {
@@ -772,7 +807,7 @@ impl<F: FnMut(ScanProgress)> Walker<'_, F> {
                 relative: rel.to_path_buf(),
                 fingerprint: Fingerprint::from_stat(&st),
                 files,
-                witnesses: Vec::new(),
+                witnesses,
                 complete,
             },
         );
@@ -781,8 +816,8 @@ impl<F: FnMut(ScanProgress)> Walker<'_, F> {
             selected_by_default:risk==Risk::Low,risk,logical_bytes:logical,allocated_bytes_estimate:Some(allocated),identity:Some(Identity{dev:st.st_dev,ino:st.st_ino,mtime_unix:st.st_mtime}),coverage_key:(ancestor_refusal.is_none() && coverage_complete && stable).then(||format!("{}:{}",st.st_dev,st.st_ino)),
             reason:if let Some(why)=ancestor_refusal{format!("{reason} {why}")}else if complete{reason.into()}else{format!("{reason} Cobertura incompleta, links, conteúdo desconhecido ou hardlinks: protegido.")},
             impact:if py||thumbs {"O aplicativo recriará o cache; a primeira abertura pode ser mais lenta.".into()}else{"Pode conter dados de trabalho ou exigir reconstrução/download. Inventário não autoriza remoção.".into()},
-            rebuild_hint:if uv_managed{"use `uv cache prune`".into()}else if py {"Bytecode recriado ao importar o módulo.".into()}else if thumbs{"Miniaturas recriadas pelo aplicativo.".into()}else{"Custo não medido; revisão necessária.".into()},
-            preserved:"Código, estado, configuração, credenciais, sessões e memória nunca entram em remoção genérica.".into(),evidence:vec!["root-approved".into(),"openat2-no-symlinks-no-xdev".into(),if complete{"coverage-complete"}else{"coverage-incomplete"}.into()],activity:format!("mtime Unix {} (metadado; não comprova desuso)",st.st_mtime),supported_action:if low_cache{SupportedAction::CacheContents}else{SupportedAction::None},
+            rebuild_hint:if uv_managed{"use `uv cache prune`".into()}else if detector=="python.pip-cache" {"Equivalente oficial: pip cache purge (apenas informativo).".into()}else if detector=="npm.cache" {"Equivalente oficial: npm cache clean --force (apenas informativo).".into()}else if detector=="rust.target" {"Equivalente oficial: cargo clean (apenas informativo).".into()}else if rebuildable {"A ferramenta recria o cache; pode exigir download/recompilação.".into()}else if py {"Bytecode recriado ao importar o módulo.".into()}else if thumbs{"Miniaturas recriadas pelo aplicativo.".into()}else{"Custo não medido; revisão necessária.".into()},
+            preserved:"Código, estado, configuração, credenciais, sessões e memória nunca entram em remoção genérica.".into(),evidence:vec!["root-approved".into(),"openat2-no-symlinks-no-xdev".into(),if complete{"coverage-complete"}else{"coverage-incomplete"}.into()],activity:format!("mtime Unix {} (metadado; não comprova desuso)",st.st_mtime),supported_action:if low_cache{SupportedAction::CacheContents}else if reviewed_cache{SupportedAction::ReviewedCacheContents}else{SupportedAction::None},
         });
     }
     fn build_subsets(
@@ -897,7 +932,12 @@ impl<F: FnMut(ScanProgress)> Walker<'_, F> {
                     complete: true,
                 },
             );
-            self.out.candidates.push(Candidate{id,title:title.into(),display_path:root.path.join(path).to_string_lossy().into(),detector_id:detector.into(),detector_version:"f3-v1".into(),scope_id:root.display_path(),category:"Desenvolvimento".into(),project:project.into(),risk:risk.clone(),logical_bytes:bytes,allocated_bytes_estimate:Some(allocated),identity:Some(Identity{dev:fp.dev,ino:fp.ino,mtime_unix:fp.mtime}),coverage_key:Some(format!("{}:{}",fp.dev,fp.ino)),selected_by_default:false,reason,impact:if providers{"A próxima inicialização Terraform poderá precisar baixar o provider novamente. Não executamos terraform init."}else{"Cargo pode reconstruir artefatos ao perder o metadado de fingerprint; custo não medido."}.into(),rebuild_hint:if providers{"Reinstalação pelo Terraform, conforme lockfile preservado; sem estimativa de tempo/rede."}else{"Cargo regenera metadados; uma recompilação pode ser necessária."}.into(),preserved:"Pastas, manifests, lockfiles, scripts, estado, configuração e conteúdo desconhecido permanecem.".into(),evidence,activity:"Revisão por item; idade não comprova desuso.".into(),supported_action:if risk==Risk::Review{SupportedAction::ReviewedCacheContents}else{SupportedAction::None}});
+            self.out.candidates.push(Candidate{id,title:title.into(),display_path:root.path.join(&path).to_string_lossy().into(),detector_id:detector.into(),detector_version:"f3-v1".into(),scope_id:root.display_path(),category:"Desenvolvimento".into(),project:project.into(),risk:risk.clone(),logical_bytes:bytes,allocated_bytes_estimate:Some(allocated),identity:Some(Identity{dev:fp.dev,ino:fp.ino,mtime_unix:fp.mtime}),coverage_key:Some(format!("{}:{}",fp.dev,fp.ino)),selected_by_default:false,reason,impact:if providers{"A próxima inicialização Terraform poderá precisar baixar o provider novamente. Não executamos terraform init."}else{"Cargo pode reconstruir artefatos ao perder o metadado de fingerprint; custo não medido."}.into(),rebuild_hint:if providers{"Reinstalação pelo Terraform, conforme lockfile preservado; sem estimativa de tempo/rede."}else{"Cargo regenera metadados; uma recompilação pode ser necessária."}.into(),preserved:"Pastas, manifests, lockfiles, scripts, estado, configuração e conteúdo desconhecido permanecem.".into(),evidence,activity:"Revisão por item; idade não comprova desuso.".into(),supported_action:if risk==Risk::Review{SupportedAction::ReviewedCacheContents}else{SupportedAction::None}});
+            if !providers {
+                if let Some(parent) = self.out.targets.get_mut(container_id) {
+                    parent.files.retain(|(p, _)| p != &path);
+                }
+            }
             // Partition coverage: the container now describes only the remainder.
             if let Some(parent) = self
                 .out
@@ -909,9 +949,17 @@ impl<F: FnMut(ScanProgress)> Walker<'_, F> {
                 parent.allocated_bytes_estimate = parent
                     .allocated_bytes_estimate
                     .map(|n| n.saturating_sub(allocated));
-                parent.risk = Risk::Protected;
+                parent.risk = if providers {
+                    Risk::Protected
+                } else {
+                    Risk::Review
+                };
                 parent.selected_by_default = false;
-                parent.supported_action = SupportedAction::None;
+                parent.supported_action = if providers {
+                    SupportedAction::None
+                } else {
+                    SupportedAction::ReviewedCacheContents
+                };
                 parent.coverage_key = parent.coverage_key.as_ref().map(|key| {
                     if key.starts_with("remainder:") {
                         key.clone()
@@ -919,7 +967,7 @@ impl<F: FnMut(ScanProgress)> Walker<'_, F> {
                         format!("remainder:{key}")
                     }
                 });
-                parent.reason="Conteúdo remanescente protegido; subconjuntos verificados aparecem separadamente, sem dupla contagem.".into();
+                parent.reason=if providers {"Conteúdo remanescente protegido; pacotes aparecem separadamente, sem dupla contagem."} else {"Artefatos Cargo recriáveis; metadados particionados aparecem separadamente."}.into();
             }
         }
     }
@@ -1204,13 +1252,13 @@ impl<F: FnMut(ScanProgress)> Walker<'_, F> {
                             == xdg_thumbnail_root().as_deref().and_then(Path::parent))
                 {
                     let (detector, title) = if n == "cache" {
-                        ("next.cache", "Cache Next.js (protegido)")
+                        ("next.cache", "Cache Next.js")
                     } else if n == "_cacache" {
-                        ("npm.cache", "Possível cache npm (protegido)")
+                        ("npm.cache", "Cache npm")
                     } else {
-                        ("python.pip-cache", "Cache pip (protegido)")
+                        ("python.pip-cache", "Cache pip")
                     };
-                    self.candidate(root,&path,&project,CandidatePolicy{detector,title,category:"Desenvolvimento",risk:Risk::Protected,reason:"Localização documentada; formato/conteúdo por versão e uso atual não verificados. Inventário sem ação de remoção."});
+                    self.candidate(root,&path,&project,CandidatePolicy{detector,title,category:"Desenvolvimento",risk:Risk::Review,reason:"Cache recriável em localização reconhecida; exige revisão e confirmação. Uso não detectado."});
                     continue;
                 }
                 if n == "__pycache__" {
@@ -1232,11 +1280,11 @@ impl<F: FnMut(ScanProgress)> Walker<'_, F> {
                     continue;
                 }
                 if [".mypy_cache", ".ruff_cache"].contains(&n.as_ref()) {
-                    self.candidate(root,&path,&project,CandidatePolicy{detector:"python.toolcache",title:"Cache de ferramenta Python",category:"Desenvolvimento",risk:Risk::Protected,reason:"Formato específico da ferramenta não validado para remoção; inventário."});
+                    self.candidate(root,&path,&project,CandidatePolicy{detector:if n==".mypy_cache"{"python.mypy-cache"}else{"python.ruff-cache"},title:"Cache de ferramenta Python",category:"Desenvolvimento",risk:Risk::Review,reason:"Cache recriável de ferramenta Python; exige revisão. Uso não detectado."});
                     continue;
                 }
                 if n == "target" && has("Cargo.toml") {
-                    self.candidate(root,&path,&project,CandidatePolicy{detector:"rust.target",title:"Artefatos Cargo",category:"Desenvolvimento",risk:Risk::Protected,reason:"target junto de Cargo.toml; pode conter binários finais e exige revisão."});
+                    self.candidate(root,&path,&project,CandidatePolicy{detector:"rust.target",title:"Artefatos Cargo",category:"Desenvolvimento",risk:Risk::Review,reason:"target junto de Cargo.toml; pode conter binários finais e exige revisão."});
                     if let Some(id) = self.out.candidates.last().map(|c| c.id.clone()) {
                         self.build_subsets(root, &id, &project, false);
                     }
