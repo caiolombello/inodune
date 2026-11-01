@@ -1,0 +1,41 @@
+# Fase 3: subconjuntos verificados e proteção por incerteza
+
+## Git permanece somente leitura
+
+O core executa `/usr/bin/git` apenas dentro do Bubblewrap, com a raiz aprovada montada por descritor **read-only**, runtime confiável, namespaces isolados, sem rede e sem HOME/config global. Usamos `--no-optional-locks`, `worktree list --porcelain -z`, `status --porcelain=v2 -z --branch`, `--ignore-submodules=all` e inspeção separada de gitlinks/`.gitmodules`. Hooks e fsmonitor são desabilitados; entradas, refs, gitdir e mounts são verificados antes dos comandos. Timeout por comando: 4 s; inspeção: 30 s; saída: 1 MiB; máximo 256 worktrees. Ausência/erro da sandbox produz inventário protegido, sem fallback para Git no host.
+
+O FD usado no bind não fica disponível ao Git: Bubblewrap o fecha após montar. Há teste isolado de tentativa de escapar por `/proc/self/fd/0`, include externo e fsmonitor com sentinel fora da raiz, mas dentro do TempDir do teste. Nenhum dado real foi acessado.
+
+Principal, dirty, untracked, ignored, locked, detached, sem upstream, commits ahead, submódulos e todos os estados incertos ficam protegidos. Mesmo `ahead=0` só compara tracking refs locais: **não prova publicação remota atual nem ausência de uso**. Não fazemos fetch, login ou inferência por idade. A alternativa segura à remoção opcional/prune da base é disponibilizar inventário explicável e manter essas ações indisponíveis enquanto a prova não existir. Não implementamos uma opção que transforme confirmação humana em suposta prova técnica. Nenhum `worktree remove/prune` foi executado, nem em testes.
+
+Verificado aqui com Git 2.56.0 e Bubblewrap 0.12.0. Fontes: [git worktree](https://git-scm.com/docs/git-worktree), [git status](https://git-scm.com/docs/git-status), [git ls-files](https://git-scm.com/docs/git-ls-files), [Bubblewrap](https://github.com/containers/bubblewrap/blob/main/bubblewrap.c). Versões sem `--ro-bind-fd` falham fechadas.
+
+## Providers Terraform
+
+Só um pacote flat no layout `.terraform/providers/<registry>/<namespace>/<type>/<version>/<linux_amd64|linux_arm64>` pode receber revisão individual: exatamente o binário esperado, com assinatura mínima ELF64 e máquina correspondente, mais LICENSE ou LICENSE.txt. Todos os arquivos devem ser regulares, do usuário e ter um único link. Symlinks de plugin cache, scripts, estado, arquivos extras e formatos desconhecidos protegem o pacote inteiro.
+
+A integridade de **nomes e conteúdo** é calculada localmente e deve coincidir com um `h1:` da entrada exata de provider/version em `.terraform.lock.hcl`. O parser aceita somente o subconjunto gerado conhecido de HCL, com comentários/strings/listas e campos previstos; não avalia HCL nem executa Terraform. `zh:` é hash de ZIP e não autoriza uma instalação desempacotada. `h1` ordena nomes e calcula SHA-256 da sequência `hex(SHA256(conteúdo)) + dois espaços + nome + LF`, seguida de SHA-256/Base64 padrão. O resultado confere com o lock **local**; não certifica assinatura/publisher, disponibilidade futura de download ou versão remota.
+
+Limites: lock 1 MiB, arquivo 256 MiB, pacote 512 MiB/32 arquivos, leitura em chunks e checkpoints de pausa/cancelamento; orçamento total de validação do scan 512 MiB, compartilhado com Cargo. Exceder o orçamento mantém inventário protegido. Lock é witness não deletável, ligado ao hash do plano e revalidado antes/depois da captura. Se mudar entre folhas, operações concluídas continuam relatadas e as demais são preservadas. Nunca remover a pasta `.terraform`, o diretório do pacote, estado, backend, locks ou módulos.
+
+Fontes: [dependency lock](https://developer.hashicorp.com/terraform/language/files/dependency-lock), [HashV1 oficial](https://github.com/hashicorp/terraform/blob/main/internal/getproviders/hash.go), [Go dirhash](https://github.com/golang/mod/blob/master/sumdb/dirhash/hash.go), [plugin cache](https://developer.hashicorp.com/terraform/cli/config/config-file). Módulos podem ser locais, VCS ou registry e não têm essa prova no provider lock; permanecem protegidos, inclusive scripts e modificações locais.
+
+## Cargo
+
+Apenas o JSON **diagnóstico** de fingerprints do Cargo 1.93.0 no layout `target/{debug,release}/.fingerprint/<package>-<16hex>/<unit>.json`, com schema conhecido de 11 campos, manifesto sibling e hash pareado válido, pode ser revisado. Leitura limitada a 1 MiB, descritores sem links/mounts, metadados antes/depois e reabertura comparados. Cargo.toml e hash pareado são witnesses e permanecem. Nenhum binário final, arquivo de hash, dep-info, incremental, script ou diretório é removido. O layout é detalhe interno sujeito a mudança: versões/schema não reconhecidos permanecem protegidos. O custo de recompilação não é cronometrado nem inventado.
+
+Fonte fixada: [Cargo rust-1.93.0 fingerprint](https://github.com/rust-lang/cargo/blob/rust-1.93.0/src/cargo/core/compiler/fingerprint/mod.rs), [build cache](https://doc.rust-lang.org/cargo/reference/build-cache.html). O JSON serve a diagnóstico de dirty fingerprints, não é artefato necessário à distribuição do projeto. A implementação remove somente essa folha; o contêiner `target` protegido tem bytes dos subconjuntos subtraídos para não somá-los duas vezes.
+
+## Outros caches e UX
+
+`.next/cache`, `_cacache` npm e o caminho XDG pip são inventário protegido, sem ação. Localização documentada não confirma seu conteúdo/versão ou uso atual. Fontes: [Next.js CI cache](https://nextjs.org/docs/app/guides/ci-build-caching), [npm v11 cache](https://docs.npmjs.com/cli/v11/commands/npm-cache/), [pip 26 caching](https://pip.pypa.io/en/stable/topics/caching/) — pip declara explicitamente o layout como detalhe de implementação.
+
+`reviewed_cache_contents` nunca é sugerido por padrão. Um plano com revisão contém exatamente **um** candidato; o backend rejeita seleção múltipla/mista e a confirmação nativa mostra impacto/rebuild. UI substitui a seleção ao escolher revisão e anuncia a mudança; CLI exige `--review cargo.fingerprint-json|terraform.provider-package`, com exatamente um resultado elegível. `--review` continua dry-run até `--apply` com consentimento em terminal. Caminhos não conferem autoridade.
+
+A execução de folhas revisadas usa o mesmo protocolo F2 de captura privada, witnesses, revalidação e resultados reais. A janela residual contra código hostil do mesmo UID permanece documentada; não há imunidade, rollback automático ou ganho de espaço atribuído falsamente.
+
+## Guardas adicionais de privacidade e permissões
+
+Aprovar diretamente `.codex/sessions/...` como projeto não reduz sua proteção: a regra de namespace olha o caminho completo e o planejador a verifica novamente. Git exclui o conteúdo dos namespaces de agentes com pathspecs fixos; o estado reportado nunca é anunciado como prova de árvore inteira limpa. Há teste com JSONL de fixture rastreado pelo Git e sem permissão de leitura. [Semântica oficial de pathspec](https://git-scm.com/docs/gitglossary#Documentation/gitglossary.txt-aiddefpathspecapathspec).
+
+Manifests/locks/hashes usados como witnesses não podem ser graváveis por terceiros. O armazenamento da Lixeira e de relatórios também valida seus ancestrais antes de criar dados; ancestrais públicos graváveis são recusados, exceto diretórios temporários sticky pertencentes a root, que protegem filhos pertencentes ao usuário. Permissões existentes nunca são alteradas silenciosamente.

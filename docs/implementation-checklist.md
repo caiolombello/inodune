@@ -1,6 +1,6 @@
 # Checklist de implementação
 
-Fases 0–2 implementadas e verificadas localmente; Fase 3 é o próximo incremento — 01/11/2026. Os documentos normativos originais são preservados.
+Fases 0–3 implementadas com proteção conservadora e verificadas localmente; Fase 4 é o próximo incremento — 01/11/2026. Os documentos normativos originais são preservados.
 
 ## Fase 0
 
@@ -21,7 +21,8 @@ Fases 0–2 implementadas e verificadas localmente; Fase 3 é o próximo increme
 
 - [x] F1: scanner read-only de roots aprovadas, fontes oficiais, GUI/CLI compartilhados, contagens/cancelamento/pausa, bytes/deduplicação/limites, testes adversariais e native E2E em fixtures. Git permanece marcador protegido até F3. Ver [evidência](evidence/f1/acceptance.md).
 - [x] F2: executor de folhas baixo risco por dirfd/captura privada, planos efêmeros de uso único, confirmação nativa, Lixeira/permanente, journal/histórico privado, variação observada sem atribuição, relatórios parciais e testes adversariais/CLI PTY/WebKitGTK em temporários. [Evidência e limites](evidence/f2/acceptance.md).
-- [ ] F3: Git/TF/builds com revisão individual e preservação de estado.
+- [x] F3: Git em sandbox read-only, providers h1 e JSON Cargo conhecidos com revisão individual, witnesses e cobertura particionada. Estado preservado e 73 testes; [evidência/limites](evidence/f3/acceptance.md).
+- [ ] Opcional: remover/prune Git, módulos e formatos opacos permanecem indisponíveis enquanto atividade/publicação/integridade não puderem ser comprovadas; não reduzir a política de proteção para habilitar botões.
 - [ ] F4: i18n EN-US, benchmark 100/1000/10000, 60 fps em hardware representativo, empacotamento deb/rpm, Ubuntu/Fedora/Wayland/X11.
 
 ## Gates pendentes

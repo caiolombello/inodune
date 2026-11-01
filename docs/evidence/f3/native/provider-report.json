@@ -1,0 +1,45 @@
+{
+  "warnings": [],
+  "schema_version": 1,
+  "items": [
+    {
+      "complete": true,
+      "files": [
+        {
+          "display_path": "/tmp/.tmpHPIYtF/projects/./infra/.terraform/providers/registry.terraform.io/hashicorp/demo/1.2.3/linux_amd64/terraform-provider-demo_v1.2.3",
+          "logical_bytes": 64,
+          "preserved_at": "/tmp/.tmpHPIYtF/data/Trash/files/inodune-51ff9293175c0cb5979ee8767d470c6c",
+          "status": "trashed",
+          "durability_confirmed": true,
+          "message": "Movido \u00e0 Lixeira; ainda ocupa espa\u00e7o."
+        },
+        {
+          "display_path": "/tmp/.tmpHPIYtF/projects/./infra/.terraform/providers/registry.terraform.io/hashicorp/demo/1.2.3/linux_amd64/LICENSE.txt",
+          "logical_bytes": 13,
+          "preserved_at": "/tmp/.tmpHPIYtF/data/Trash/files/inodune-e4c3cc2cccdfe9a4d7811c34130e7ae5",
+          "status": "trashed",
+          "durability_confirmed": true,
+          "message": "Movido \u00e0 Lixeira; ainda ocupa espa\u00e7o."
+        }
+      ],
+      "candidate_id": "scan-18e3dad9412fd7ff-1-5"
+    }
+  ],
+  "cancelled": false,
+  "history_path": "/tmp/.tmpHPIYtF/state/inodune/reports/report-b19351b2af18218ee4c0ea2ac1be90fe.json",
+  "volumes": [
+    {
+      "observed_delta": -8192,
+      "device": 54,
+      "available_before": 16159518720,
+      "available_after": 16159510528
+    }
+  ],
+  "complete": true,
+  "plan_id": "plan-43053b2fa983219f9910125b1724315f",
+  "action": "trash",
+  "measurement_note": "Arquivos movidos para a Lixeira continuam ocupando espa\u00e7o. Varia\u00e7\u00f5es observadas no volume n\u00e3o s\u00e3o ganho atribu\u00eddo \u00e0 limpeza.",
+  "journal_path": "/tmp/.tmpHPIYtF/state/inodune/reports/journal-42ff9c49456d6bb8e6865341b92cbf42.jsonl",
+  "attributed_freed_bytes": null,
+  "logical_bytes_processed": 77
+}

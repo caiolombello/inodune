@@ -19,3 +19,7 @@ Fase 1: scanner Rust ancorado em root explícita e dirfd, eventos assíncronos l
 Testes Rust de política e plano, contratos do corpus JSON, testes frontend de seleção/deduplicação, E2E de navegação, cancelamento, consentimento e falhas. Nenhum teste lê HOME como alvo. Ver comandos e limites no README e checklist.
 
 Fontes consultadas em 31/10/2026: [Svelte 5 runes](https://svelte.dev/docs/svelte/$state), [derived](https://svelte.dev/docs/svelte/$derived), [Vite](https://vite.dev/guide/), [Tauri/Vite](https://v2.tauri.app/start/frontend/vite/), [capabilities](https://v2.tauri.app/security/capabilities/), [permissions](https://v2.tauri.app/security/permissions/). Versões resolvidas devem constar nos lockfiles. Nenhuma regra de detector real é declarada validada nesta fase.
+
+## Evolução F1–F3
+
+O texto da F0 acima preserva as decisões iniciais. O desktop atual tem comandos tipados limitados a scopes por picker, scan, planos opacos e controle/relatório de execução; sem API genérica de filesystem/shell. `scan` usa descritores Linux e agora `git`, `cache_rules`, `terraform` implementam regras conservadoras. `inodune-clean` guarda a autoridade do plano efêmero e opera folhas capturadas em área privada; renderer só recebe views. Histórico/journals privados locais guardam paths e resultados, sem conteúdos ou upload. Scopes/seleção continuam em memória. [Protocolo F2](cleanup-protocol.md) e [regras F3](f3-detector-policy.md) descrevem as fronteiras e riscos residuais atuais.

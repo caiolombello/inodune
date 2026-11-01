@@ -25,3 +25,7 @@ APIs consultadas e fontes disponíveis também no cache Cargo da versão fixada:
 ## Queda de confiança antes do executor
 
 Nenhuma sequência stat→unlink é compare-and-delete atômico em Linux. F2 deverá capturar itens em staging privado, comparar objetos/metadados e manter qualquer divergência preservada; não prometer imunidade a um processo hostil do mesmo UID nem rollback universal. Uma revisão estática não certifica segurança do executor. Testes destrutivos somente em fixtures temporárias isoladas.
+
+## Fase 3
+
+O quadro F1 acima é histórico. Git agora recebe inspeção read-only em sandbox; o executor aceita somente o subconjunto individual de metadados Cargo e providers Terraform cujo h1 confere com o lock local. Detalhes, limites, fontes e alternativas seguras aos itens não comprovados: [f3-detector-policy.md](f3-detector-policy.md). Módulos Terraform, a maior parte dos artefatos de build, caches opacos e todas as worktrees permanecem protegidos. Assinaturas Python/PNG continuam limitadas; F3 também lê metadados de ferramenta e bytes de provider para hashing, sempre localmente e sem persistir conteúdo.
