@@ -1,0 +1,281 @@
+{
+  "schema_version": 1,
+  "mode": "simulation",
+  "scopes": [
+    {
+      "id": "demo-cache",
+      "label": "Cache do usuário (exemplo)",
+      "display_path": "/demo/cache"
+    },
+    {
+      "id": "demo-projects",
+      "label": "Projetos de exemplo",
+      "display_path": "/demo/projects"
+    },
+    {
+      "id": "demo-agents",
+      "label": "Inventário de IA (exemplo)",
+      "display_path": "/demo/agents"
+    }
+  ],
+  "volume": {
+    "label": "Volume de exemplo",
+    "total_bytes": 549755813888,
+    "used_bytes": 410169376768
+  },
+  "candidates": [
+    {
+      "id": "thumbs",
+      "title": "Miniaturas",
+      "display_path": "/demo/cache/thumbnails",
+      "detector_id": "thumbnails",
+      "detector_version": "demo-1",
+      "scope_id": "demo-cache",
+      "category": "Sistema",
+      "project": "Cache do usuário",
+      "risk": "low",
+      "logical_bytes": 402653184,
+      "allocated_bytes_estimate": null,
+      "identity": null,
+      "coverage_key": "thumbs",
+      "selected_by_default": true,
+      "reason": "Miniaturas podem ser recriadas pelos aplicativos.",
+      "impact": "As próximas pastas podem abrir mais devagar.",
+      "rebuild_hint": "Recriação automática.",
+      "preserved": "Fotos e arquivos originais.",
+      "evidence": [
+        "synthetic-known-thumbnail-layout"
+      ],
+      "activity": "Atividade não medida • exemplo",
+      "supported_action": "none"
+    },
+    {
+      "id": "py",
+      "title": "Cache Python",
+      "display_path": "/demo/projects/atlas/__pycache__",
+      "detector_id": "python.pycache",
+      "detector_version": "demo-1",
+      "scope_id": "demo-projects",
+      "category": "Desenvolvimento",
+      "project": "Atlas API",
+      "risk": "low",
+      "logical_bytes": 100663296,
+      "allocated_bytes_estimate": null,
+      "identity": null,
+      "coverage_key": "py",
+      "selected_by_default": true,
+      "reason": "Bytecode de um projeto Python de exemplo.",
+      "impact": "O interpretador compilaria novamente o bytecode.",
+      "rebuild_hint": "Recriação ao executar Python.",
+      "preserved": "Código, ambiente virtual e dados.",
+      "evidence": [
+        "synthetic-python-project"
+      ],
+      "activity": "Atividade não medida • exemplo",
+      "supported_action": "none"
+    },
+    {
+      "id": "rust",
+      "title": "Build Rust",
+      "display_path": "/demo/projects/orbit/target",
+      "detector_id": "rust.target",
+      "detector_version": "demo-1",
+      "scope_id": "demo-projects",
+      "category": "Desenvolvimento",
+      "project": "Orbit",
+      "risk": "review",
+      "logical_bytes": 6845104128,
+      "allocated_bytes_estimate": null,
+      "identity": null,
+      "coverage_key": "rust",
+      "selected_by_default": false,
+      "reason": "Saídas de build de um projeto Cargo de exemplo.",
+      "impact": "Uma nova compilação pode ser demorada.",
+      "rebuild_hint": "Novo build; custo não medido.",
+      "preserved": "Cargo.toml, Cargo.lock e código.",
+      "evidence": [
+        "synthetic-cargo-manifest"
+      ],
+      "activity": "Atividade não medida • exemplo",
+      "supported_action": "none"
+    },
+    {
+      "id": "tfp",
+      "title": "Providers Terraform",
+      "display_path": "/demo/projects/infra/.terraform/providers",
+      "detector_id": "terraform.providers",
+      "detector_version": "demo-1",
+      "scope_id": "demo-projects",
+      "category": "Desenvolvimento",
+      "project": "Infraestrutura",
+      "risk": "protected",
+      "logical_bytes": 1835008000,
+      "allocated_bytes_estimate": null,
+      "identity": null,
+      "coverage_key": "tfp",
+      "selected_by_default": false,
+      "reason": "Inventário: elegibilidade e atividade ainda não verificadas.",
+      "impact": "Pode exigir download e inicialização futura.",
+      "rebuild_hint": "Não autorizado nesta fase.",
+      "preserved": "Estado, backend, locks e credenciais.",
+      "evidence": [
+        "synthetic-tf-root",
+        "activity-unknown"
+      ],
+      "activity": "Atividade não medida • exemplo",
+      "supported_action": "none"
+    },
+    {
+      "id": "tfm",
+      "title": "Módulos Terraform",
+      "display_path": "/demo/projects/infra/.terraform/modules",
+      "detector_id": "terraform.modules",
+      "detector_version": "demo-1",
+      "scope_id": "demo-projects",
+      "category": "Desenvolvimento",
+      "project": "Infraestrutura",
+      "risk": "protected",
+      "logical_bytes": 251658240,
+      "allocated_bytes_estimate": null,
+      "identity": null,
+      "coverage_key": "tfm",
+      "selected_by_default": false,
+      "reason": "Inventário: formato e uso precisam de validação real.",
+      "impact": "Pode exigir reinicialização futura.",
+      "rebuild_hint": "Não autorizado nesta fase.",
+      "preserved": "Terraform state e configuração.",
+      "evidence": [
+        "synthetic-tf-root",
+        "activity-unknown"
+      ],
+      "activity": "Atividade não medida • exemplo",
+      "supported_action": "none"
+    },
+    {
+      "id": "git",
+      "title": "Worktree de feature",
+      "display_path": "/demo/projects/atlas-feature",
+      "detector_id": "git.worktree",
+      "detector_version": "demo-1",
+      "scope_id": "demo-projects",
+      "category": "Git Worktrees",
+      "project": "Atlas API",
+      "risk": "protected",
+      "logical_bytes": 1908408320,
+      "allocated_bytes_estimate": null,
+      "identity": null,
+      "coverage_key": "git",
+      "selected_by_default": false,
+      "reason": "Branch com mudanças locais; idade não determina desuso.",
+      "impact": "Código e commits podem ser irrecuperáveis.",
+      "rebuild_hint": "Não se aplica: conteúdo não regenerável.",
+      "preserved": "Worktree inteira e metadados Git.",
+      "evidence": [
+        "synthetic-dirty",
+        "upstream-unknown"
+      ],
+      "activity": "Atividade não medida • exemplo",
+      "supported_action": "none"
+    },
+    {
+      "id": "main",
+      "title": "Worktree principal",
+      "display_path": "/demo/projects/orbit",
+      "detector_id": "git.worktree",
+      "detector_version": "demo-1",
+      "scope_id": "demo-projects",
+      "category": "Git Worktrees",
+      "project": "Orbit",
+      "risk": "protected",
+      "logical_bytes": 0,
+      "allocated_bytes_estimate": null,
+      "identity": null,
+      "coverage_key": null,
+      "selected_by_default": false,
+      "reason": "Worktree principal: nunca elegível.",
+      "impact": "Contém código e outros candidatos aninhados.",
+      "rebuild_hint": "Não se aplica.",
+      "preserved": "Repositório principal inteiro.",
+      "evidence": [
+        "synthetic-main-worktree"
+      ],
+      "activity": "Atividade não medida • exemplo",
+      "supported_action": "none"
+    },
+    {
+      "id": "ai",
+      "title": "Sessões de agentes",
+      "display_path": "/demo/agents/sessions",
+      "detector_id": "ai.history",
+      "detector_version": "demo-1",
+      "scope_id": "demo-agents",
+      "category": "IA & Agentes",
+      "project": "Ferramentas locais",
+      "risk": "protected",
+      "logical_bytes": 650117120,
+      "allocated_bytes_estimate": null,
+      "identity": null,
+      "coverage_key": "ai",
+      "selected_by_default": false,
+      "reason": "Conversas podem permitir retomar trabalho.",
+      "impact": "Sessões não são cache descartável.",
+      "rebuild_hint": "Não é possível garantir recriação.",
+      "preserved": "Todas as sessões, JSONL e transcripts.",
+      "evidence": [
+        "synthetic-agent-inventory"
+      ],
+      "activity": "Atividade não medida • exemplo",
+      "supported_action": "none"
+    },
+    {
+      "id": "memory",
+      "title": "Memória de agentes",
+      "display_path": "/demo/agents/memory",
+      "detector_id": "ai.history",
+      "detector_version": "demo-1",
+      "scope_id": "demo-agents",
+      "category": "IA & Agentes",
+      "project": "Ferramentas locais",
+      "risk": "protected",
+      "logical_bytes": 12582912,
+      "allocated_bytes_estimate": null,
+      "identity": null,
+      "coverage_key": "memory",
+      "selected_by_default": false,
+      "reason": "Memória persistente e decisões pessoais.",
+      "impact": "Remoção pode perder contexto insubstituível.",
+      "rebuild_hint": "Não regenerável.",
+      "preserved": "Memória, skills, instruções e autenticação.",
+      "evidence": [
+        "synthetic-memory"
+      ],
+      "activity": "Atividade não medida • exemplo",
+      "supported_action": "none"
+    },
+    {
+      "id": "state",
+      "title": "Estado Terraform",
+      "display_path": "/demo/projects/infra/terraform.tfstate",
+      "detector_id": "terraform.state",
+      "detector_version": "demo-1",
+      "scope_id": "demo-projects",
+      "category": "Desenvolvimento",
+      "project": "Infraestrutura",
+      "risk": "protected",
+      "logical_bytes": 2097152,
+      "allocated_bytes_estimate": null,
+      "identity": null,
+      "coverage_key": "state",
+      "selected_by_default": false,
+      "reason": "Estado de infraestrutura, nunca um cache.",
+      "impact": "Perda pode comprometer o gerenciamento da infraestrutura.",
+      "rebuild_hint": "Não regenerável com segurança.",
+      "preserved": "Estado completo e backups.",
+      "evidence": [
+        "synthetic-state"
+      ],
+      "activity": "Atividade não medida • exemplo",
+      "supported_action": "none"
+    }
+  ]
+}

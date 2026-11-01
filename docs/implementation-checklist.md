@@ -1,19 +1,20 @@
 # Checklist de implementação
 
-Versão inicial: Fase 0 em execução, 31/10/2026. Os documentos normativos originais são preservados.
+Fase 0 implementada, aceite nativo pendente — 31/10/2026. Os documentos normativos originais são preservados.
 
 ## Fase 0
 
-- [ ] Workspace Rust, shell Tauri 2, Svelte/TS, lockfiles e CI básico.
-- [ ] Contratos de detector/candidato/escopo/plano/risco/resultado/evento.
-- [ ] Corpus sintético compartilhado, testes sem HOME real.
+- [x] Workspace Rust, shell Tauri 2 sem invoke/plugins, Svelte/TS, lockfiles e CI básico configurado (CI remoto não executado).
+- [x] Contratos de detector/candidato/escopo/plano/risco/resultado/evento.
+- [x] Corpus sintético compartilhado, testes sem HOME real.
 - [x] Arquitetura, ameaças, política de risco e ADR revisáveis.
 - [x] Personas, wireframes, design system, motion e backlog P0 definidos.
-- [ ] Protótipo onboarding → scan de demonstração → revisão → impacto → confirmação → execução simulada → relatório.
-- [ ] Explainability, Project Lens, Ledger e Simulator com dados sintéticos.
-- [ ] Claro/escuro, janela estreita, teclado, erro/vazio/cancelamento/reduced motion verificados.
-- [ ] cargo fmt/clippy/test; frontend typecheck/lint/test/build; E2E e screenshots.
-- [ ] Abre em Linux via WebKitGTK. Bloqueio conhecido: GTK3/WebKitGTK 4.1 ausentes; não usar sudo.
+- [x] Protótipo onboarding → scan de demonstração → revisão → impacto → confirmação → execução simulada → relatório.
+- [x] Explainability, Project Lens, Ledger e Simulator com dados sintéticos.
+- [x] Claro/escuro, janela estreita, teclado, erro/vazio/cancelamento/reduced motion verificados.
+- [x] cargo fmt/clippy/test dos default-members; frontend typecheck/lint/format/test/build; 7 E2E Chromium, axe e screenshots.
+- [ ] Check e abertura Tauri nativos; E2E WebKit. Bloqueados por dependências (DBus/GTK3/WebKitGTK; WebKit Playwright requer libicu74/libjpeg-turbo8 neste fallback).
+- [ ] Abre em Linux via WebKitGTK. Bloqueio conhecido: DBus development/GTK3/WebKitGTK 4.1 ausentes; não usar sudo.
 
 ## Fases seguintes — não implementadas
 
@@ -25,3 +26,5 @@ Versão inicial: Fase 0 em execução, 31/10/2026. Os documentos normativos orig
 ## Gates pendentes
 
 Usabilidade com 3 desenvolvedores e 2 pessoas não técnicas: não executada; sem participantes. Segurança real de deleção não certificada. Nenhum release/publicação/PR autorizado por este incremento. Não executar testes sobre dados reais. Próxima fase só após gates aplicáveis, registrando bloqueios de ambiente sem promover pendência a aprovado.
+
+Evidências e comandos exatos: [Fase 0](evidence/phase0.md). Sem deleção real, testes sobre dados reais, sudo ou publicação. 14 registros npm de build/dev (2 low, 12 moderate), sem vulnerabilidade de produção na consulta registrada. Rust 1.93.0 + Zig 0.17.0 isolados em .tools.

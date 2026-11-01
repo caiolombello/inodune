@@ -1,6 +1,6 @@
 # Arquitetura — Fase 0
 
-Status: base em implementação. Escopo deste incremento: protótipo sintético navegável. Nenhum acesso a roots reais, scanner ou executor destrutivo.
+Status: base implementada; aceite nativo pendente conforme evidências da Fase 0. Escopo deste incremento: protótipo sintético navegável. Nenhum acesso a roots reais, scanner ou executor destrutivo.
 
 ## Stack e módulos
 

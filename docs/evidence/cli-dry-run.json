@@ -1,0 +1,9 @@
+{
+  "mode": "simulation",
+  "candidate_ids": [
+    "thumbs",
+    "py"
+  ],
+  "logical_bytes_estimate": 503316480,
+  "measured_freed_bytes": null
+}
