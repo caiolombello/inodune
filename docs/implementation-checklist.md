@@ -14,7 +14,7 @@ Fases 0–4 implementadas conservadoramente; código e builds locais verificados
 - [x] Claro/escuro, janela estreita, teclado, erro/vazio/cancelamento/reduced motion verificados.
 - [x] cargo fmt/clippy/test dos default-members; frontend typecheck/lint/format/test/build; 7 E2E Chromium, axe e screenshots.
 - [x] Build Tauri nativo e smoke visual WebKitGTK: [evidência](evidence/native/acceptance.md).
-- [ ] E2E Playwright WebKit: fallback requer libicu74/libjpeg-turbo8. Não confundir com o smoke nativo.
+- [x] E2E Playwright WebKit: 24 testes funcionais na 0.1.2 com bibliotecas locais e MiniBrowser direto; ver evidence/launch/webkit-environment.md. Não confundir com o smoke nativo.
 - [x] Abre em Fedora 44 via WebKitGTK em X11/Xvfb isolado; dependências instaladas com autorização expressa posterior. Standalone/pacotes verificados na F4; Wayland interativo pendente.
 
 ## Fases seguintes
@@ -54,3 +54,16 @@ Evidências e comandos exatos: [Fase 0](evidence/phase0.md). Na F0 não houve de
 - [x] Manifestos completos selecionados de scan automático parcial podem ser revisados; cancelados/incompletos seguem bloqueados e confirmação nativa exibe a cobertura parcial.
 - [x] 93 testes Rust, 3 lanes isoladas adicionais (2 mounts + 1 ownership), 9 unitários frontend e 20 E2E Chromium; novo fluxo native/IPC em fixtures e pacotes 0.1.1 abertos em Ubuntu/Fedora isolados. [Evidências](evidence/automatic/acceptance.md).
 - [x] Efeito do kernel sobre atime de diretórios root-owned documentado, sem ocultar o teste inicial que o revelou. Nenhum scan/teste sobre dados pessoais foi executado.
+
+
+## Incremento de experiência e confiança 0.1.2
+
+- [x] Descobertas reais durante análise, sem porcentagem/tempo inventado, até quatro itens e pausa de movimento.
+- [x] Som opt-in, silencioso em segundo plano, sem antecipar confirmação do backend; Inter local e licença.
+- [x] Proteções/exclusões/revogações persistidas privadamente; JSON incompleto, links e versões desconhecidas bloqueiam a análise.
+- [x] Guia de recuperação por outcome; journals sem encerramento confirmado aparecem como UNKNOWN, sem replay ou restauração automática.
+- [x] Índice pytest nodeids verificado com revisão individual e witnesses; estado de falhas/plugins preservado; orçamento de leitura conservador.
+- [x] Instalação em staging; atualização por versão; desinstalação simulada por padrão, manifesto verificado e retomada de interrupção.
+- [x] Gates adicionais de CI configurados; execução remota não realizada.
+- [ ] Revisão humana de segurança, participantes, sessões físicas GNOME/KDE/Wayland e assinatura/publicação permanecem externos.
+- Evidência corrente: [aceite 0.1.2](evidence/launch/acceptance.md). Resultados de versões anteriores não aprovam automaticamente este incremento.

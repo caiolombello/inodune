@@ -8,17 +8,17 @@ Aplicativo Linux open source (MIT), com Rust + Tauri 2 + Svelte/TypeScript. **De
 
 ## Usar o app desktop
 
-Build local **0.1.1**, Linux x86_64. Os artefatos em `target/packages/` incluem DEB, RPM e tarball sem root, com CLI, ícone e atalho de aplicativos. São builds locais sem assinatura, sem publicação externa. [Instalação, dependências e baseline](docs/packaging-linux.md).
+Build local **0.1.2**, Linux x86_64. Os artefatos em `target/packages/` incluem DEB, RPM e tarball sem root, com CLI, ícone e atalho de aplicativos. São builds locais sem assinatura, sem publicação externa. [Instalação, dependências e baseline](docs/packaging-linux.md).
 
 ```sh
-python3 target/packages/0.1.1/install-user.py \
-  --archive target/packages/0.1.1/Inodune_0.1.1_linux_x86_64.tar.gz \
+python3 target/packages/0.1.2/install-user.py \
+  --archive target/packages/0.1.2/Inodune_0.1.2_linux_x86_64.tar.gz \
   --prefix "$HOME/.local"
 # Abra Inodune pelo menu do desktop ou:
-"$HOME/.local/lib/inodune/0.1.1/bin/inodune-desktop"
+"$HOME/.local/lib/inodune/0.1.2/bin/inodune-desktop"
 ```
 
-O instalador recusa destinos existentes. As bibliotecas GTK3/WebKitGTK 4.1 são fornecidas pela distribuição; instalar dependências de sistema pode exigir o administrador. O aplicativo e sua instalação no prefixo do usuário não elevam privilégios. O modo automático dispensa aprovação por pasta; exclusões e ajustes avançados duram a sessão. Nada é limpo automaticamente.
+O instalador valida a versão existente, permite repetir uma instalação íntegra e recusa destinos alterados ou desconhecidos. As bibliotecas GTK3/WebKitGTK 4.1 são fornecidas pela distribuição; instalar dependências de sistema pode exigir o administrador. O aplicativo e sua instalação no prefixo do usuário não elevam privilégios. O modo automático dispensa aprovação por pasta; exclusões, proteções e revogações persistem no armazenamento privado do backend. Nada é limpo automaticamente.
 
 ## Desenvolvimento da interface
 
@@ -39,9 +39,9 @@ npm run preview -w @inodune/desktop
 
 O onboarding é dispensável. Explore análise pausável/cancelável, revisão por item, busca/risco/ordenação, detalhes do detector, Projetos (Project Lens), Itens protegidos (Protection Ledger), simulador de impacto, confirmação e relatório parcial. Configurações permite reproduzir cenário vazio, erro de permissão e itens alterados/falhas. O catálogo mostra componentes e estados. Tema claro/escuro/automático e redução manual de movimento; a preferência do OS também prevalece.
 
-No modo Demonstração, paths `/demo/` são texto de fixture. No desktop local, scan e executor compartilham o core Rust. A interface envia somente IDs de escopos/candidatos e o ID/hash de um plano efêmero; paths não conferem autoridade. Não há API FS/shell/rede genérica. A confirmação final é nativa. Caches de baixo risco reconhecidos podem ser agrupados; JSON Cargo e providers Terraform verificados exigem revisão individual. A simulação TypeScript continua restrita à demonstração.
+No modo Demonstração, paths `/demo/` são texto de fixture. No desktop local, scan e executor compartilham o core Rust. A interface envia somente IDs de escopos/candidatos e o ID/hash de um plano efêmero; paths não conferem autoridade. Não há API FS/shell/rede genérica. A confirmação final é nativa. Caches de baixo risco reconhecidos podem ser agrupados; JSON Cargo, providers Terraform e o índice conhecido de testes pytest exigem revisão individual. A simulação TypeScript continua restrita à demonstração.
 
-Relatórios e journals locais privados ficam em `XDG_STATE_HOME/inodune/reports`; registram paths, intenções e resultados, sem conteúdos nem uploads. Histórico persistido pode ser consultado e exportado manualmente para um novo arquivo local. Exclusões literais relativas bloqueiam a leitura e invalidam planos antigos. Preferências de idioma PT-BR/EN-US, tema e motion ficam no armazenamento local. Pastas/seleção de scan ficam na memória da sessão. Arquivos alterados são preservados; resultados parciais e localizações de recuperação aparecem no relatório. Veja [protocolo e limites reais](docs/cleanup-protocol.md).
+Relatórios e journals locais privados ficam em `XDG_STATE_HOME/inodune/reports`; registram paths, intenções e resultados, sem conteúdos nem uploads. Histórico persistido pode ser consultado e exportado manualmente para um novo arquivo local. Exclusões literais relativas bloqueiam a leitura e invalidam planos antigos. Preferências de idioma PT-BR/EN-US, tema e motion ficam no armazenamento local. A seleção de scan fica na memória; proteções, exclusões e revogações são persistidas em XDG_CONFIG_HOME/inodune/protection-v1.json e revalidadas a cada sessão. Arquivos alterados são preservados; resultados parciais e localizações de recuperação aparecem no relatório. Veja [protocolo e limites reais](docs/cleanup-protocol.md).
 
 ## Workspace e CLI
 
@@ -161,7 +161,7 @@ INODUNE_NATIVE_STANDALONE=1 python3 scripts/native-cleanup-e2e.py
 
 Esse harness cria e limpa somente arquivos temporários da própria aplicação e usa consentimento exclusivo da fábrica de fixtures. A feature é proibida em release. Não há bypass de confirmação no binário normal. O smoke CLI equivalente é `python3 scripts/cli-fixture-smoke.py`, também com XDG e dados temporários.
 
-Revisão específica no CLI: `clean --root /pasta/aprovada --review terraform.provider-package --dry-run --json` (ou `cargo.fingerprint-json`). Exige exatamente um item elegível; não implica apply. `--help` e `--version` estão disponíveis. Para repetir a jornada nativa de revisão somente sobre fixtures: `INODUNE_NATIVE_STANDALONE=1 python3 scripts/native-reviewed-e2e.py`, após o build debug com `fixture-tests`.
+Revisão específica no CLI: `clean --root /pasta/aprovada --review terraform.provider-package --dry-run --json` (ou `cargo.fingerprint-json` / `python.pytest-nodeids`). Exige exatamente um item elegível; não implica apply. `--help` e `--version` estão disponíveis. Para repetir a jornada nativa de revisão somente sobre fixtures: `INODUNE_NATIVE_STANDALONE=1 python3 scripts/native-reviewed-e2e.py`, após o build debug com `fixture-tests`.
 
 
 Verificação F4 do desktop standalone (somente fixtures temporárias):
@@ -182,4 +182,13 @@ Os scripts usam somente Xvfb/processos próprios. O harness F4 desativa composit
 
 O fluxo padrão é **Analisar computador → revisar → simular → confirmar**, sem seletor de pastas nem onboarding obrigatório. A descoberta percorre nomes/metadados estruturais para localizar árvores do usuário e volumes locais montados; o uso total do filesystem é medido mesmo quando conteúdos de sistema estão protegidos. Não solicita root, não entra em outros usuários, não atravessa links e não promete analisar áreas sem permissão ou FS de rede/desconhecido. Limites e exclusões ficam visíveis como cobertura parcial. Em análise automática parcial, somente candidatos selecionados com manifesto completo e novamente validado podem gerar plano; não há seleção automática em resultado parcial ou cancelado. O diálogo nativo informa a cobertura parcial.
 
-Os detectores continuam sem escrita nos alvos. A enumeração de diretórios estruturais pertencentes ao root pode atualizar seu **atime por ação do kernel**, pois um usuário comum não pode impor O_NOATIME nesses diretórios. Conteúdo, arquivos do usuário e permissões não são modificados pela descoberta. [Evidências e limites](docs/evidence/automatic/acceptance.md). Os artefatos anteriores em `target/packages/` foram preservados; os novos estão em `target/packages/0.1.1/`.
+Os detectores continuam sem escrita nos alvos. A enumeração de diretórios estruturais pertencentes ao root pode atualizar seu **atime por ação do kernel**, pois um usuário comum não pode impor O_NOATIME nesses diretórios. Conteúdo, arquivos do usuário e permissões não são modificados pela descoberta. [Evidências e limites](docs/evidence/automatic/acceptance.md). Os artefatos anteriores em `target/packages/` foram preservados; os novos estão em `target/packages/0.1.2/`.
+
+
+### Experiência e confiabilidade — 0.1.2
+
+A análise mostra a etapa real e até quatro descobertas recentes do scanner Rust, com riscos explícitos. O anel indica atividade indeterminada, sem porcentagem ou tempo restante inventados. Pausa, redução de movimento do sistema/manual e janela em segundo plano controlam o movimento. Efeitos sonoros são opcionais, desligados por padrão e sintetizados localmente; nunca substituem avisos visuais. Inter 4.1 é incluída localmente com sua licença SIL OFL acessível nas configurações.
+
+O histórico explica Lixeira, remoção permanente, quarentena e resultados parciais. Journals sem encerramento confirmado aparecem como UNKNOWN, com instruções de inspeção manual; não existe restauração automática ou replay de planos persistidos. A inspeção limita tamanho, quantidade e orçamento total de leitura e nunca abre os alvos registrados nos journals.
+
+O instalador por usuário monta a versão em staging antes de publicá-la e mantém a anterior. A desinstalação usa manifesto verificado, começa em dry-run e exige --apply para remover; alterações e arquivos desconhecidos bloqueiam a operação. Veja [instalação e recuperação](docs/packaging-linux.md), [evidências desta versão](docs/evidence/launch/acceptance.md) e [gates de lançamento](docs/release-readiness.md). Builds locais continuam sem assinatura/publicação; revisão humana de segurança e usabilidade com participantes permanecem pendentes.

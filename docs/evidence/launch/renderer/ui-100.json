@@ -1,0 +1,31 @@
+{
+  "count": 100,
+  "browser": "webkit",
+  "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/27.2 Safari/605.1.15",
+  "viewportBeforeNarrow": {
+    "width": 1440,
+    "height": 960
+  },
+  "reflow": {
+    "viewportWidth": 420,
+    "documentWidth": 420,
+    "bodyWidth": 420
+  },
+  "scanToReviewMilliseconds": 664,
+  "visibleRowsBeforeSearch": 100,
+  "bodyDescendantCount": 2163,
+  "pageDownScrollTop": null,
+  "paginationRows": null,
+  "paginationStatus": null,
+  "searchResultRows": 1,
+  "rowsAfterClearingSearch": 100,
+  "reducedMotion": false,
+  "frameSampleAfterReflow": {
+    "sampleCount": 90,
+    "meanIntervalMs": 15.966666666666667,
+    "p95IntervalMs": 17,
+    "intervalsOver16_7ms": 10,
+    "intervalsOver50ms": 0
+  },
+  "note": "Synthetic IPC renderer only; frame sample is informational and does not establish representative-device 60 fps."
+}

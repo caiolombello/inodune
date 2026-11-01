@@ -1,0 +1,47 @@
+{
+  "checkedAtUtc": "2026-11-01T21:08:43.428332+00:00",
+  "distribution": "PRETTY_NAME=\"Ubuntu 24.04.5 LTS\"\nNAME=\"Ubuntu\"\nVERSION_ID=\"24.04\"\nVERSION=\"24.04.5 LTS (Noble Numbat)\"\nVERSION_CODENAME=noble\nID=ubuntu\nID_LIKE=debian\nHOME_URL=\"https://www.ubuntu.com/\"\nSUPPORT_URL=\"https://help.ubuntu.com/\"\nBUG_REPORT_URL=\"https://bugs.launchpad.net/ubuntu/\"\nPRIVACY_POLICY_URL=\"https://www.ubuntu.com/legal/terms-and-policies/privacy-policy\"\nUBUNTU_CODENAME=noble\nLOGO=ubuntu-logo\n",
+  "packageVersion": "0.1.2",
+  "installedRuntimePackages": {
+    "libgtk-3-0t64:amd64": "3.24.41-4ubuntu1.3",
+    "libwebkit2gtk-4.1-0:amd64": "2.52.6-0ubuntu0.24.04.1",
+    "x11-apps": "7.7+11build3",
+    "xvfb": "2:21.1.12-1ubuntu1.9"
+  },
+  "runtimeUser": {
+    "name": "ubuntu",
+    "uid": 1000,
+    "home": "/home/ubuntu"
+  },
+  "network": "disabled by Podman (--network=none)",
+  "xdgHome": "empty TemporaryDirectory, removed after app exit",
+  "explicitHostDataMounts": [],
+  "scanInitiatedByHarness": false,
+  "automaticStartupScan": "not asserted; container has no mounted user data",
+  "gui": {
+    "executable": "/usr/bin/inodune-desktop",
+    "visibleWindow": true,
+    "windowTitle": "Inodune",
+    "processRemainedLiveAfterWindowAppeared": true,
+    "screenshot": "inodune-desktop.png",
+    "screenshotColors": 2171,
+    "graphicsMode": "test-only software compositing fallback (WEBKIT_DISABLE_COMPOSITING_MODE=1)"
+  },
+  "dynamicLibraries": "ldd found no unresolved dependencies",
+  "cleanupInitiatedByHarness": false,
+  "platform": "ubuntu-24.04",
+  "baseImage": "docker.io/library/ubuntu@sha256:78d4744ead1f5b19b04d0df558ab182a5300903900755e515b2ca4d10eb2044d",
+  "localImageId": "16384ccf59f0d240466235aa5f277c02a7f5d0ae4c5e1ca8858077b1b88f8367",
+  "packageFile": "Inodune_0.1.2_amd64.deb",
+  "packageSha256": "f727159b13944ebc2875c00261f6a3c08c4c7403aff762463b41c0370a6abb77",
+  "sourceRevision": "33a0cf003a0e19320a9990357d7ccf7f09822c25",
+  "sourceInputs": {
+    "gitHead": "33a0cf003a0e19320a9990357d7ccf7f09822c25",
+    "trackedInputStatus": "M Cargo.lock\n M Cargo.toml\n M apps/desktop/src-tauri/Cargo.toml\n M apps/desktop/src-tauri/src/backend.rs\n M apps/desktop/src-tauri/tauri.conf.json\n M apps/desktop/src/App.svelte\n M apps/desktop/src/lib/FileOutcomes.svelte\n M apps/desktop/src/lib/HistoryPanel.svelte\n M apps/desktop/src/lib/backend.ts\n M apps/desktop/src/lib/i18n.svelte.ts\n M apps/desktop/src/styles/tokens.css\n M crates/inodune-clean/src/executor.rs\n M crates/inodune-clean/src/history.rs\n M crates/inodune-clean/src/plan.rs\n M crates/inodune-cli/src/main.rs\n M crates/inodune-core/src/cache_rules.rs\n M crates/inodune-core/src/scan.rs\n M package-lock.json\n M package.json\n?? apps/desktop/src-tauri/src/protection_store.rs\n?? apps/desktop/src/lib/FeedbackSettings.svelte\n?? apps/desktop/src/lib/FontCredits.svelte\n?? apps/desktop/src/lib/RecoveryGuide.svelte\n?? apps/desktop/src/lib/ScanExperience.svelte\n?? apps/desktop/src/lib/sound-feedback.test.ts\n?? apps/desktop/src/lib/sound-feedback.ts\n?? apps/desktop/tests/recovery.spec.ts\n?? apps/desktop/tests/scan-experience.spec.ts\n?? crates/inodune-clean/tests/pytest_nodeids.rs\n?? crates/inodune-core/tests/pytest_cache.rs",
+    "trackedInputDiffSha256": "e1e9f9bc5b006b2ade5a96c6161846826faadd97e4dca3d731807b5218c069f7",
+    "generatedFrontendDistTreeSha256": "3316f2b3f2e94a6f762eca62bb1338116789b1c5b573d35ec03956010f715b40",
+    "releaseGuiBinarySha256": "182b706c056390482d5926fc09d210f5fd79a6ddbf155e26072aeb2c1825d16f",
+    "releaseCliBinarySha256": "f553c502f764f3743f5518d36f4fb0b9eab5b054867a4954b918f192c0697c58"
+  },
+  "hostInstallation": false
+}
