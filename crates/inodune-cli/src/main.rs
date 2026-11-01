@@ -196,9 +196,11 @@ fn run_clean(args: &[String], control: &ScanControl) -> Result<(String, bool), S
                 let detector = args.get(index).ok_or_else(usage)?.clone();
                 if !matches!(
                     detector.as_str(),
-                    "cargo.fingerprint-json" | "terraform.provider-package"
+                    "cargo.fingerprint-json"
+                        | "terraform.provider-package"
+                        | "python.pytest-nodeids"
                 ) {
-                    return Err(format!("Detector de revisão desconhecido: {detector}. Use cargo.fingerprint-json ou terraform.provider-package."));
+                    return Err(format!("Detector de revisão desconhecido: {detector}. Use cargo.fingerprint-json, terraform.provider-package ou python.pytest-nodeids."));
                 }
                 if review.replace(detector).is_some() {
                     return Err("Use --review uma única vez.".into());
@@ -455,7 +457,7 @@ fn validate_root_count(count: usize) -> Result<(), String> {
 }
 
 fn usage() -> String {
-    "Uso: inodune-cli [--help|-h] [--version|-V]\n     inodune-cli scan --auto [--json]\n     inodune-cli scan --root ABS [--root ABS] [--exclude REL]... [--scope projects|thumbnails|protected] [--json]\n     inodune-cli clean --root ABS [--root ABS] [--exclude REL]... [--scope projects|thumbnails|protected] [--dry-run|--apply] [--review cargo.fingerprint-json|terraform.provider-package] [--permanent] [--json]\nDemonstração: scan --demo --json | clean --demo --dry-run. --exclude aceita caminhos relativos literais; '.' exclui a root inteira. --review seleciona um único candidato verificado e não aplica a limpeza; por padrão, apenas itens de baixo risco entram no plano. A limpeza real começa em simulação; --apply exige confirmação interativa e digitação exata. Exit 2: erro; exit 3: cobertura ou execução parcial.".into()
+    "Uso: inodune-cli [--help|-h] [--version|-V]\n     inodune-cli scan --auto [--json]\n     inodune-cli scan --root ABS [--root ABS] [--exclude REL]... [--scope projects|thumbnails|protected] [--json]\n     inodune-cli clean --root ABS [--root ABS] [--exclude REL]... [--scope projects|thumbnails|protected] [--dry-run|--apply] [--review cargo.fingerprint-json|terraform.provider-package|python.pytest-nodeids] [--permanent] [--json]\nDemonstração: scan --demo --json | clean --demo --dry-run. --exclude aceita caminhos relativos literais; '.' exclui a root inteira. --review seleciona um único candidato verificado e não aplica a limpeza; por padrão, apenas itens de baixo risco entram no plano. A limpeza real começa em simulação; --apply exige confirmação interativa e digitação exata. Exit 2: erro; exit 3: cobertura ou execução parcial.".into()
 }
 
 #[cfg(test)]
@@ -502,6 +504,25 @@ mod tests {
         fs::write(&json, serde_json::to_vec(&value).unwrap()).unwrap();
         fs::write(json.with_extension(""), b"0123456789abcdef").unwrap();
         project
+    }
+
+    fn pytest_fixture(parent: &std::path::Path) {
+        let cache = parent.join("project/.pytest_cache");
+        let v = cache.join("v/cache");
+        fs::create_dir_all(&v).unwrap();
+        fs::write(cache.join("README.md"), b"# pytest cache directory #\n\nThis directory contains data from the pytest's cache plugin,\nwhich provides the `--lf` and `--ff` options, as well as the `cache` fixture.\n\n**Do not** commit this to version control.\nSee [the docs](https://docs.pytest.org/en/stable/how-to/cache.html) for more information.\n").unwrap();
+        fs::write(
+            cache.join(".gitignore"),
+            b"# Created by pytest automatically.\n*\n",
+        )
+        .unwrap();
+        fs::write(cache.join("CACHEDIR.TAG"), b"Signature: 8a477f597d28d172789f06886806bc55\n# This file is a cache directory tag created by pytest.\n# For information about cache directory tags, see:\n#\thttps://bford.info/cachedir/spec.html\n").unwrap();
+        fs::write(v.join("nodeids"), br#"["tests/test_one.py::test_one"]"#).unwrap();
+        fs::write(
+            v.join("lastfailed"),
+            br#"{"tests/test_private.py::test_secret":true}"#,
+        )
+        .unwrap();
     }
 
     #[test]
@@ -581,6 +602,36 @@ mod tests {
         assert!(output.contains("impacto:"));
         assert!(output.contains("reconstrução:"));
         assert!(output.contains("Nenhuma limpeza executada."));
+    }
+
+    #[test]
+    fn pytest_review_selects_only_verified_nodeids_for_dry_run() {
+        let temp = tempfile::tempdir().unwrap();
+        pytest_fixture(temp.path());
+        let (output, partial) = run(vec![
+            "clean",
+            "--root",
+            temp.path().to_str().unwrap(),
+            "--review",
+            "python.pytest-nodeids",
+            "--dry-run",
+            "--json",
+        ]
+        .into_iter()
+        .map(str::to_string)
+        .collect())
+        .unwrap();
+        assert!(!partial);
+        assert!(output.contains("\"eligible_items\": 1"));
+        assert!(output.contains("new-first"));
+        assert!(temp
+            .path()
+            .join("project/.pytest_cache/v/cache/nodeids")
+            .exists());
+        assert!(temp
+            .path()
+            .join("project/.pytest_cache/v/cache/lastfailed")
+            .exists());
     }
 
     #[test]

@@ -15,6 +15,23 @@ use std::{
 };
 
 const MAX_FINGERPRINT_JSON: u64 = 1024 * 1024;
+/// Maximum pytest new-first index accepted for individual review.
+pub const MAX_PYTEST_NODEIDS_JSON: u64 = 4 * 1024 * 1024;
+const MAX_PYTEST_NODEIDS_COUNT: usize = 100_000;
+const MAX_PYTEST_NODEID_BYTES: usize = 16 * 1024;
+const MAX_PYTEST_MARKER_BYTES: u64 = 4096;
+
+/// Maximum bytes read while classifying one nodeids leaf. The two leaf
+/// validations each read at most MAX_JSON+1. The three marker validations
+/// each read 3*(MAX_MARKER+1); the final witness capture uses fstat only.
+/// Reserve 4 marker passes to conservatively include future witness rereads.
+pub const fn pytest_nodeids_max_validation_bytes() -> u64 {
+    2 * (MAX_PYTEST_NODEIDS_JSON + 1) + 4 * 3 * (MAX_PYTEST_MARKER_BYTES + 1)
+}
+
+const PYTEST_CACHEDIR_README: &[u8] = b"# pytest cache directory #\n\nThis directory contains data from the pytest's cache plugin,\nwhich provides the `--lf` and `--ff` options, as well as the `cache` fixture.\n\n**Do not** commit this to version control.\nSee [the docs](https://docs.pytest.org/en/stable/how-to/cache.html) for more information.\n";
+const PYTEST_CACHEDIR_GITIGNORE: &[u8] = b"# Created by pytest automatically.\n*\n";
+const PYTEST_CACHEDIR_TAG: &[u8] = b"Signature: 8a477f597d28d172789f06886806bc55\n# This file is a cache directory tag created by pytest.\n# For information about cache directory tags, see:\n#\thttps://bford.info/cachedir/spec.html\n";
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct Decision {
@@ -347,6 +364,279 @@ pub fn witnesses(root: &ApprovedRoot, relative: &Path) -> Option<Vec<(PathBuf, F
             .then(|| (path, Fingerprint::from_stat(&stat)))
         })
         .collect()
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub struct PytestNodeIdsDecision {
+    pub eligible: bool,
+    pub reason: &'static str,
+    pub evidence: Vec<String>,
+    pub impact: &'static str,
+}
+
+struct PytestNodeIdsPaths {
+    markers: [PathBuf; 3],
+}
+
+/// Restricts the proposal to pytest's built-in new-first index in its default
+/// cache layout. A custom cache directory, plugin key, or path shape is unknown.
+fn pytest_nodeids_paths(relative: &Path) -> Option<PytestNodeIdsPaths> {
+    let parts: Vec<_> = relative
+        .components()
+        .filter(|part| !matches!(part, Component::CurDir))
+        .collect();
+    if parts
+        .iter()
+        .any(|part| !matches!(part, Component::Normal(_)))
+    {
+        return None;
+    }
+    let cache_indices: Vec<usize> = parts
+        .iter()
+        .enumerate()
+        .filter_map(|(index, component)| {
+            matches!(component, Component::Normal(name) if name.as_bytes() == b".pytest_cache")
+                .then_some(index)
+        })
+        .collect();
+    if cache_indices.len() != 1 {
+        return None;
+    }
+    let index = cache_indices[0];
+    if parts.len() != index + 4
+        || !matches!(parts.get(index + 1), Some(Component::Normal(name)) if name.as_bytes() == b"v")
+        || !matches!(parts.get(index + 2), Some(Component::Normal(name)) if name.as_bytes() == b"cache")
+        || !matches!(parts.get(index + 3), Some(Component::Normal(name)) if name.as_bytes() == b"nodeids")
+    {
+        return None;
+    }
+    let mut cache_dir = PathBuf::new();
+    for component in &parts[..=index] {
+        if let Component::Normal(name) = component {
+            cache_dir.push(name);
+        }
+    }
+    Some(PytestNodeIdsPaths {
+        markers: [
+            cache_dir.join("README.md"),
+            cache_dir.join(".gitignore"),
+            cache_dir.join("CACHEDIR.TAG"),
+        ],
+    })
+}
+
+/// Only the exact pytest 9 cache markers and its built-in sorted JSON string
+/// list for `--new-first` are reviewable. Arbitrary cache fixture/plugin values,
+/// failure history, and all other files stay protected.
+pub fn classify_pytest_nodeids(
+    root: &ApprovedRoot,
+    relative: &Path,
+    files: &[(PathBuf, Fingerprint)],
+) -> PytestNodeIdsDecision {
+    let Some(_paths) = pytest_nodeids_paths(relative) else {
+        return pytest_nodeids_protected("Não pertence ao layout padrão reconhecido de pytest.");
+    };
+    let Some((_, expected)) = files.iter().find(|(path, _)| path == relative) else {
+        return pytest_nodeids_protected("Índice ausente do inventário; preserve.");
+    };
+    if files.iter().filter(|(path, _)| path == relative).count() != 1
+        || expected.nlink != 1
+        || expected.uid != rustix::process::getuid().as_raw()
+    {
+        return pytest_nodeids_protected(
+            "Identidade ambígua, hardlink ou proprietário inesperado; preserve.",
+        );
+    }
+    let Some(actual_witnesses) = pytest_nodeids_witnesses(root, relative) else {
+        return pytest_nodeids_protected(
+            "Marcadores oficiais do cache pytest não conferem; preserve.",
+        );
+    };
+    for (witness, actual) in actual_witnesses {
+        let matching: Vec<_> = files
+            .iter()
+            .filter(|(path, _)| normalized_relative(path).as_deref() == Some(witness.as_path()))
+            .collect();
+        if matching.len() != 1 || matching[0].1 != actual {
+            return pytest_nodeids_protected(
+                "Testemunha pytest ausente, duplicada ou alterada; preserve.",
+            );
+        }
+    }
+    if validate_pytest_nodeids_leaf(root, relative).as_ref() != Some(expected) {
+        return pytest_nodeids_protected(
+            "Schema do índice pytest ou identidade atual não validado; preserve.",
+        );
+    }
+    PytestNodeIdsDecision {
+        eligible: true,
+        reason: "Índice de ordem do pytest validado. A limpeza remove somente a lista conhecida de testes vistos; a opção --new-first perde a ordem anterior até o próximo teste.",
+        evidence: vec![
+            "pytest-9.1.0-CACHEDIR_FILES-exact".into(),
+            "pytest-9.1.0-NFPlugin-sorted-nodeids-json".into(),
+            "pytest-lastfailed-stepwise-and-plugin-data-preserved".into(),
+        ],
+        impact: "O pytest recria este índice ao executar a suíte; --new-first deixa de distinguir testes novos até então.",
+    }
+}
+
+fn pytest_nodeids_protected(reason: &'static str) -> PytestNodeIdsDecision {
+    PytestNodeIdsDecision {
+        eligible: false,
+        reason,
+        evidence: Vec::new(),
+        impact: "Área do pytest contém estado de sessão ou de plugin; preserve formatos não verificados.",
+    }
+}
+
+fn normalized_relative(path: &Path) -> Option<PathBuf> {
+    let mut normalized = PathBuf::new();
+    for component in path.components() {
+        match component {
+            Component::CurDir => {}
+            Component::Normal(name) => normalized.push(name),
+            _ => return None,
+        }
+    }
+    Some(normalized)
+}
+
+/// Revalidates a selected nodeids leaf and the exact static pytest 9 markers via
+/// the retained descriptor, reading at most 4 MiB plus three 4 KiB witnesses.
+pub fn validate_pytest_nodeids_leaf(root: &ApprovedRoot, relative: &Path) -> Option<Fingerprint> {
+    let paths = pytest_nodeids_paths(relative)?;
+    if !valid_pytest_markers(root, &paths) {
+        return None;
+    }
+    let fd = root
+        .open_relative(
+            relative,
+            OFlags::RDONLY | OFlags::NOATIME | OFlags::NONBLOCK,
+        )
+        .ok()?;
+    let before = fs::fstat(&fd).ok()?;
+    if FileType::from_raw_mode(before.st_mode) != FileType::RegularFile
+        || before.st_nlink != 1
+        || before.st_uid != rustix::process::getuid().as_raw()
+        || before.st_size < 0
+        || before.st_size as u64 > MAX_PYTEST_NODEIDS_JSON
+    {
+        return None;
+    }
+    let expected = Fingerprint::from_stat(&before);
+    let mut file = std::fs::File::from(fd);
+    let mut bytes = Vec::with_capacity(expected.size as usize);
+    file.by_ref()
+        .take(MAX_PYTEST_NODEIDS_JSON + 1)
+        .read_to_end(&mut bytes)
+        .ok()?;
+    if bytes.len() as u64 != expected.size || !pytest_sorted_nodeids_json(&bytes) {
+        return None;
+    }
+    if Fingerprint::from_stat(&fs::fstat(file.as_fd()).ok()?) != expected {
+        return None;
+    }
+    let reopened = root.open_relative(relative, OFlags::PATH).ok()?;
+    (Fingerprint::from_stat(&fs::fstat(&reopened).ok()?) == expected).then_some(expected)
+}
+
+/// Marker files are immutable witnesses for the single deletable leaf.
+pub fn pytest_nodeids_witnesses(
+    root: &ApprovedRoot,
+    relative: &Path,
+) -> Option<Vec<(PathBuf, Fingerprint)>> {
+    let paths = pytest_nodeids_paths(relative)?;
+    if !valid_pytest_markers(root, &paths) {
+        return None;
+    }
+    paths
+        .markers
+        .into_iter()
+        .map(|path| {
+            let fd = root.open_relative(&path, OFlags::PATH).ok()?;
+            let stat = fs::fstat(&fd).ok()?;
+            (FileType::from_raw_mode(stat.st_mode) == FileType::RegularFile
+                && stat.st_nlink == 1
+                && stat.st_uid == rustix::process::getuid().as_raw()
+                && stat.st_mode & 0o022 == 0)
+                .then(|| (path, Fingerprint::from_stat(&stat)))
+        })
+        .collect()
+}
+
+fn valid_pytest_markers(root: &ApprovedRoot, paths: &PytestNodeIdsPaths) -> bool {
+    let expected = [
+        PYTEST_CACHEDIR_README,
+        PYTEST_CACHEDIR_GITIGNORE,
+        PYTEST_CACHEDIR_TAG,
+    ];
+    paths
+        .markers
+        .iter()
+        .zip(expected)
+        .all(|(path, expected_bytes)| {
+            read_private_marker(root, path).as_deref() == Some(expected_bytes)
+        })
+}
+
+fn read_private_marker(root: &ApprovedRoot, relative: &Path) -> Option<Vec<u8>> {
+    let fd = root
+        .open_relative(
+            relative,
+            OFlags::RDONLY | OFlags::NOATIME | OFlags::NONBLOCK,
+        )
+        .ok()?;
+    let before = fs::fstat(&fd).ok()?;
+    if FileType::from_raw_mode(before.st_mode) != FileType::RegularFile
+        || before.st_nlink != 1
+        || before.st_uid != rustix::process::getuid().as_raw()
+        || before.st_mode & 0o022 != 0
+        || before.st_size < 0
+        || before.st_size as u64 > MAX_PYTEST_MARKER_BYTES
+    {
+        return None;
+    }
+    let expected = Fingerprint::from_stat(&before);
+    let mut file = std::fs::File::from(fd);
+    let mut bytes = Vec::with_capacity(expected.size as usize);
+    file.by_ref()
+        .take(MAX_PYTEST_MARKER_BYTES + 1)
+        .read_to_end(&mut bytes)
+        .ok()?;
+    if bytes.len() as u64 != expected.size
+        || Fingerprint::from_stat(&fs::fstat(file.as_fd()).ok()?) != expected
+    {
+        return None;
+    }
+    let reopened = root.open_relative(relative, OFlags::PATH).ok()?;
+    (Fingerprint::from_stat(&fs::fstat(&reopened).ok()?) == expected).then_some(bytes)
+}
+
+fn pytest_sorted_nodeids_json(bytes: &[u8]) -> bool {
+    let Ok(value) = serde_json::from_slice::<serde_json::Value>(bytes) else {
+        return false;
+    };
+    let Some(items) = value.as_array() else {
+        return false;
+    };
+    if items.len() > MAX_PYTEST_NODEIDS_COUNT {
+        return false;
+    }
+    let mut previous: Option<&str> = None;
+    items.iter().all(|item| {
+        let Some(nodeid) = item.as_str() else {
+            return false;
+        };
+        if nodeid.is_empty()
+            || nodeid.len() > MAX_PYTEST_NODEID_BYTES
+            || nodeid.chars().any(char::is_control)
+            || previous.is_some_and(|last| last >= nodeid)
+        {
+            return false;
+        }
+        previous = Some(nodeid);
+        true
+    })
 }
 
 #[cfg(test)]

@@ -472,6 +472,16 @@ const catalog: Record<string, string> = {
   'Ferramentas locais': 'Local tools',
   Miniaturas: 'Thumbnails',
   'Cache Python': 'Python cache',
+  'Índice de testes vistos (pytest --new-first)':
+    'Seen test index (pytest --new-first)',
+  'Índice de ordem do pytest validado. A limpeza remove somente a lista conhecida de testes vistos; a opção --new-first perde a ordem anterior até o próximo teste.':
+    'Verified pytest ordering index. Cleanup removes only the recognized list of previously seen tests; --new-first loses its previous ordering until the next test run.',
+  'O pytest recria este índice ao rodar a suíte; --new-first não separa arquivos vistos até então.':
+    'pytest recreates this index when the suite runs; --new-first cannot distinguish previously seen tests until then.',
+  'O pytest recria o índice ao rodar a suíte; --new-first não separa arquivos vistos até então.':
+    'pytest recreates this index when the suite runs; --new-first cannot distinguish previously seen tests until then.',
+  'Código, histórico em v/cache/lastfailed, v/cache/stepwise e estado arbitrário de plugins permanecem protegidos.':
+    'Code, v/cache/lastfailed history, v/cache/stepwise, and arbitrary plugin state remain protected.',
   'Build Rust': 'Rust build',
   'Providers Terraform': 'Terraform providers',
   'Módulos Terraform': 'Terraform modules',

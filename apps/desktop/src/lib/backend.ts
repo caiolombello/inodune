@@ -32,9 +32,19 @@ export interface NativeResult {
 export interface ScanPoll {
   job_id: string;
   status: 'running' | 'done' | 'error';
-  progress: { visited: number; candidates: number; stage: string };
+  progress: ScanActivity;
   result: NativeResult | null;
   error: string | null;
+}
+export type ScanFinding = Pick<
+  Candidate,
+  'id' | 'title' | 'category' | 'risk' | 'logical_bytes'
+>;
+export interface ScanActivity {
+  visited: number;
+  candidates: number;
+  stage: string;
+  recent_findings?: ScanFinding[];
 }
 export interface CleanupPlanItem {
   candidate_id: string;

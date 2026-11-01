@@ -150,7 +150,9 @@ impl PlanSession {
                 )
                 && matches!(
                     candidate.detector_id.as_str(),
-                    "cargo.fingerprint-json" | "terraform.provider-package"
+                    "cargo.fingerprint-json"
+                        | "terraform.provider-package"
+                        | "python.pytest-nodeids"
                 );
             if !low && !reviewed {
                 return Err("O item está protegido ou ainda não tem uma ação aprovada.".into());

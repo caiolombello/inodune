@@ -1,4 +1,6 @@
 //! Native authority: backend discovery or an advanced native picker creates root capabilities.
+#[path = "protection_store.rs"]
+mod protection_store;
 use inodune_core::{
     scan::{
         self, is_protected_agent_path, ApprovedRoot, ScanControl, ScanIssue, ScanLimits,
@@ -6,6 +8,7 @@ use inodune_core::{
     },
     Candidate,
 };
+use protection_store::{PersistedExclusion, Policy, ProtectionStore};
 use serde::{Deserialize, Serialize};
 use std::{
     collections::HashMap,
@@ -29,16 +32,47 @@ struct RootEntry {
     info: ScopeInfo,
     root: ApprovedRoot,
 }
-#[derive(Default)]
 pub struct Backend {
     roots: Mutex<HashMap<String, RootEntry>>,
     pub operation_gate: Mutex<()>,
     automatic_exclusions: Mutex<Vec<std::path::PathBuf>>,
+    persisted_policy: Mutex<Policy>,
+    protection_store: Option<ProtectionStore>,
+    protection_error: Mutex<Option<String>>,
     pub cleanup: crate::cleanup::CleanupState,
     job: Mutex<Option<Arc<Mutex<Job>>>>,
     sequence: AtomicU64,
     #[cfg(feature = "fixture-tests")]
     fixture_guard: Option<tempfile::TempDir>,
+}
+
+impl Default for Backend {
+    fn default() -> Self {
+        #[cfg(test)]
+        let (protection_store, persisted_policy, protection_error) = (None, Policy::new(), None);
+        #[cfg(not(test))]
+        let (protection_store, persisted_policy, protection_error) =
+            match ProtectionStore::from_env() {
+                Ok(store) => match store.load() {
+                    Ok(policy) => (Some(store), policy, None),
+                    Err(error) => (Some(store), Policy::new(), Some(error)),
+                },
+                Err(error) => (None, Policy::new(), Some(error)),
+            };
+        Self {
+            roots: Mutex::new(HashMap::new()),
+            operation_gate: Mutex::new(()),
+            automatic_exclusions: Mutex::new(persisted_policy.revoked_roots.clone()),
+            persisted_policy: Mutex::new(persisted_policy),
+            protection_store,
+            protection_error: Mutex::new(protection_error),
+            cleanup: crate::cleanup::CleanupState::default(),
+            job: Mutex::new(None),
+            sequence: AtomicU64::new(1),
+            #[cfg(feature = "fixture-tests")]
+            fixture_guard: None,
+        }
+    }
 }
 struct Job {
     id: String,
@@ -135,18 +169,37 @@ pub async fn choose_scope(
     if state.cleanup.active()? {
         return Err("Aguarde a limpeza em andamento.".into());
     }
-    state
-        .automatic_exclusions
-        .lock()
-        .map_err(|_| "Estado indisponível")?
-        .retain(|p| p != root.path());
+    state.ensure_policy_healthy()?;
     let mut roots = state.roots.lock().map_err(|_| "Estado indisponível")?;
-    if let Some((existing_id, existing)) = roots
+    let existing = roots
         .iter()
         .find(|(_, r)| r.info.display_path == root.display_path())
-    {
-        if existing.info.kind == kind && existing.root.revalidate().is_ok() {
-            return Ok(Some(existing.info.clone()));
+        .map(|(id, entry)| {
+            (
+                id.clone(),
+                entry.info.clone(),
+                entry.root.revalidate().is_ok(),
+            )
+        });
+    let mut policy = state.policy_snapshot()?;
+    let previous = policy.clone();
+    policy.revoked_roots.retain(|path| path != root.path());
+    policy.protected_roots.retain(|path| path != root.path());
+    if kind == ScopeKind::Protected {
+        policy.protected_roots.push(root.path().to_path_buf());
+        policy.protected_roots.sort();
+        policy.protected_roots.dedup();
+    }
+    if policy != previous {
+        state.save_policy(policy.clone())?;
+        *state
+            .automatic_exclusions
+            .lock()
+            .map_err(|_| "Estado indisponível")? = policy.revoked_roots.clone();
+    }
+    if let Some((existing_id, previous_info, same_kind_and_root)) = existing {
+        if previous_info.kind == kind && same_kind_and_root {
+            return Ok(Some(previous_info));
         }
         let id = existing_id.clone();
         let info = ScopeInfo {
@@ -224,14 +277,6 @@ pub fn forget_scope(state: State<'_, Backend>, scope_id: String) -> Result<(), S
     if state.cleanup.active()? {
         return Err("Aguarde a limpeza em andamento.".into());
     }
-    if !state
-        .roots
-        .lock()
-        .map_err(|_| "Estado indisponível")?
-        .contains_key(&scope_id)
-    {
-        return Err("Escopo não aprovado".into());
-    }
     let removed_path = state
         .roots
         .lock()
@@ -241,11 +286,18 @@ pub fn forget_scope(state: State<'_, Backend>, scope_id: String) -> Result<(), S
         .root
         .path()
         .to_path_buf();
+    let mut policy = state.policy_snapshot()?;
+    policy.revoked_roots.push(removed_path.clone());
+    policy.revoked_roots.sort();
+    policy.revoked_roots.dedup();
+    policy.protected_roots.retain(|path| path != &removed_path);
+    policy.exclusions.retain(|item| item.root != removed_path);
+    state.save_policy(policy.clone())?;
     state
         .automatic_exclusions
         .lock()
         .map_err(|_| "Estado indisponível")?
-        .push(removed_path);
+        .clone_from(&policy.revoked_roots);
     state.cleanup.invalidate()?;
     *job_slot = None;
     state
@@ -288,6 +340,19 @@ pub fn set_scope_exclusions(
         .iter()
         .map(|p| p.to_string_lossy().into_owned())
         .collect();
+    let mut policy = state.policy_snapshot()?;
+    let root_path = entry.root.path().to_path_buf();
+    policy.exclusions.retain(|item| item.root != root_path);
+    if !root.exclusions().is_empty() {
+        policy.exclusions.push(PersistedExclusion {
+            root: root_path,
+            relative_paths: root.exclusions().to_vec(),
+        });
+        policy
+            .exclusions
+            .sort_by(|left, right| left.root.cmp(&right.root));
+    }
+    state.save_policy(policy)?;
     entry.info.exclusions = values;
     entry.root = root;
     state.cleanup.invalidate()?;
@@ -303,6 +368,7 @@ pub fn begin_automatic_scan(app: AppHandle, state: State<'_, Backend>) -> Result
     if state.cleanup.active()? {
         return Err("Aguarde a limpeza em andamento.".into());
     }
+    state.ensure_policy_healthy()?;
     let mut slot = state.job.lock().map_err(|_| "Estado indisponível")?;
     if slot.as_ref().is_some_and(|job| {
         job.lock()
@@ -322,6 +388,7 @@ pub fn begin_automatic_scan(app: AppHandle, state: State<'_, Backend>) -> Result
             visited: 0,
             candidates: 0,
             stage: "Descobrindo home e unidades locais".into(),
+            recent_findings: Vec::new(),
         },
         snapshot: None,
         error: None,
@@ -373,6 +440,7 @@ pub fn begin_scan(state: State<'_, Backend>, scope_ids: Vec<String>) -> Result<S
     if state.cleanup.active()? {
         return Err("Aguarde a limpeza em andamento.".into());
     }
+    state.ensure_policy_healthy()?;
     if scope_ids.is_empty() || scope_ids.len() > 32 {
         return Err("Escolha entre 1 e 32 escopos aprovados.".into());
     }
@@ -406,6 +474,7 @@ pub fn begin_scan(state: State<'_, Backend>, scope_ids: Vec<String>) -> Result<S
             visited: 0,
             candidates: 0,
             stage: "Iniciando análise somente leitura".into(),
+            recent_findings: Vec::new(),
         },
         snapshot: None,
         error: None,
@@ -484,6 +553,48 @@ pub fn control_scan(
         ControlAction::Cancel => j.control.cancel(),
     };
     Ok(())
+}
+
+impl Backend {
+    fn ensure_policy_healthy(&self) -> Result<(), String> {
+        if let Some(error) = self
+            .protection_error
+            .lock()
+            .map_err(|_| "Estado indisponível")?
+            .as_ref()
+        {
+            return Err(format!(
+                "A análise está bloqueada porque as proteções salvas não puderam ser validadas. Corrija o armazenamento local e tente novamente. {error}"
+            ));
+        }
+        Ok(())
+    }
+
+    fn save_policy(&self, policy: Policy) -> Result<(), String> {
+        self.ensure_policy_healthy()?;
+        if let Some(store) = &self.protection_store {
+            if let Err(error) = store.save(&policy) {
+                *self
+                    .protection_error
+                    .lock()
+                    .map_err(|_| "Estado indisponível")? = Some(error.clone());
+                return Err(error);
+            }
+        }
+        *self
+            .persisted_policy
+            .lock()
+            .map_err(|_| "Estado indisponível")? = policy;
+        Ok(())
+    }
+
+    fn policy_snapshot(&self) -> Result<Policy, String> {
+        self.ensure_policy_healthy()?;
+        self.persisted_policy
+            .lock()
+            .map(|policy| policy.clone())
+            .map_err(|_| "Estado indisponível".into())
+    }
 }
 
 #[cfg(feature = "fixture-tests")]
@@ -615,6 +726,7 @@ impl Backend {
             discovery.complete = false;
             return Ok(());
         }
+        let policy = self.policy_snapshot()?;
         let blocked = self
             .automatic_exclusions
             .lock()
@@ -634,6 +746,25 @@ impl Backend {
                 }
             }
             let mut kind = discovered.kind;
+            for protected in &policy.protected_roots {
+                if let Ok(relative) = protected.strip_prefix(discovered.path()) {
+                    if relative.as_os_str().is_empty() {
+                        kind = ScopeKind::Protected;
+                    } else {
+                        exclusions.push(relative.to_path_buf());
+                    }
+                }
+            }
+            for saved in &policy.exclusions {
+                if let Ok(prefix) = saved.root.strip_prefix(discovered.path()) {
+                    exclusions.extend(
+                        saved
+                            .relative_paths
+                            .iter()
+                            .map(|relative| prefix.join(relative)),
+                    );
+                }
+            }
             let mut preserved_id = None;
             for (id, old) in entries.iter() {
                 if let Ok(prefix) = old.root.path().strip_prefix(discovered.path()) {
@@ -699,6 +830,7 @@ impl Backend {
         Ok(snapshot.clone())
     }
     pub fn check_approved(&self, snapshot: &ScanSnapshot, ids: &[String]) -> Result<(), String> {
+        self.ensure_policy_healthy()?;
         let roots = self.roots.lock().map_err(|_| "Estado indisponível")?;
         for id in ids {
             let target = snapshot.targets.get(id).ok_or("Item não aprovado")?;
@@ -762,6 +894,94 @@ impl Backend {
 #[cfg(all(test, feature = "fixture-tests"))]
 mod automatic_policy_tests {
     use super::*;
+    impl Backend {
+        fn with_policy_store(store: ProtectionStore) -> Result<Self, String> {
+            let policy = store.load()?;
+            Ok(Self {
+                automatic_exclusions: Mutex::new(policy.revoked_roots.clone()),
+                persisted_policy: Mutex::new(policy),
+                protection_store: Some(store),
+                ..Backend::default()
+            })
+        }
+    }
+
+    #[test]
+    fn rejected_policy_change_preserves_disk_state_and_blocks_future_scans() {
+        let temporary = tempfile::tempdir().unwrap();
+        let config = temporary.path().join("config");
+        std::fs::create_dir(&config).unwrap();
+        let store = ProtectionStore::at(config).unwrap();
+        let backend = Backend::with_policy_store(
+            ProtectionStore::at(temporary.path().join("config")).unwrap(),
+        )
+        .unwrap();
+        let original = store.load().unwrap();
+        let mut invalid = original.clone();
+        invalid
+            .revoked_roots
+            .push(std::path::PathBuf::from("/home/user/../../etc"));
+
+        assert!(backend.save_policy(invalid).is_err());
+        assert_eq!(store.load().unwrap(), original);
+        assert!(backend.ensure_policy_healthy().is_err());
+    }
+
+    #[test]
+    fn automatic_discovery_restores_persisted_protections_exclusions_and_revocations() {
+        let temporary = tempfile::tempdir().unwrap();
+        let home = temporary.path().join("home");
+        std::fs::create_dir_all(home.join("private")).unwrap();
+        std::fs::create_dir_all(home.join("revoked")).unwrap();
+        std::fs::create_dir_all(home.join("project/local-data")).unwrap();
+        let config = temporary.path().join("config");
+        std::fs::create_dir(&config).unwrap();
+        let store = ProtectionStore::at(config.clone()).unwrap();
+        let mut policy = Policy::new();
+        policy.protected_roots.push(home.join("private"));
+        policy.revoked_roots.push(home.join("revoked"));
+        policy.exclusions.push(PersistedExclusion {
+            root: home.join("project"),
+            relative_paths: vec![std::path::PathBuf::from("local-data")],
+        });
+        store.save(&policy).unwrap();
+
+        let backend = Backend::with_policy_store(store).unwrap();
+        let mut discovered = inodune_core::discovery::discover_from(
+            &home,
+            "",
+            &[],
+            &ScanControl::default(),
+            &ScanLimits::default(),
+        )
+        .unwrap();
+        backend
+            .install_discovered_roots(&mut discovered, &ScanControl::default())
+            .unwrap();
+
+        let root = &discovered.roots[0];
+        assert!(root.is_excluded(std::path::Path::new("private")));
+        assert!(root.is_excluded(std::path::Path::new("revoked")));
+        assert!(root.is_excluded(std::path::Path::new("project/local-data")));
+
+        let reopened = Backend::with_policy_store(ProtectionStore::at(config).unwrap()).unwrap();
+        let mut next_scan = inodune_core::discovery::discover_from(
+            &home,
+            "",
+            &[],
+            &ScanControl::default(),
+            &ScanLimits::default(),
+        )
+        .unwrap();
+        reopened
+            .install_discovered_roots(&mut next_scan, &ScanControl::default())
+            .unwrap();
+        let root = &next_scan.roots[0];
+        assert!(root.is_excluded(std::path::Path::new("private")));
+        assert!(root.is_excluded(std::path::Path::new("revoked")));
+        assert!(root.is_excluded(std::path::Path::new("project/local-data")));
+    }
+
     #[test]
     fn rediscovery_preserves_nested_protections_exclusions_and_revocations() {
         let temporary = tempfile::tempdir().unwrap();

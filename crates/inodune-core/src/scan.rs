@@ -262,6 +262,16 @@ pub struct ScanProgress {
     pub visited: u64,
     pub candidates: usize,
     pub stage: String,
+    #[serde(default)]
+    pub recent_findings: Vec<ScanFinding>,
+}
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ScanFinding {
+    pub id: String,
+    pub title: String,
+    pub category: String,
+    pub risk: Risk,
+    pub logical_bytes: u64,
 }
 #[derive(Clone, Debug)]
 pub struct ScanLimits {
@@ -418,6 +428,24 @@ struct Walker<'a, F: FnMut(ScanProgress)> {
     validation_bytes_left: u64,
 }
 impl<F: FnMut(ScanProgress)> Walker<'_, F> {
+    fn progress_event(&self, stage: &str) -> ScanProgress {
+        let first = self.out.candidates.len().saturating_sub(4);
+        ScanProgress {
+            visited: self.out.stats.visited,
+            candidates: self.out.candidates.len(),
+            stage: stage.into(),
+            recent_findings: self.out.candidates[first..]
+                .iter()
+                .map(|candidate| ScanFinding {
+                    id: candidate.id.clone(),
+                    title: candidate.title.clone(),
+                    category: candidate.category.clone(),
+                    risk: candidate.risk.clone(),
+                    logical_bytes: candidate.logical_bytes,
+                })
+                .collect(),
+        }
+    }
     fn issue(&mut self, path: &Path, code: &str, message: &str) {
         self.out.complete = false;
         self.out.stats.skipped += 1;
@@ -431,11 +459,8 @@ impl<F: FnMut(ScanProgress)> Walker<'_, F> {
     }
     fn progress(&mut self) {
         if self.last.elapsed().as_millis() >= 100 {
-            (self.on_progress)(ScanProgress {
-                visited: self.out.stats.visited,
-                candidates: self.out.candidates.len(),
-                stage: "Descobrindo itens conhecidos".into(),
-            });
+            let event = self.progress_event("Descobrindo itens conhecidos");
+            (self.on_progress)(event);
             self.last = Instant::now();
         }
     }
@@ -742,11 +767,8 @@ impl<F: FnMut(ScanProgress)> Walker<'_, F> {
                     continue;
                 }
                 self.validation_bytes_left -= bytes;
-                (self.on_progress)(ScanProgress {
-                    visited: self.out.stats.visited,
-                    candidates: self.out.candidates.len(),
-                    stage: "Verificando checksum de provider local".into(),
-                });
+                let event = self.progress_event("Verificando checksum de provider local");
+                (self.on_progress)(event);
                 let check = crate::terraform::verify_provider(root, &path, &files, self.control);
                 if !check.eligible {
                     continue;
@@ -849,16 +871,118 @@ impl<F: FnMut(ScanProgress)> Walker<'_, F> {
             }
         }
     }
+    fn build_pytest_nodeids_subset(
+        &mut self,
+        root: &ApprovedRoot,
+        container_id: &str,
+        project: &str,
+    ) {
+        let Some(container) = self.out.targets.get(container_id).cloned() else {
+            return;
+        };
+        if !container.complete || !self.allowed() {
+            return;
+        }
+        let path = container.relative.join("v/cache/nodeids");
+        let matching: Vec<_> = container
+            .files
+            .iter()
+            .filter(|(candidate_path, _)| candidate_path == &path)
+            .collect();
+        if matching.len() != 1 {
+            return;
+        }
+        let fingerprint = matching[0].1.clone();
+        let validation_cost = crate::cache_rules::pytest_nodeids_max_validation_bytes();
+        if validation_cost > self.validation_bytes_left {
+            return;
+        }
+        self.validation_bytes_left -= validation_cost;
+        let event = self.progress_event("Validando índice de testes pytest");
+        (self.on_progress)(event);
+        let decision = crate::cache_rules::classify_pytest_nodeids(root, &path, &container.files);
+        if !decision.eligible
+            || crate::cache_rules::validate_pytest_nodeids_leaf(root, &path).as_ref()
+                != Some(&fingerprint)
+        {
+            return;
+        }
+        let Some(witnesses) = crate::cache_rules::pytest_nodeids_witnesses(root, &path) else {
+            return;
+        };
+
+        let id = format!("{}-{}", self.out.id, self.out.candidates.len());
+        let allocated = fingerprint.blocks.saturating_mul(512);
+        self.out.targets.insert(
+            id.clone(),
+            ScannedTarget {
+                root: root.clone(),
+                relative: path.clone(),
+                fingerprint: fingerprint.clone(),
+                files: vec![(path.clone(), fingerprint.clone())],
+                witnesses,
+                complete: true,
+            },
+        );
+        self.out.candidates.push(Candidate {
+            id,
+            title: "Índice de testes vistos (pytest --new-first)".into(),
+            display_path: root.path.join(&path).to_string_lossy().into_owned(),
+            detector_id: "python.pytest-nodeids".into(),
+            detector_version: "pytest-9.1-nodeids-layout-v1".into(),
+            scope_id: root.display_path(),
+            category: "Desenvolvimento".into(),
+            project: project.into(),
+            risk: Risk::Review,
+            logical_bytes: fingerprint.size,
+            allocated_bytes_estimate: Some(allocated),
+            identity: Some(Identity {
+                dev: fingerprint.dev,
+                ino: fingerprint.ino,
+                mtime_unix: fingerprint.mtime,
+            }),
+            coverage_key: Some(format!("{}:{}", fingerprint.dev, fingerprint.ino)),
+            selected_by_default: false,
+            reason: decision.reason.into(),
+            impact: decision.impact.into(),
+            rebuild_hint: "O pytest recria o índice ao rodar a suíte; --new-first não separa arquivos vistos até então.".into(),
+            preserved: "Código, histórico em v/cache/lastfailed, v/cache/stepwise e estado arbitrário de plugins permanecem protegidos.".into(),
+            evidence: decision.evidence,
+            activity: "Metadado mantido entre sessões; não comprova desuso.".into(),
+            supported_action: SupportedAction::ReviewedCacheContents,
+        });
+
+        if let Some(parent) = self
+            .out
+            .candidates
+            .iter_mut()
+            .find(|c| c.id == container_id)
+        {
+            parent.logical_bytes = parent.logical_bytes.saturating_sub(fingerprint.size);
+            parent.allocated_bytes_estimate = parent
+                .allocated_bytes_estimate
+                .map(|bytes| bytes.saturating_sub(allocated));
+            parent.risk = Risk::Protected;
+            parent.selected_by_default = false;
+            parent.supported_action = SupportedAction::None;
+            parent.coverage_key = parent.coverage_key.as_ref().map(|key| {
+                if key.starts_with("remainder:") {
+                    key.clone()
+                } else {
+                    format!("remainder:{key}")
+                }
+            });
+            parent.reason = "Cache pytest protegido; índice --new-first verificado aparece à parte. Histórico de falhas, estado de plugins e demais dados continuam protegidos.".into();
+        }
+    }
+
     fn git_inventory(&mut self, root: &ApprovedRoot, rel: &Path, project: &str) {
         let path = root.path.join(rel);
         if self.git_paths.contains(&path) {
             return;
         }
-        (self.on_progress)(ScanProgress {
-            visited: self.out.stats.visited,
-            candidates: self.out.candidates.len(),
-            stage: "Verificando worktrees Git em sandbox somente leitura".into(),
-        });
+        let event = self.progress_event("Verificando worktrees Git em sandbox somente leitura");
+        (self.on_progress)(event);
         let inventory = crate::git::inspect(root, rel, self.control);
         let git_complete = inventory.complete;
         let records = if inventory.worktrees.is_empty() {
@@ -1042,7 +1166,14 @@ impl<F: FnMut(ScanProgress)> Walker<'_, F> {
                     self.candidate(root,&path,&project,CandidatePolicy{detector:"python.pycache",title:"Bytecode Python",category:"Desenvolvimento",risk:if source{Risk::Low}else{Risk::Protected},reason:if source{"Cache __pycache__ junto de módulo Python; formato será revalidado antes de qualquer ação."}else{"Nome de cache sem módulo Python correspondente: inventário protegido."}});
                     continue;
                 }
-                if [".pytest_cache", ".mypy_cache", ".ruff_cache"].contains(&n.as_ref()) {
+                if n == ".pytest_cache" {
+                    self.candidate(root,&path,&project,CandidatePolicy{detector:"python.toolcache",title:"Cache pytest protegido",category:"Desenvolvimento",risk:Risk::Protected,reason:"Estado de plugins e histórico de testes são preservados; apenas o índice conhecido de --new-first pode ser revisado separadamente."});
+                    if let Some(id) = self.out.candidates.last().map(|c| c.id.clone()) {
+                        self.build_pytest_nodeids_subset(root, &id, &project);
+                    }
+                    continue;
+                }
+                if [".mypy_cache", ".ruff_cache"].contains(&n.as_ref()) {
                     self.candidate(root,&path,&project,CandidatePolicy{detector:"python.toolcache",title:"Cache de ferramenta Python",category:"Desenvolvimento",risk:Risk::Protected,reason:"Formato específico da ferramenta não validado para remoção; inventário."});
                     continue;
                 }
@@ -1211,6 +1342,16 @@ pub fn scan(
     limits: &ScanLimits,
     on_progress: impl FnMut(ScanProgress),
 ) -> Result<ScanSnapshot, String> {
+    scan_with_validation_budget(roots, control, limits, on_progress, 512 * 1024 * 1024)
+}
+
+fn scan_with_validation_budget(
+    roots: &[ApprovedRoot],
+    control: &ScanControl,
+    limits: &ScanLimits,
+    on_progress: impl FnMut(ScanProgress),
+    validation_budget: u64,
+) -> Result<ScanSnapshot, String> {
     if limits.max_entries == 0
         || limits.max_entries > 1_000_000
         || limits.max_candidates == 0
@@ -1260,7 +1401,7 @@ pub fn scan(
         on_progress,
         identities: HashSet::new(),
         git_paths: HashSet::new(),
-        validation_bytes_left: 512 * 1024 * 1024,
+        validation_bytes_left: validation_budget,
     };
     for root in roots {
         match root.volume() {
@@ -1280,15 +1421,59 @@ pub fn scan(
         );
     }
     walk.out.stats.elapsed_ms = walk.start.elapsed().as_millis().min(u64::MAX as u128) as u64;
-    (walk.on_progress)(ScanProgress {
-        visited: walk.out.stats.visited,
-        candidates: walk.out.candidates.len(),
-        stage: if walk.out.cancelled {
-            "Cancelado"
-        } else {
-            "Concluído"
-        }
-        .into(),
-    });
+    let final_stage = if walk.out.cancelled {
+        "Cancelado"
+    } else {
+        "Concluído"
+    }
+    .to_owned();
+    let event = walk.progress_event(&final_stage);
+    (walk.on_progress)(event);
     Ok(walk.out)
+}
+
+#[cfg(test)]
+mod pytest_budget_tests {
+    use super::*;
+    use std::fs;
+
+    #[test]
+    fn insufficient_pytest_validation_budget_emits_no_review_candidate() {
+        let fixture = tempfile::tempdir().unwrap();
+        let cache = fixture.path().join("project/.pytest_cache");
+        let values = cache.join("v/cache");
+        fs::create_dir_all(&values).unwrap();
+        fs::write(cache.join("README.md"), b"# pytest cache directory #\n\nThis directory contains data from the pytest's cache plugin,\nwhich provides the `--lf` and `--ff` options, as well as the `cache` fixture.\n\n**Do not** commit this to version control.\nSee [the docs](https://docs.pytest.org/en/stable/how-to/cache.html) for more information.\n").unwrap();
+        fs::write(
+            cache.join(".gitignore"),
+            b"# Created by pytest automatically.\n*\n",
+        )
+        .unwrap();
+        fs::write(cache.join("CACHEDIR.TAG"), b"Signature: 8a477f597d28d172789f06886806bc55\n# This file is a cache directory tag created by pytest.\n# For information about cache directory tags, see:\n#\thttps://bford.info/cachedir/spec.html\n").unwrap();
+        fs::write(values.join("nodeids"), br#"["tests/test_a.py::test_a"]"#).unwrap();
+
+        let approved = ApprovedRoot::open(fixture.path(), ScopeKind::Projects).unwrap();
+        let budget = crate::cache_rules::pytest_nodeids_max_validation_bytes() - 1;
+        let mut stages = Vec::new();
+        let snapshot = scan_with_validation_budget(
+            &[approved],
+            &ScanControl::default(),
+            &ScanLimits::default(),
+            |event| stages.push(event.stage),
+            budget,
+        )
+        .unwrap();
+
+        assert!(snapshot.complete);
+        assert!(snapshot
+            .candidates
+            .iter()
+            .all(|candidate| candidate.detector_id != "python.pytest-nodeids"));
+        assert!(snapshot.candidates.iter().any(|candidate| {
+            candidate.detector_id == "python.toolcache" && candidate.risk == Risk::Protected
+        }));
+        assert!(!stages
+            .iter()
+            .any(|stage| stage == "Validando índice de testes pytest"));
+    }
 }

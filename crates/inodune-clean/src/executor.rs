@@ -99,6 +99,7 @@ enum CacheKind {
     Thumbnails,
     CargoMetadata,
     TerraformProvider,
+    PytestNodeIds,
 }
 impl CacheKind {
     fn detector(id: &str) -> Option<Self> {
@@ -107,6 +108,7 @@ impl CacheKind {
             "thumbnails" => Self::Thumbnails,
             "cargo.fingerprint-json" => Self::CargoMetadata,
             "terraform.provider-package" => Self::TerraformProvider,
+            "python.pytest-nodeids" => Self::PytestNodeIds,
             _ => return None,
         })
     }
@@ -495,6 +497,17 @@ fn validate_policy(
                 ));
             }
         }
+        CacheKind::PytestNodeIds => {
+            if inodune_core::cache_rules::validate_pytest_nodeids_leaf(
+                &target.root,
+                &target.relative,
+            )
+            .as_ref()
+                != Some(&target.fingerprint)
+            {
+                return Err("Índice pytest ou marcadores mudaram desde a análise.".into());
+            }
+        }
         _ => {}
     }
     validate_witnesses(target)
@@ -670,6 +683,10 @@ fn process_file(
                 == Some(expected)
         }
         CacheKind::TerraformProvider => true, // Complete package h1 was checked before staging.
+        CacheKind::PytestNodeIds => {
+            inodune_core::cache_rules::validate_pytest_nodeids_leaf(&target.root, relative).as_ref()
+                == Some(expected)
+        }
     };
     if fp.mode & 0o022 != 0 || !valid {
         return fail("Formato, fonte ou permissões do cache mudaram; preservado.");

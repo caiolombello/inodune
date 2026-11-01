@@ -1499,7 +1499,7 @@ dependencies = [
 
 [[package]]
 name = "inodune-clean"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "chrono",
  "getrandom 0.3.4",
@@ -1513,7 +1513,7 @@ dependencies = [
 
 [[package]]
 name = "inodune-cli"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "ctrlc",
  "inodune-clean",
@@ -1525,7 +1525,7 @@ dependencies = [
 
 [[package]]
 name = "inodune-core"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "base64 0.22.1",
  "rustix",
@@ -1537,10 +1537,12 @@ dependencies = [
 
 [[package]]
 name = "inodune-desktop"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
+ "getrandom 0.3.4",
  "inodune-clean",
  "inodune-core",
+ "rustix",
  "serde",
  "serde_json",
  "tauri",
