@@ -44,6 +44,7 @@ test('complete journey: protect, explain, review, simulate and report with no re
   await expect(
     page.getByRole('heading', { name: 'Simulação concluída.' }),
   ).toBeVisible();
+  await expect(page.getByRole('heading', { level: 1 })).toBeFocused();
   await expect(
     page.getByText('Simulado · sem alteração', { exact: true }),
   ).toHaveCount(2);
@@ -60,7 +61,7 @@ test('pause and cancel never suggests incomplete results', async ({ page }) => {
     page.getByRole('heading', { name: 'Análise pausada' }),
   ).toBeVisible();
   await page.screenshot({
-    path: '../../docs/evidence/chromium-scan-paused.png',
+    path: `../../docs/evidence/${test.info().project.name}-scan-paused.png`,
     fullPage: true,
     animations: 'disabled',
   });
@@ -106,8 +107,9 @@ test('partial execution preserves failures and changed items', async ({
   ).not.toBeVisible();
   await expect(page.getByText('Falhou · permissão simulada')).toBeVisible();
   await expect(page.getByText('Pulado · item alterado')).toBeVisible();
+  expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
   await page.screenshot({
-    path: '../../docs/evidence/chromium-report-partial.png',
+    path: `../../docs/evidence/${test.info().project.name}-report-partial.png`,
     fullPage: true,
     animations: 'disabled',
   });
@@ -128,8 +130,9 @@ test('empty and error states remain truthful across innovation screens', async (
     await page.getByRole('button', { name: 'Analisar cenário' }).click();
     if (scenario === 'error') {
       await expect(page.getByRole('alert')).toContainText('Permissão negada');
+      expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
       await page.screenshot({
-        path: '../../docs/evidence/chromium-scan-error.png',
+        path: `../../docs/evidence/${test.info().project.name}-scan-error.png`,
         fullPage: true,
         animations: 'disabled',
       });

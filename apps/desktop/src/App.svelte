@@ -217,7 +217,7 @@
       ? scopes.filter((s) => s !== id)
       : [...scopes, id];
   }
-  function startScan() {
+  async function startScan() {
     clearTimeout(scanTimer);
     candidates = [];
     selected = [];
@@ -235,6 +235,8 @@
         ? []
         : demo.candidates.filter((c) => scopes.includes(c.scope_id));
     scanTimer = setTimeout(emitScan, 420);
+    await tick();
+    heading?.focus();
   }
   function emitScan() {
     if (scanState !== 'scanning') return;
@@ -276,7 +278,7 @@
         'Não foi possível copiar. O caminho permanece disponível para seleção.';
     }
   }
-  function startExecution() {
+  async function startExecution() {
     if (!consent || !budget.picked.length || executing) return;
     confirmation = false;
     executing = true;
@@ -290,6 +292,8 @@
       outcome: 'pending',
     }));
     processItem();
+    await tick();
+    heading?.focus();
   }
   function processItem() {
     if (!executing) return;
@@ -347,7 +351,7 @@
         >Inodune<span class="brand-dot">.</span></span
       ></a
     >
-    <div class="workspace-label">SEU ESPAÇO DE TRABALHO</div>
+    <div class="workspace-label">ESPAÇO DE TRABALHO</div>
     <nav aria-label="Áreas do aplicativo">
       {#each nav as item (item.id)}<button
           class:active={page === item.id}
@@ -604,9 +608,9 @@
               >
               <div class="category-footer">
                 <span
-                  >{group.length} itens {eligible.length
-                    ? 'no exemplo'
-                    : 'em inventário'}</span
+                  >{group.length}
+                  {group.length === 1 ? 'item' : 'itens'}
+                  {eligible.length ? 'no exemplo' : 'em inventário'}</span
                 >{#if group.length}<span class="tiny-label"
                     >{eligible.length ? 'Revisar' : 'Protegido'}</span
                   >{/if}
@@ -642,6 +646,7 @@
               <div class="skeleton"></div>
               <div class="skeleton"></div>
             </div>{:else}<ItemList
+              disabled={executing}
               items={available}
               {selected}
               ontoggle={toggle}
@@ -1180,7 +1185,11 @@
       <dt>Última atividade</dt>
       <dd>{detail.activity}</dd>
       <dt>Tamanho lógico / alocado</dt>
-      <dd>{formatBytes(detail.logical_bytes)} / não medido</dd>
+      <dd>
+        {detail.coverage_key
+          ? formatBytes(detail.logical_bytes)
+          : 'Não contabilizado separadamente'} / não medido
+      </dd>
     </dl>
     <details>
       <summary>Detector e evidências técnicas</summary><code
