@@ -1,0 +1,8 @@
+{
+  "identifier": "main",
+  "description": "Phase 0: no application commands, filesystem, shell or network plugins.",
+  "windows": [
+    "main"
+  ],
+  "permissions": []
+}

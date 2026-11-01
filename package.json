@@ -1,0 +1,31 @@
+{
+  "name": "inodune-workspace",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "apps/desktop"
+  ],
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "scripts": {
+    "dev": "npm run dev -w @inodune/desktop",
+    "build": "npm run build -w @inodune/desktop",
+    "typecheck": "npm run typecheck -w @inodune/desktop",
+    "lint": "eslint apps/desktop/src apps/desktop/tests apps/desktop/*.ts",
+    "test": "npm run test -w @inodune/desktop",
+    "test:e2e": "npm run test:e2e -w @inodune/desktop --",
+    "format:check": "prettier --check apps/desktop/src apps/desktop/tests",
+    "desktop": "npm run tauri -w @inodune/desktop -- dev"
+  },
+  "devDependencies": {
+    "@eslint/js": "10.0.1",
+    "eslint": "10.14.0",
+    "eslint-plugin-svelte": "3.23.1",
+    "globals": "17.13.0",
+    "prettier": "3.9.10",
+    "prettier-plugin-svelte": "4.1.1",
+    "typescript-eslint": "8.72.1"
+  }
+}
