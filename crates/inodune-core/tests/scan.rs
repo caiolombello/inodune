@@ -227,6 +227,93 @@ fn rejects_root_replaced_after_approval() {
 }
 
 #[test]
+fn exclusions_are_literal_prefixes_and_skip_before_metadata() {
+    use std::os::unix::fs::PermissionsExt;
+    let root = tempfile::tempdir().unwrap();
+    fs::create_dir_all(root.path().join("project/generated/private")).unwrap();
+    fs::create_dir_all(root.path().join("project/__pycache__")).unwrap();
+    fs::write(
+        root.path().join("project/Cargo.toml"),
+        b"[package]\nname='x'\n",
+    )
+    .unwrap();
+    fs::write(root.path().join("project/main.py"), b"pass").unwrap();
+    fs::write(
+        root.path().join("project/__pycache__/main.cpython-313.pyc"),
+        b"hidden",
+    )
+    .unwrap();
+    fs::write(
+        root.path().join("project/generated/private/secret"),
+        b"private",
+    )
+    .unwrap();
+    fs::set_permissions(
+        root.path().join("project/generated/private"),
+        fs::Permissions::from_mode(0o0),
+    )
+    .unwrap();
+    let approved = ApprovedRoot::open(root.path(), ScopeKind::Projects)
+        .unwrap()
+        .with_exclusions(vec![
+            std::path::PathBuf::from("./project/generated"),
+            std::path::PathBuf::from("project/__pycache__/main.cpython-313.pyc"),
+        ])
+        .unwrap();
+    assert!(approved.is_excluded(std::path::Path::new("project/generated/private/secret")));
+    assert!(!approved.is_excluded(std::path::Path::new("project/generated-other")));
+    let result = scan(
+        &[approved],
+        &ScanControl::default(),
+        &ScanLimits::default(),
+        |_| {},
+    )
+    .unwrap();
+    assert!(result.complete);
+    assert!(result
+        .issues
+        .iter()
+        .any(|issue| issue.code == "policy_excluded"));
+    assert!(!result
+        .issues
+        .iter()
+        .any(|issue| issue.display_path.ends_with("/secret")));
+    assert!(result
+        .candidates
+        .iter()
+        .all(|candidate| !candidate.display_path.contains("generated")));
+    let cache = result
+        .candidates
+        .iter()
+        .find(|candidate| candidate.detector_id == "python.pycache")
+        .unwrap();
+    assert_eq!(cache.risk, inodune_core::Risk::Protected);
+    assert!(cache.coverage_key.is_none());
+    assert!(matches!(
+        cache.supported_action,
+        inodune_core::SupportedAction::None
+    ));
+    fs::set_permissions(
+        root.path().join("project/generated/private"),
+        fs::Permissions::from_mode(0o700),
+    )
+    .unwrap();
+}
+
+#[test]
+fn exclusions_reject_parent_absolute_and_control_paths() {
+    let root = tempfile::tempdir().unwrap();
+    let approved = ApprovedRoot::open(root.path(), ScopeKind::Projects).unwrap();
+    for invalid in ["../outside", "/tmp", "bad\npath", ""] {
+        assert!(approved.with_exclusions(vec![invalid.into()]).is_err());
+    }
+    assert!(approved
+        .with_exclusions(vec![".".into()])
+        .unwrap()
+        .is_excluded(std::path::Path::new("anything")));
+}
+
+#[test]
 #[ignore = "requires unprivileged user+mount namespaces; run explicitly in an isolated namespace"]
 fn refuses_bind_mounts_in_private_user_namespace() {
     if std::env::var_os("INODUNE_MOUNT_TEST_CHILD").is_none() {

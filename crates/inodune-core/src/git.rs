@@ -119,6 +119,13 @@ fn inspect_with_tools(
             false,
         );
     }
+    if root.has_exclusions() {
+        return fail(
+            &mut inventory,
+            "Escopo tem exclusões; Git externo não é executado para preservar o limite de leitura.",
+            false,
+        );
+    }
     if inventory.repository_bytes_hex.is_some() {
         return fail(
             &mut inventory,

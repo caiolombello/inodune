@@ -51,9 +51,17 @@ pub struct ApprovedRoot {
     pub kind: ScopeKind,
     pub(crate) dev: u64,
     pub(crate) ino: u64,
+    exclusions: Arc<Vec<PathBuf>>,
 }
 impl ApprovedRoot {
     pub fn open(path: &Path, kind: ScopeKind) -> Result<Self, String> {
+        Self::open_with_exclusions(path, kind, Vec::new())
+    }
+    fn open_with_exclusions(
+        path: &Path,
+        kind: ScopeKind,
+        exclusions: Vec<PathBuf>,
+    ) -> Result<Self, String> {
         if kind == ScopeKind::Thumbnails && xdg_thumbnail_root().as_deref() != Some(path) {
             return Err("A pasta não corresponde a XDG_CACHE_HOME/thumbnails. Use inventário protegido para localizações não confirmadas.".into());
         }
@@ -99,7 +107,73 @@ impl ApprovedRoot {
             kind,
             dev: st.st_dev,
             ino: st.st_ino,
+            exclusions: Arc::new(exclusions),
         })
+    }
+    pub fn with_exclusions(&self, exclusions: Vec<PathBuf>) -> Result<Self, String> {
+        if exclusions.len() > 128 || exclusions.iter().any(|p| p.as_os_str().len() > 4096) {
+            return Err("Limite de 128 exclusões e 4.096 bytes por caminho.".into());
+        }
+        let mut normalized = Vec::with_capacity(exclusions.len());
+        for path in exclusions {
+            if path.as_os_str().is_empty()
+                || path
+                    .to_str()
+                    .is_none_or(|s| s.chars().any(char::is_control))
+                || path.is_absolute()
+                || path.components().any(|c| {
+                    matches!(
+                        c,
+                        Component::ParentDir | Component::RootDir | Component::Prefix(_)
+                    )
+                })
+            {
+                return Err("Exclusão inválida: use um caminho relativo sem '..' ou caracteres de controle.".into());
+            }
+            let mut clean = PathBuf::new();
+            for component in path.components() {
+                match component {
+                    Component::CurDir => {}
+                    Component::Normal(name) => clean.push(name),
+                    _ => return Err("Exclusão inválida.".into()),
+                }
+            }
+            if clean.as_os_str().is_empty() {
+                clean.push(".");
+            }
+            if !normalized.contains(&clean) {
+                normalized.push(clean);
+            }
+        }
+        let mut root = self.clone();
+        root.exclusions = Arc::new(normalized);
+        Ok(root)
+    }
+    pub fn is_excluded(&self, path: &Path) -> bool {
+        let Some(normalized) = normalize_relative(path) else {
+            return false;
+        };
+        self.exclusions.iter().any(|excluded| {
+            excluded == Path::new(".")
+                || normalized == *excluded
+                || normalized.starts_with(excluded)
+        })
+    }
+    fn intersects_exclusion(&self, path: &Path) -> bool {
+        let Some(normalized) = normalize_relative(path) else {
+            return false;
+        };
+        self.exclusions.iter().any(|excluded| {
+            excluded == Path::new(".")
+                || normalized.starts_with(excluded)
+                || excluded.starts_with(&normalized)
+        })
+    }
+    pub fn has_exclusions(&self) -> bool {
+        !self.exclusions.is_empty()
+    }
+    pub fn exclusions(&self) -> &[PathBuf] {
+        &self.exclusions
     }
     pub fn revalidate(&self) -> Result<(), String> {
         let current = Self::open(&self.path, self.kind)?;
@@ -119,6 +193,9 @@ impl ApprovedRoot {
         &self.path
     }
     pub fn open_relative(&self, path: &Path, flags: OFlags) -> Result<OwnedFd, Errno> {
+        if self.is_excluded(path) {
+            return Err(Errno::NOENT);
+        }
         fs::openat2(
             &*self.fd,
             path,
@@ -145,6 +222,17 @@ impl ApprovedRoot {
                 .ok_or("Volume maior que o limite")?,
         })
     }
+}
+fn normalize_relative(path: &Path) -> Option<PathBuf> {
+    let mut normalized = PathBuf::new();
+    for component in path.components() {
+        match component {
+            Component::CurDir => {}
+            Component::Normal(name) => normalized.push(name),
+            _ => return None,
+        }
+    }
+    Some(normalized)
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct VolumeInfo {
@@ -390,6 +478,19 @@ impl<F: FnMut(ScanProgress)> Walker<'_, F> {
             }
             self.out.stats.visited += 1;
             self.progress();
+            let child = rel.join(OsString::from(std::ffi::OsStr::from_bytes(name)));
+            if root.is_excluded(&child) {
+                self.out.stats.skipped += 1;
+                if self.out.issues.len() < self.limits.max_issues {
+                    self.out.issues.push(ScanIssue {
+                        display_path: root.path.join(&child).to_string_lossy().into(),
+                        code: "policy_excluded".into(),
+                        message: "Caminho excluído por política do escopo; conteúdo não acessado."
+                            .into(),
+                    });
+                }
+                continue;
+            }
             if names.len() >= 65_536 {
                 self.issue(
                     &root.path.join(rel),
@@ -537,6 +638,9 @@ impl<F: FnMut(ScanProgress)> Walker<'_, F> {
             return;
         };
         let (logical, allocated, mut complete, files) = self.measure(root, rel);
+        if root.intersects_exclusion(rel) {
+            complete = false;
+        }
         let coverage_complete = complete;
         // Ambiguous display names must never become a mutation authorization.
         let unambiguous = |path: &Path| {
@@ -785,6 +889,17 @@ impl<F: FnMut(ScanProgress)> Walker<'_, F> {
         }
     }
     fn walk_root(&mut self, root: &ApprovedRoot) {
+        if root.is_excluded(Path::new(".")) {
+            self.out.stats.skipped += 1;
+            if self.out.issues.len() < self.limits.max_issues {
+                self.out.issues.push(ScanIssue {
+                    display_path: root.display_path(),
+                    code: "policy_excluded".into(),
+                    message: "Escopo excluído por política; conteúdo não acessado.".into(),
+                });
+            }
+            return;
+        }
         if root.kind == ScopeKind::Protected || is_protected_agent_path(root.path()) {
             self.candidate(root,Path::new("."),&root.path.file_name().unwrap_or_default().to_string_lossy(),CandidatePolicy{detector:"ai.history",title:"Inventário protegido",category:"IA & Agentes",risk:Risk::Protected,reason:"Escopo de conteúdo não regenerável; apenas metadados e tamanhos são inventariados."});
             return;
