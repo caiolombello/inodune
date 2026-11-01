@@ -665,7 +665,15 @@ impl<F: FnMut(ScanProgress)> Walker<'_, F> {
                     }
                 }
                 FileType::RegularFile => {
-                    if st.st_mode & 0o022 != 0 {
+                    if crate::access::stat_write_allowed(
+                        crate::access::WriteRole::CacheLeaf,
+                        st.st_uid,
+                        st.st_gid,
+                        st.st_mode,
+                        &crate::access::SystemGroups,
+                    )
+                    .is_err()
+                    {
                         complete = false;
                     }
                     if st.st_nlink != 1 {
