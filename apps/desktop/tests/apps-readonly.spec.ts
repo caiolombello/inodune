@@ -85,6 +85,7 @@ test('inventory is opt-in, read-only and exposes partial sources and signal conf
   await expect(inventory.getByText('Protegido', { exact: true })).toBeVisible();
   await expect(inventory.getByText(/confiança baixa/)).toBeVisible();
   await expect(inventory.getByText('Último uso desconhecido.')).toBeVisible();
+  await expect(inventory.getByText('Tamanho desconhecido')).toBeVisible();
   await expect(
     inventory.getByText('Fonte de sistema indisponível'),
   ).toBeVisible();

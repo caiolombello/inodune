@@ -34,13 +34,15 @@ impl PackageSource for RpmDnf {
         let names: Vec<_> = ids(&run(Query::Dnf)?)?.into_iter().collect();
         let protected = protected_names(Path::new("/etc/dnf/protected.d"));
         let mut items = vec![];
+        let mut warnings = vec![];
         for batch in names.chunks(128) {
-            items.extend(parse_rpm(
-                &run(Query::Rpm(batch))?,
-                protected.as_ref().ok(),
-            )?);
+            let (parsed, batch_warnings) =
+                parse_rpm(&run(Query::Rpm(batch))?, protected.as_ref().ok())?;
+            items.extend(parsed);
+            warnings.extend(batch_warnings);
         }
         let mut result = report(self.name(), "ok", items);
+        result.warnings = warnings;
         if let Err(e) = protected {
             for item in &mut result.items {
                 item.protect();
@@ -82,25 +84,40 @@ fn protected_names(dir: &Path) -> Result<BTreeSet<String>, String> {
 fn parse_rpm(
     text: &str,
     protected: Option<&BTreeSet<String>>,
-) -> Result<Vec<InstalledItem>, String> {
-    text.lines()
-        .map(|line| {
-            let f: Vec<_> = line.split('\t').collect();
-            if f.len() != 4 || !valid_id(f[0]) {
-                return Err("Registro RPM inválido".into());
+) -> Result<(Vec<InstalledItem>, Vec<String>), String> {
+    let mut items = vec![];
+    let mut warnings = vec![];
+    for line in text.lines() {
+        let f: Vec<_> = line.split('\t').collect();
+        if f.len() != 4 || !valid_id(f[0]) {
+            return Err("Registro RPM inválido".into());
+        }
+        let mut item = InstalledItem::new(Source::Rpm, f[0], f[0]);
+        item.version = (!f[1].is_empty()).then(|| f[1].into());
+        match rpm_size(f[2]) {
+            Ok(size) => item.size_bytes = size,
+            Err(()) => {
+                warnings.push(format!("Tamanho RPM inválido: {}", f[0]));
+                item.notes
+                    .push("Tamanho RPM inválido; tamanho desconhecido".into());
             }
-            let mut item = InstalledItem::new(Source::Rpm, f[0], f[0]);
-            item.version = Some(f[1].into());
-            item.size_bytes = Some(f[2].parse().map_err(|_| "Tamanho RPM inválido")?);
-            item.install_date = timestamp(f[3]);
-            if protected.is_none_or(|p| p.contains(f[0])) {
-                item.protect();
-            }
-            item.notes
-                .push("Motivo de instalação DNF não prova autoria humana; sem sinal de uso".into());
-            Ok(item)
-        })
-        .collect()
+        }
+        item.install_date = timestamp(f[3]);
+        if protected.is_none_or(|p| p.contains(f[0])) {
+            item.protect();
+        }
+        item.notes
+            .push("Motivo de instalação DNF não prova autoria humana; sem sinal de uso".into());
+        items.push(item);
+    }
+    Ok((items, warnings))
+}
+fn rpm_size(raw: &str) -> Result<Option<u64>, ()> {
+    let raw = raw.trim();
+    if raw.is_empty() || raw == "(none)" {
+        return Ok(None);
+    }
+    raw.parse::<u64>().map(Some).map_err(|_| ())
 }
 pub struct Flatpak<'a> {
     pub home: &'a Path,
@@ -168,6 +185,9 @@ fn parse_flatpak(text: &str, user: bool) -> Result<Vec<InstalledItem>, String> {
             );
             item.version = (!f[2].is_empty()).then(|| f[2].into());
             item.size_bytes = human_size(f[3]);
+            if item.size_bytes.is_none() && !f[3].trim().is_empty() {
+                item.notes.push("Tamanho Flatpak ilegível".into());
+            }
             item.notes.push(format!(
                 "branch={}, arch={}; tamanho aproximado do Flatpak",
                 f[4], f[5]
@@ -202,8 +222,9 @@ impl PackageSource for AptDpkg {
     }
     fn list(&self) -> Result<SourceReport, String> {
         let manual = ids(&run(Query::AptManual)?)?;
-        let mut items = parse_dpkg(&run(Query::Dpkg)?, &manual)?;
-        let (dates, warnings) = dpkg_dates(Path::new("/var/log"));
+        let (mut items, mut warnings) = parse_dpkg(&run(Query::Dpkg)?, &manual)?;
+        let (dates, date_warnings) = dpkg_dates(Path::new("/var/log"));
+        warnings.extend(date_warnings);
         for item in &mut items {
             item.install_date = dates
                 .get(&item.id)
@@ -217,8 +238,12 @@ impl PackageSource for AptDpkg {
         })
     }
 }
-fn parse_dpkg(text: &str, manual: &BTreeSet<String>) -> Result<Vec<InstalledItem>, String> {
+fn parse_dpkg(
+    text: &str,
+    manual: &BTreeSet<String>,
+) -> Result<(Vec<InstalledItem>, Vec<String>), String> {
     let mut items = vec![];
+    let mut warnings = vec![];
     for line in text.lines() {
         let f: Vec<_> = line.split('\t').collect();
         if f.len() != 6 || !valid_id(f[0]) {
@@ -230,19 +255,29 @@ fn parse_dpkg(text: &str, manual: &BTreeSet<String>) -> Result<Vec<InstalledItem
             continue;
         }
         let mut item = InstalledItem::new(Source::Apt, f[0], f[0]);
-        item.version = Some(f[1].into());
-        item.size_bytes = Some(
-            f[2].parse::<u64>()
-                .ok()
-                .and_then(|n| n.checked_mul(1024))
-                .ok_or("Installed-Size inválido")?,
-        );
+        item.version = (!f[1].is_empty()).then(|| f[1].into());
+        match apt_installed_bytes(f[2]) {
+            Ok(size) => item.size_bytes = size,
+            Err(()) => {
+                warnings.push(format!("Installed-Size inválido: {}", f[0]));
+                item.notes
+                    .push("Installed-Size inválido; tamanho desconhecido".into());
+            }
+        }
         if f[4] == "yes" || matches!(f[5], "required" | "important") {
             item.protect();
         }
         items.push(item);
     }
-    Ok(items)
+    Ok((items, warnings))
+}
+fn apt_installed_bytes(raw: &str) -> Result<Option<u64>, ()> {
+    let raw = raw.trim();
+    if raw.is_empty() {
+        return Ok(None);
+    }
+    let kib = raw.parse::<u64>().map_err(|_| ())?;
+    kib.checked_mul(1024).map(Some).ok_or(())
 }
 fn log_dates(text: &str, dates: &mut BTreeMap<String, u64>) {
     use chrono::TimeZone;
@@ -351,12 +386,13 @@ mod tests {
         let names = ids("editor\ncompiler\n").unwrap();
         assert_eq!(names.len(), 2);
         assert!(ids("-bad\n").is_err());
-        let item = parse_rpm(
+        let (mut parsed, warnings) = parse_rpm(
             "editor\t1.0-1\t1024\t1700000000\n",
             Some(&BTreeSet::from(["editor".into()])),
         )
-        .unwrap()
-        .remove(0);
+        .unwrap();
+        assert!(warnings.is_empty());
+        let item = parsed.remove(0);
         assert!(item.protected);
         assert_eq!(item.install_date, Some(1700000000));
         assert!(parse_rpm("bad data", None).is_err());
@@ -381,11 +417,106 @@ mod tests {
     fn synthetic_apt_status_sizes_protection() {
         let manual = ids("editor\nessential\npriority\nremoved\n").unwrap();
         let text="editor\t1\t12\tinstall ok installed\tno\toptional\nessential\t2\t1\tinstall ok installed\tyes\toptional\npriority\t1\t2\tinstall ok installed\tno\timportant\nremoved\t1\t0\tdeinstall ok config-files\tno\toptional\ndependency\t1\t3\tinstall ok installed\tno\toptional\n";
-        let items = parse_dpkg(text, &manual).unwrap();
+        let (items, warnings) = parse_dpkg(text, &manual).unwrap();
+        assert!(warnings.is_empty());
         assert_eq!(items.len(), 3);
         assert_eq!(items[0].size_bytes, Some(12 * 1024));
         assert!(items[1].protected && items[2].protected);
         assert!(parse_dpkg("bad", &manual).is_err());
+    }
+    #[test]
+    fn empty_installed_size_keeps_valid_apt_packages() {
+        let manual = ids("synthetic-editor\nvendor-vpn-client\nvendor-agent\nvendor-endpoint-security\nvendor-network-agent\nvendor-tool\nsynthetic-sdk\nsynthetic-lib\n").unwrap();
+        let (items, warnings) = parse_dpkg(
+            include_str!("../fixtures/dpkg-empty-installed-size.txt"),
+            &manual,
+        )
+        .expect("Installed-Size vazio não pode falhar a fonte apt");
+        assert!(warnings.is_empty());
+        let json = serde_json::to_value(&items).unwrap();
+        assert!(json.as_array().unwrap().iter().any(|item| {
+            item["id"] == "vendor-vpn-client:amd64" && item["size_bytes"].is_null()
+        }));
+        assert_eq!(items.len(), 8);
+        let by_id = |id: &str| items.iter().find(|item| item.id == id).expect(id);
+        assert_eq!(by_id("synthetic-editor:amd64").size_bytes, Some(12 * 1024));
+        assert_eq!(by_id("synthetic-lib:amd64").size_bytes, Some(1024));
+        assert_eq!(
+            by_id("synthetic-sdk:amd64").size_bytes,
+            Some(1_234_567 * 1024)
+        );
+        for (id, version) in [
+            ("vendor-vpn-client:amd64", "6.2.0"),
+            ("vendor-agent:amd64", "12.5.0-1569"),
+            ("vendor-endpoint-security:amd64", "16.2.0.1352"),
+            ("vendor-network-agent:amd64", "1.2.835.0-1"),
+            ("vendor-tool:amd64", "6.2.0"),
+        ] {
+            let item = by_id(id);
+            assert_eq!(item.size_bytes, None, "{id}");
+            assert_eq!(item.version.as_deref(), Some(version));
+        }
+        assert!(items.iter().all(|item| item.id != "not-manual:amd64"));
+        assert!(items.iter().all(|item| item.id != "removed-pkg:amd64"));
+    }
+    #[test]
+    fn malformed_installed_size_warns_without_failing_apt() {
+        let manual = ids("synthetic-editor\nvendor-badsize\nvendor-huge\nvendor-blank\n").unwrap();
+        let text = "\
+synthetic-editor:amd64\t1.2.3-1\t12\tinstall ok installed\tno\toptional\n\
+vendor-badsize:amd64\t9.9.9\tnope\tinstall ok installed\tno\toptional\n\
+vendor-huge:amd64\t1\t18446744073709551615\tinstall ok installed\tno\toptional\n\
+vendor-blank:amd64\t\t   \tinstall ok installed\tno\toptional\n";
+        let (items, warnings) = parse_dpkg(text, &manual).unwrap();
+        assert_eq!(items.len(), 4);
+        assert_eq!(items[0].size_bytes, Some(12 * 1024));
+        assert_eq!(items[1].size_bytes, None);
+        assert_eq!(items[2].size_bytes, None);
+        assert_eq!(items[3].size_bytes, None);
+        assert_eq!(items[3].version, None);
+        assert!(items[1]
+            .notes
+            .iter()
+            .any(|note| note.contains("desconhecido")));
+        assert_eq!(warnings.len(), 2);
+        assert!(warnings.iter().any(|w| w.contains("vendor-badsize:amd64")));
+        assert!(warnings.iter().any(|w| w.contains("vendor-huge:amd64")));
+        assert!(warnings.iter().all(|w| !w.contains("vendor-blank")));
+        assert!(warnings.iter().all(|w| !w.contains("synthetic-editor")));
+    }
+    #[test]
+    fn rpm_missing_size_does_not_fail_the_source() {
+        let (items, warnings) = parse_rpm(
+            "editor\t1.0-1\t\t1700000000\nlibrary\t2\t(none)\t1700000000\nbroken\t3\txyz\t1700000000\n",
+            Some(&BTreeSet::new()),
+        )
+        .unwrap();
+        assert_eq!(items.len(), 3);
+        assert!(items.iter().all(|item| item.size_bytes.is_none()));
+        assert!(!items[0].protected && !items[1].protected);
+        assert_eq!(warnings, vec!["Tamanho RPM inválido: broken".to_string()]);
+        assert!(parse_rpm("bad data", None).is_err());
+    }
+    #[test]
+    fn flatpak_missing_size_stays_on_the_item() {
+        let items = parse_flatpak(
+            "org.example.Editor\tEditor\t1\t1.5 MB\tstable\tx86_64\norg.example.Empty\tEmpty\t\t\tstable\tx86_64\norg.example.Bad\tBad\t1\tnope\tstable\tx86_64\n",
+            false,
+        )
+        .unwrap();
+        assert_eq!(items.len(), 3);
+        assert_eq!(items[0].size_bytes, Some(1_500_000));
+        assert_eq!(items[1].size_bytes, None);
+        assert_eq!(items[1].version, None);
+        assert!(items[1]
+            .notes
+            .iter()
+            .all(|n| n != "Tamanho Flatpak ilegível"));
+        assert_eq!(items[2].size_bytes, None);
+        assert!(items[2]
+            .notes
+            .iter()
+            .any(|n| n == "Tamanho Flatpak ilegível"));
     }
     #[test]
     fn dpkg_plain_rotated_gzip_and_bombs() {

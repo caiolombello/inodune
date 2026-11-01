@@ -94,7 +94,15 @@ fn manifest(text: &str, id: &str) -> Result<InstalledItem, String> {
         return Err("AppID divergente".into());
     }
     let mut item = InstalledItem::new(Source::Steam, id, get("name").ok_or("Nome ausente")?);
-    item.size_bytes = get("SizeOnDisk").and_then(|s| s.parse().ok());
+    if let Some(raw) = get("SizeOnDisk") {
+        let raw = raw.trim();
+        if !raw.is_empty() {
+            match raw.parse::<u64>() {
+                Ok(n) => item.size_bytes = Some(n),
+                Err(_) => item.notes.push("SizeOnDisk ilegível".into()),
+            }
+        }
+    }
     if let Some(t) = get("LastPlayed").and_then(timestamp) {
         item.signals.push(UsageSignal {
             kind: "steam_last_played".into(),
@@ -120,6 +128,14 @@ mod tests {
         assert_eq!(item.size_bytes, Some(1024));
         assert_eq!(item.signals.len(), 1);
         assert!(manifest(s, "43").is_err());
+        let bad = r#""AppState" { "appid" "42" "name" "Synthetic Game" "SizeOnDisk" "nope" }"#;
+        let bad = manifest(bad, "42").unwrap();
+        assert_eq!(bad.size_bytes, None);
+        assert!(bad.notes.iter().any(|n| n.contains("SizeOnDisk")));
+        let missing = r#""AppState" { "appid" "42" "name" "Synthetic Game" }"#;
+        let missing = manifest(missing, "42").unwrap();
+        assert_eq!(missing.size_bytes, None);
+        assert!(missing.notes.iter().all(|n| !n.contains("SizeOnDisk")));
     }
     #[test]
     fn library_and_manifest_symlinks_are_refused() {

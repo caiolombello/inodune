@@ -57,38 +57,10 @@ fn run_with_control(args: Vec<String>, control: &ScanControl) -> Result<(String,
     }
     match values.as_slice() {
         ["apps", "list"] | ["apps", "list", "--json"] => {
-            let inventory = inodune_apps::inventory()?;
-            let partial = inventory
-                .sources
-                .iter()
-                .any(|s| matches!(s.status.as_str(), "partial" | "error"));
-            let output = if values.last() == Some(&"--json") {
-                serde_json::to_string_pretty(&inventory).map_err(|e| e.to_string())?
-            } else {
-                let mut lines = vec!["Programas & Jogos · somente leitura".to_string()];
-                for source in &inventory.sources {
-                    lines.push(format!(
-                        "{}: {} ({} itens)",
-                        source.source,
-                        source.status,
-                        source.items.len()
-                    ));
-                    for item in &source.items {
-                        lines.push(format!(
-                            "{:?} | {} | {} | {:?} bytes | uso {:?} | protegido={}",
-                            item.source,
-                            item.id,
-                            item.name,
-                            item.size_bytes,
-                            item.signals,
-                            item.protected
-                        ));
-                    }
-                    lines.extend(source.warnings.iter().cloned());
-                }
-                lines.join("\n")
-            };
-            return Ok((output, partial));
+            return present_apps(
+                &inodune_apps::inventory()?,
+                values.last() == Some(&"--json"),
+            );
         }
 
         ["scan", "--demo", "--json"] => {
@@ -491,13 +463,46 @@ fn validate_root_count(count: usize) -> Result<(), String> {
     }
 }
 
+fn present_apps(inventory: &inodune_apps::Inventory, json: bool) -> Result<(String, bool), String> {
+    let partial = inventory
+        .sources
+        .iter()
+        .any(|source| matches!(source.status.as_str(), "partial" | "error"));
+    let output = if json {
+        serde_json::to_string_pretty(inventory).map_err(|e| e.to_string())?
+    } else {
+        let mut lines = vec!["Programas & Jogos · somente leitura".to_string()];
+        for source in &inventory.sources {
+            lines.push(format!(
+                "{}: {} ({} itens)",
+                source.source,
+                source.status,
+                source.items.len()
+            ));
+            for item in &source.items {
+                let size = match item.size_bytes {
+                    Some(bytes) => format!("{bytes} bytes"),
+                    None => "desconhecido".to_string(),
+                };
+                lines.push(format!(
+                    "{:?} | {} | {} | {size} | uso {:?} | protegido={}",
+                    item.source, item.id, item.name, item.signals, item.protected
+                ));
+            }
+            lines.extend(source.warnings.iter().cloned());
+        }
+        lines.join("\n")
+    };
+    Ok((output, partial))
+}
+
 fn usage() -> String {
     "Uso: inodune apps list [--json]\n     inodune-cli [--help|-h] [--version|-V]\n     inodune-cli scan --auto [--json]\n     inodune-cli scan --root ABS [--root ABS] [--exclude REL]... [--scope projects|thumbnails|protected] [--json]\n     inodune-cli clean --root ABS [--root ABS] [--exclude REL]... [--scope projects|thumbnails|protected] [--dry-run|--apply] [--review cargo.fingerprint-json|terraform.provider-package|python.pytest-nodeids] [--permanent] [--json]\nDemonstração: scan --demo --json | clean --demo --dry-run. --exclude aceita caminhos relativos literais; '.' exclui a root inteira. --review seleciona um único candidato verificado e não aplica a limpeza; por padrão, apenas itens de baixo risco entram no plano. A limpeza real começa em simulação; --apply exige confirmação interativa e digitação exata. Exit 2: erro; exit 3: cobertura ou execução parcial.".into()
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{confirmation_matches, run};
+    use super::{confirmation_matches, present_apps, run};
     use std::fs;
 
     #[test]
@@ -704,5 +709,41 @@ mod tests {
         assert!(!partial);
         assert!(help.contains("--review"));
         assert!(help.contains("--version"));
+    }
+
+    #[test]
+    fn unknown_apt_size_does_not_make_apps_list_fail() {
+        let inventory = inodune_apps::Inventory {
+            read_only: true,
+            distro: inodune_apps::Distro::default(),
+            sources: vec![inodune_apps::SourceReport {
+                source: "apt".into(),
+                status: "ok".into(),
+                warnings: vec!["Installed-Size inválido: vendor-badsize:amd64".into()],
+                items: vec![inodune_apps::InstalledItem {
+                    source: inodune_apps::Source::Apt,
+                    id: "vendor-vpn-client:amd64".into(),
+                    name: "vendor-vpn-client:amd64".into(),
+                    version: Some("6.2.0".into()),
+                    size_bytes: None,
+                    install_date: None,
+                    signals: vec![],
+                    risk: "unknown".into(),
+                    protected: false,
+                    notes: vec![],
+                }],
+            }],
+        };
+        let (text, partial) = present_apps(&inventory, false).unwrap();
+        assert!(!partial);
+        assert!(text.contains("apt: ok (1 itens)"));
+        assert!(text.contains("desconhecido"));
+        assert!(!text.contains("None"));
+        assert!(text.contains("vendor-badsize:amd64"));
+        let (json, partial) = present_apps(&inventory, true).unwrap();
+        assert!(!partial);
+        let value: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert!(value["sources"][0]["items"][0]["size_bytes"].is_null());
+        assert_eq!(value["sources"][0]["status"], "ok");
     }
 }

@@ -1,0 +1,10 @@
+synthetic-editor:amd64	1.2.3-1	12	install ok installed	no	optional
+vendor-vpn-client:amd64	6.2.0		install ok installed	no	optional
+vendor-agent:amd64	12.5.0-1569		install ok installed	no	optional
+vendor-endpoint-security:amd64	16.2.0.1352		install ok installed	no	optional
+vendor-network-agent:amd64	1.2.835.0-1		install ok installed	no	optional
+vendor-tool:amd64	6.2.0		install ok installed	no	optional
+synthetic-sdk:amd64	4.0.0	1234567	install ok installed	no	optional
+synthetic-lib:amd64	1	1	install ok installed	no	optional
+not-manual:amd64	1.0		install ok installed	no	optional
+removed-pkg:amd64	1.0	8	deinstall ok config-files	no	optional

@@ -67,6 +67,15 @@ export const outcomeLabel: Record<Outcome, string> = {
   skipped_changed: 'Pulado · item alterado',
   cancelled: 'Cancelado · não processado',
 };
+export function compareInstalledSize(
+  a: number | null,
+  b: number | null,
+): number {
+  if (a === b) return 0;
+  if (a === null) return 1;
+  if (b === null) return -1;
+  return a > b ? -1 : 1;
+}
 export function formatBytes(bytes: number): string {
   if (bytes === 0) return '0 B';
   const unit =

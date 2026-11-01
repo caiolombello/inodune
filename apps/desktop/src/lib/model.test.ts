@@ -8,6 +8,7 @@ import {
   isLocallyEligible,
   selectLocalDefaults,
   formatSignedBytes,
+  compareInstalledSize,
 } from './model';
 describe('conservative simulation policy', () => {
   it('formats signed observed volume deltas by magnitude', () => {
@@ -95,6 +96,18 @@ describe('conservative simulation policy', () => {
     expect(() =>
       simulateBudget([{ ...a, coverage_key: null }], [a.id], 'trash'),
     ).toThrow();
+  });
+  it('sorts unknown installed sizes after known sizes', () => {
+    const sizes = [null, 10, null, 30, 10];
+    expect(sizes.slice().sort(compareInstalledSize)).toEqual([
+      30,
+      10,
+      10,
+      null,
+      null,
+    ]);
+    expect(compareInstalledSize(null, null)).toBe(0);
+    expect(Number.isNaN(compareInstalledSize(null, 1))).toBe(false);
   });
   it('retains per-item failure/changed/cancelled and never reports a real deletion', () => {
     expect(executeDemo('py', 'partial', false)).toBe('failed');

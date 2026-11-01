@@ -108,8 +108,17 @@ pub(crate) fn parse(bytes: &[u8]) -> Result<Vec<InstalledItem>, String> {
                 .filter(|s| valid_id(s))
                 .ok_or("Revisão Snap inválida")?;
             let mut item = InstalledItem::new(Source::Snap, &format!("{name}@{rev}"), name);
-            item.version = entry["version"].as_str().map(str::to_owned);
-            item.size_bytes = entry["installed-size"].as_u64();
+            item.version = entry["version"]
+                .as_str()
+                .filter(|s| !s.is_empty())
+                .map(str::to_owned);
+            match entry.get("installed-size") {
+                None | Some(serde_json::Value::Null) => {}
+                Some(value) => match value.as_u64() {
+                    Some(n) => item.size_bytes = Some(n),
+                    None => item.notes.push("Tamanho Snap ilegível".into()),
+                },
+            }
             if let Some(date) = entry["install-date"]
                 .as_str()
                 .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
@@ -138,12 +147,17 @@ mod tests {
     use super::*;
     #[test]
     fn api_types_disabled_sizes_and_hostile_names() {
-        let bytes=br#"{"type":"sync","status-code":200,"result":[{"name":"foundation","revision":"1","type":"base","status":"installed","installed-size":1024},{"name":"editor","revision":"2","type":"app","status":"active"}]}"#;
+        let bytes=br#"{"type":"sync","status-code":200,"result":[{"name":"foundation","revision":"1","type":"base","status":"installed","installed-size":1024},{"name":"editor","revision":"2","type":"app","status":"active"},{"name":"widget","revision":"3","type":"app","status":"active","installed-size":"nope","version":""}]}"#;
         let items = parse(bytes).unwrap();
+        assert_eq!(items.len(), 3);
         assert!(items[0].protected);
         assert_eq!(items[0].size_bytes, Some(1024));
         assert!(items[0].notes[0].contains("desabilitada"));
         assert!(!items[1].protected);
+        assert_eq!(items[1].size_bytes, None);
+        assert_eq!(items[2].size_bytes, None);
+        assert_eq!(items[2].version, None);
+        assert!(items[2].notes.iter().any(|n| n.contains("ilegível")));
         for name in ["-bad", "x y", "x;y", "$(id)", "../escape"] {
             let bytes=serde_json::to_vec(&serde_json::json!({"type":"sync","status-code":200,"result":[{"name":name,"revision":"1"}]})).unwrap();
             assert!(parse(&bytes).is_err());

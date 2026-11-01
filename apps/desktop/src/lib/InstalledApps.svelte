@@ -1,7 +1,7 @@
 <script lang="ts">
   import { invoke } from '@tauri-apps/api/core';
   import { isDesktop } from './backend';
-  import { formatBytes } from './model';
+  import { compareInstalledSize, formatBytes } from './model';
   type Item = {
     source: string;
     id: string;
@@ -73,7 +73,9 @@
           Nenhum item encontrado nesta fonte.
         </p>{/if}
       <ul>
-        {#each source.items as item, index (index)}
+        {#each source.items
+          .slice()
+          .sort((a, b) => compareInstalledSize(a.size_bytes, b.size_bytes) || a.name.localeCompare(b.name, 'pt-BR')) as item, index (index)}
           <li>
             <strong>{item.name}</strong> <span>{item.source}</span>
             {#if item.protected}<span class="badge neutral">Protegido</span
