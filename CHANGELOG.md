@@ -1,5 +1,38 @@
 # Changelog
 
+## 0.1.12
+
+### Corrigido
+
+- **Segurança — Lixeira e caches com o mesmo veredito:** a análise da Lixeira marcava
+  arquivos de biblioteca (`.d.ts` do `@aws-sdk` com `aws_secret_access_key: string;`,
+  `@smithy` dist-cjs, `lib.dom.d.ts`, `scanner.js`) como credencial, porque avaliava o nome
+  aleatório `Trash/files/inodune-…`, sem extensão. Agora o `Path=` do `.trashinfo` é usado
+  como dica de nome **não confiável**: leitura limitada, privada, com um único `Path=` válido,
+  absoluto e sem componentes `.`, `..` ou vazios; ele só alimenta a mesma
+  `credential_bytes` do `node_modules`. Cabeçalho de chave privada e valores reais protegem
+  sempre; as regras de nome valem para o nome na Lixeira **e** para o nome original (mais
+  estrito: um `.env` na Lixeira passa a ser protegido pelo nome original). Sem `.trashinfo`
+  válido, a avaliação continua a mais protetora. O executor revalida da mesma forma.
+- **EXDEV e outros errno:** "Invalid cross-device link (os error 18)" vira "Entrada em outro
+  sistema de arquivos (ponto de montagem); não examinada."; todos os avisos da descoberta
+  passam pelo tradutor, que cobre mais códigos. A entrada continua não examinada.
+- **Cache só com pastas vazias:** depois de limpar o pip, a análise dizia "Cobertura
+  incompleta". Agora diz "Nada a limpar: restam só pastas vazias." (evidência
+  `nothing-to-clean`). O item continua não limpável e as pastas vazias não são removidas.
+- **Desktop sem DRI3:** o binário define `WEBKIT_DISABLE_DMABUF_RENDERER=1` só quando a
+  variável não existe, como primeira instrução de `main` (antes de threads, GTK e WebKit).
+  Para reverter: `WEBKIT_DISABLE_DMABUF_RENDERER=0`. Detalhes em `docs/packaging-linux.md`.
+- O teto de 4 MiB do relatório salvo vale para o arquivo serializado inteiro.
+- Sem `/./` nas linhas recusadas e nos avisos do relatório.
+- Recusas de permissão dizem "Arquivo" ou "Pasta" e citam o caminho.
+- `--review` sem candidato elegível repete o motivo de proteção de cada candidato.
+- GUI: a linha agrupada (ex.: "Dependências Node · 2 pastas") expande e lista cada pasta.
+- GUI: cancelar uma desinstalação sem remover nada mostra um aviso neutro, não um alerta.
+- Man pages em português (opções, arquivos, ambiente).
+- Todo processo `git` da análise é aguardado, inclusive em retornos antecipados.
+- Texto "Nada elegível para limpar" sem repetição.
+
 ## 0.1.11
 
 ### Corrigido
