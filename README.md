@@ -8,14 +8,14 @@ Aplicativo Linux open source (MIT), com Rust + Tauri 2 + Svelte/TypeScript. **De
 
 ## Usar o app desktop
 
-Build local **0.1.6**, Linux x86_64. Os artefatos em `target/packages/` incluem DEB, RPM e tarball sem root, com CLI, ícone e atalho de aplicativos. São builds locais sem assinatura, sem publicação externa. [Instalação, dependências e baseline](docs/packaging-linux.md).
+Build local **0.1.7**, Linux x86_64. Os artefatos em `target/packages/` incluem DEB, RPM e tarball sem root, com CLI, ícone e atalho de aplicativos. São builds locais sem assinatura, sem publicação externa. [Instalação, dependências e baseline](docs/packaging-linux.md).
 
 ```sh
-python3 target/packages/0.1.6/install-user.py \
-  --archive target/packages/0.1.6/Inodune_0.1.6_linux_x86_64.tar.gz \
+python3 target/packages/0.1.7/install-user.py \
+  --archive target/packages/0.1.7/Inodune_0.1.7_linux_x86_64.tar.gz \
   --prefix "$HOME/.local"
 # Abra Inodune pelo menu do desktop ou:
-"$HOME/.local/lib/inodune/0.1.6/bin/inodune-desktop"
+"$HOME/.local/lib/inodune/0.1.7/bin/inodune-desktop"
 ```
 
 O instalador valida a versão existente, permite repetir uma instalação íntegra e recusa destinos alterados ou desconhecidos. As bibliotecas GTK3/WebKitGTK 4.1 são fornecidas pela distribuição; instalar dependências de sistema pode exigir o administrador. O aplicativo e sua instalação no prefixo do usuário não elevam privilégios. O modo automático dispensa aprovação por pasta; exclusões, proteções e revogações persistem no armazenamento privado do backend. Nada é limpo automaticamente.
