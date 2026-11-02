@@ -5,7 +5,7 @@
   import RecoveryGuide from './RecoveryGuide.svelte';
   import type { CleanupExecutionReport } from './backend';
   import { formatBytes } from './model';
-  import { countLabel, displayPath } from './present';
+  import { actionLabel, countLabel, displayPath } from './present';
 
   type Entry = {
     report_id: string;
@@ -112,9 +112,7 @@
               >
               {#if entry.error}<strong>{t('Relatório com erro')}</strong
                 >{:else}<strong
-                  >{entry.action === 'trash'
-                    ? t('Lixeira')
-                    : t('Remoção permanente')} · {entry.complete
+                  >{actionLabel(entry.action)} · {entry.complete
                     ? t('Concluído')
                     : t('Incompleto')}</strong
                 >{/if}

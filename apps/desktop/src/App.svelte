@@ -43,6 +43,7 @@
   import OverviewReview from './lib/OverviewReview.svelte';
   import {
     countLabel,
+    actionLabel,
     displayPath,
     tidyReason,
     warningText,
@@ -140,6 +141,8 @@
   let cleanupError = $state('');
   let cleanupBatchIds = $state<string[]>([]);
   let cleanupPlan = $state<CleanupPlan | null>(null);
+  // Action of the plan being executed; kept after the plan object is cleared.
+  let cleanupAction = $state<CleanupPlan['action'] | null>(null);
   let cleanupReport = $state<CleanupExecutionReport | null>(null);
   let cleanupProgress = $state<CleanupPoll['progress']>({
     completed_files: 0,
@@ -748,6 +751,7 @@
     try {
       const jobId = await native.beginCleanup(plan.id, plan.hash);
       cleanupJob = jobId;
+      cleanupAction = plan.action;
       localScanStale = true;
       cleanupPollFailures = 0;
       cleanupStateUnknown = false;
@@ -1788,11 +1792,7 @@
                   </h2>
                   <p>
                     {t('Ação:')}
-                    {t(
-                      (cleanupReport?.action ?? cleanupPlan?.action) === 'trash'
-                        ? 'Lixeira'
-                        : 'exclusão permanente',
-                    )}. {t(
+                    {actionLabel(cleanupReport?.action ?? cleanupAction)}. {t(
                       'Relatório do executor local com cada arquivo processado.',
                     )}
                   </p>

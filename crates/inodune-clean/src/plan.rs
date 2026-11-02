@@ -27,6 +27,29 @@ pub enum Action {
     Permanent,
 }
 
+impl Action {
+    /// Single wording for the action, used by every surface (native dialog,
+    /// CLI, report). Derived only from the plan, never from detectors.
+    pub fn label(self, english: bool) -> &'static str {
+        match (self, english) {
+            (Action::Trash, false) => "Lixeira",
+            (Action::Trash, true) => "Trash",
+            (Action::Permanent, false) => "exclusão permanente",
+            (Action::Permanent, true) => "permanent deletion",
+        }
+    }
+
+    /// What happens to every file of the plan.
+    pub fn consequence(self, english: bool) -> &'static str {
+        match (self, english) {
+            (Action::Trash, false) => "Todos os arquivos do plano vão para a Lixeira e continuam ocupando espaço até você esvaziá-la.",
+            (Action::Trash, true) => "Every file in the plan moves to Trash and keeps using space until you empty it.",
+            (Action::Permanent, false) => "Todos os arquivos do plano serão apagados permanentemente, sem passar pela Lixeira. Não há garantia de apagamento seguro.",
+            (Action::Permanent, true) => "Every file in the plan is deleted permanently, without the Trash. There is no secure-erasure guarantee.",
+        }
+    }
+}
+
 #[derive(Clone, Debug, Serialize)]
 pub struct PlanItem {
     pub candidate_id: String,
@@ -469,6 +492,22 @@ fn constant_time_equal(left: &[u8], right: &[u8]) -> bool {
         == 0
 }
 
+#[cfg(test)]
+mod action_text_tests {
+    use super::Action;
+    #[test]
+    fn wording_follows_the_plan_action_only() {
+        for english in [false, true] {
+            let trash = Action::Trash.consequence(english).to_lowercase();
+            assert!(trash.contains("lixeira") || trash.contains("trash"));
+            assert!(!trash.contains("permanent") && !trash.contains("direto"));
+            let gone = Action::Permanent.consequence(english).to_lowercase();
+            assert!(gone.contains("permanent"));
+        }
+        assert_eq!(Action::Trash.label(false), "Lixeira");
+        assert_eq!(Action::Permanent.label(false), "exclusão permanente");
+    }
+}
 #[cfg(test)]
 mod tests {
     use super::*;

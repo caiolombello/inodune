@@ -252,41 +252,44 @@ async fn begin_authorized(
                 "terraform.provider-package"=>"No relevant lock selects this version. Terraform may need to download it again. State, backend and locks are preserved. Current use, publisher signature and future availability are unverified.",
                 _=>"Rebuild cost is unmeasured; preserve uncertain data.",
             };
-            format!("• {}\n  Risk: {}\n  {impact}",i.display_path,if i.risk==inodune_core::Risk::Review{"review"}else{"low"})
-        } else {format!("• {}\n  Risco: {}\n  {}\n  {}",i.display_path,if i.risk==inodune_core::Risk::Review{"revisar"}else{"baixo"},i.impact,i.rebuild_hint)}
+            format!("• {}\n  Risk: {}\n  {impact}",inodune_core::scan::tidy_display_path(&i.display_path),if i.risk==inodune_core::Risk::Review{"review"}else{"low"})
+        } else {format!("• {}\n  Risco: {}\n  {}\n  {}",inodune_core::scan::tidy_display_path(&i.display_path),if i.risk==inodune_core::Risk::Review{"revisar"}else{"baixo"},i.impact,i.rebuild_hint)}
     }).collect::<Vec<_>>().join("\n");
-    let mut direct = 0usize;
-    let mut trashed = 0usize;
     let mut groups: std::collections::BTreeMap<String, (usize, u64)> =
         std::collections::BTreeMap::new();
     for item in &view.items {
-        let candidate = snapshot
+        let title = snapshot
             .candidates
             .iter()
-            .find(|c| c.id == item.candidate_id);
-        let detector = candidate.map(|c| c.detector_id.as_str()).unwrap_or("");
-        let title = candidate.map(|c| c.title.as_str()).unwrap_or("Item");
-        let deletes_now =
-            view.action == Action::Permanent || inodune_clean::tools::direct_delete(detector);
-        if deletes_now {
-            direct += 1;
-        } else {
-            trashed += 1;
-        }
+            .find(|c| c.id == item.candidate_id)
+            .map(|c| c.title.as_str())
+            .unwrap_or("Item");
         let entry = groups.entry(title.to_owned()).or_insert((0, 0));
         entry.0 += 1;
         entry.1 = entry.1.saturating_add(item.logical_bytes);
     }
     let summary = groups
         .iter()
-        .map(|(title, (count, bytes))| format!("• {title}: {count} · {bytes}"))
+        .map(|(title, (count, bytes))| {
+            format!(
+                "• {title}: {} · {}",
+                items_label(*count, english),
+                inodune_apps::presentation::human_bytes(*bytes)
+            )
+        })
         .collect::<Vec<_>>()
         .join("\n");
-    let action = if english {
-        format!("Recreatable caches and Trash entries are deleted immediately ({direct}). Other selected items move to Trash and keep using space ({trashed}). Terraform providers referenced by a lock are downloaded again on init. There is no secure-erasure guarantee.\n{summary}")
+    // The plan's action is the only source of this wording.
+    let terraform = if english {
+        "Terraform providers referenced by a lock are downloaded again on init."
     } else {
-        format!("Caches recriáveis e entradas da Lixeira são apagados direto ({direct}). O restante da seleção vai para a Lixeira e continua ocupando espaço ({trashed}). Providers Terraform citados no lock voltam no terraform init. Não há garantia de apagamento seguro.\n{summary}")
+        "Providers Terraform citados no lock voltam no terraform init."
     };
+    let action = format!(
+        "{}: {}\n{terraform}\n{summary}",
+        if english { "Action" } else { "Ação" },
+        view.action.consequence(english)
+    );
     let coverage = if view.inventory_complete {
         ""
     } else if english {
@@ -295,9 +298,9 @@ async fn begin_authorized(
         "\nAnálise parcial do computador: áreas inacessíveis não foram examinadas. Somente os manifestos selecionados e inteiramente validados estão autorizados.\n"
     };
     let prompt = if english {
-        format!("{action}\n{coverage}\n{} items · {} estimated logical bytes\n{paths}\nPlan: {}\n\nChanged files will be preserved. Folders, source code and state will not be removed.",view.items.len(),view.logical_bytes_estimate,view.hash)
+        format!("{action}\n{coverage}\n{} · {} estimated\n{paths}\nPlan: {}\n\nChanged files will be preserved. Folders, source code and state will not be removed.",items_label(view.items.len(),true),inodune_apps::presentation::human_bytes(view.logical_bytes_estimate),view.hash)
     } else {
-        format!("{action}\n{coverage}\n{} itens · {} bytes lógicos estimados\n{paths}\nPlano: {}\n\nArquivos alterados serão preservados. Pastas, código e estado não serão removidos.",view.items.len(),view.logical_bytes_estimate,view.hash)
+        format!("{action}\n{coverage}\n{} · {} estimados\n{paths}\nPlano: {}\n\nArquivos alterados serão preservados. Pastas, código e estado não serão removidos.",items_label(view.items.len(),false),inodune_apps::presentation::human_bytes(view.logical_bytes_estimate),view.hash)
     };
     // Test-only consent is restricted to roots generated by this process's fixture factory.
     let fixture_consent = state.fixture_consent(&snapshot, &ids);
@@ -384,6 +387,15 @@ pub fn cancel_cleanup(state: State<'_, Backend>, job_id: String) -> Result<(), S
     }
     j.control.cancel();
     Ok(())
+}
+
+fn items_label(count: usize, english: bool) -> String {
+    match (count, english) {
+        (1, false) => "1 item".into(),
+        (n, false) => format!("{n} itens"),
+        (1, true) => "1 item".into(),
+        (n, true) => format!("{n} items"),
+    }
 }
 
 #[cfg(test)]

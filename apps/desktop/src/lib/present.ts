@@ -171,3 +171,12 @@ export function uninstallError(raw: string): ErrorInfo {
   if (lower.includes('desconhecido')) return pick('Resultado desconhecido');
   return pick('Não foi possível desinstalar');
 }
+
+/** Único texto da ação de limpeza, derivado da ação do plano/relatório. */
+export function actionLabel(
+  action: 'trash' | 'permanent' | null | undefined,
+): string {
+  if (action === 'trash') return t('Lixeira');
+  if (action === 'permanent') return t('exclusão permanente');
+  return t('ação ainda não confirmada');
+}

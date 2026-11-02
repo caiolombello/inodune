@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { language } from './i18n.svelte';
 import {
+  actionLabel,
   countLabel,
   displayPath,
   groupIssues,
@@ -89,5 +90,14 @@ describe('present', () => {
     expect(uninstallError('Pacote bloqueado: coreutils').title).toBe(
       'Pacote protegido',
     );
+  });
+
+  it('derives the action wording only from the plan action', () => {
+    language.value = 'pt-BR';
+    expect(actionLabel('trash')).toBe('Lixeira');
+    expect(actionLabel('permanent')).toBe('exclusão permanente');
+    // Missing data never defaults to "permanent".
+    expect(actionLabel(undefined)).not.toContain('permanente');
+    expect(actionLabel(null)).not.toContain('Lixeira');
   });
 });

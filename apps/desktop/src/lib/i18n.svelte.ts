@@ -641,6 +641,7 @@ const catalog: Record<string, string> = {
   variação: 'change',
   disponíveis: 'available',
   // 0.1.9 UX review
+  'ação ainda não confirmada': 'action not yet confirmed',
   Limpar: 'Clean',
   'Revisar itens': 'Review items',
   Protegidos: 'Protected',
