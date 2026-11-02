@@ -27,6 +27,19 @@
   erros do sistema em português e caminhos sem `/./` (também no `Path=` da Lixeira).
 - Pacote `.deb`: changelog e copyright no mesmo `/usr/share/doc/inodune/`; `SHA256SUMS`
   lista só os arquivos presentes na pasta de saída.
+- Texto da ação: modal, diálogo nativo, progresso, resumo e histórico derivam da ação
+  real do plano (`Action::label`/`consequence` e `actionLabel`). Uma limpeza para a
+  Lixeira não aparece mais como "apagados direto" nem como "exclusão permanente".
+- Diálogo nativo "Confirmar plano de limpeza": tamanhos legíveis, "1 item"/"N itens" e
+  caminhos sem `/./` (layout e botões inalterados).
+- Histórico: journals privados até 64 MiB (o mesmo teto do escritor) são lidos em
+  streaming; erros com código próprio (`JOURNAL_TOO_LARGE: journal grande demais: X > Y`,
+  `JOURNAL_UNSAFE`, `JOURNAL_CHANGED`…). Checagens de dono, tipo, modo 0600 e links
+  mantidas.
+- Hardlinks dentro do próprio item (node-gyp `build/Release` ↔ `obj.target`) são limpos
+  nos dois modos; elos fora do item continuam preservados.
+- Mensagens: falha do sandbox do Git (bubblewrap) explicada em vez de "Git retornou
+  erro."; "(os error N)" traduzido nos avisos do scan, nos resultados e na CLI.
 
 ## 0.1.9
 
