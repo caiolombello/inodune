@@ -271,40 +271,33 @@ fn run_clean(args: &[String], control: &ScanControl) -> Result<(String, bool), S
                     )
             })
             .collect::<Vec<_>>();
-        match eligible.as_slice() {
-            [] => {
-                return Err(format!(
+        if eligible.is_empty() {
+            return Err(format!(
                 "Nenhum candidato elegível para revisão '{detector}' foi encontrado nesta análise."
-            ))
-            }
-            [candidate] => {
-                if !snapshot.complete {
-                    let touching = issues_touching(&snapshot, candidate);
-                    // A truncated issue list cannot prove the target is untouched.
-                    let truncated = snapshot.issues.len() >= ScanLimits::default().max_issues;
-                    if truncated
-                        || !touching.is_empty()
-                        || !snapshot
-                            .targets
-                            .get(&candidate.id)
-                            .is_some_and(|t| t.complete)
-                    {
-                        return Ok((refuse_incomplete(&snapshot, &touching, json)?, true));
-                    }
+            ));
+        }
+        // Every candidate of the detector goes into one plan (use --root to
+        // narrow it). Each is checked on its own when the analysis is partial.
+        if !snapshot.complete {
+            // A truncated issue list cannot prove a target is untouched.
+            let truncated = snapshot.issues.len() >= ScanLimits::default().max_issues;
+            for candidate in &eligible {
+                let touching = issues_touching(&snapshot, candidate);
+                if truncated
+                    || !touching.is_empty()
+                    || !snapshot
+                        .targets
+                        .get(&candidate.id)
+                        .is_some_and(|t| t.complete)
+                {
+                    return Ok((refuse_incomplete(&snapshot, &touching, json)?, true));
                 }
-                vec![candidate.id.clone()]
-            }
-            many => {
-                let paths = many
-                    .iter()
-                    .map(|candidate| {
-                        format!("  {}", scan::tidy_display_path(&candidate.display_path))
-                    })
-                    .collect::<Vec<_>>()
-                    .join("\n");
-                return Err(format!("Há {} candidatos elegíveis para '{detector}'; restrinja o root para selecionar um único candidato:\n{paths}", many.len()));
             }
         }
+        eligible
+            .iter()
+            .map(|candidate| candidate.id.clone())
+            .collect::<Vec<_>>()
     } else {
         snapshot
             .candidates
@@ -1133,24 +1126,27 @@ mod tests {
     }
 
     #[test]
-    fn review_rejects_multiple_candidates_with_paths() {
+    fn review_plans_every_candidate_of_the_detector_and_lists_each() {
         let temp = tempfile::tempdir().unwrap();
         cargo_fixture(temp.path(), "one");
         cargo_fixture(temp.path(), "two");
-        let error = run(vec![
+        let (output, partial) = run(vec![
             "clean",
             "--root",
             temp.path().to_str().unwrap(),
             "--review",
             "cargo.fingerprint-json",
+            "--dry-run",
         ]
         .into_iter()
         .map(str::to_string)
         .collect())
-        .unwrap_err();
-        assert!(error.contains("restrinja o root"));
-        assert!(error.contains("lib-one.json"));
-        assert!(error.contains("lib-two.json"));
+        .unwrap();
+        assert!(!partial);
+        assert!(output.contains("2 itens"), "{output}");
+        assert!(output.contains("lib-one.json"), "{output}");
+        assert!(output.contains("lib-two.json"), "{output}");
+        assert!(output.contains("Nenhuma limpeza executada."));
     }
 
     #[test]
