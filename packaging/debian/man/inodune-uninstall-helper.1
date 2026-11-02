@@ -1,0 +1,13 @@
+.TH INODUNE\-UNINSTALL\-HELPER 1 "2026-11-02" "inodune 0.1.11" "User Commands"
+.SH NAME
+inodune\-uninstall\-helper \- helper used by Inodune to uninstall packages
+.SH SYNOPSIS
+.B inodune\-uninstall\-helper
+
+.SH DESCRIPTION
+Internal helper started by the Inodune desktop app. It simulates a
+package removal, shows a plan and runs it only once, after confirmation,
+through PackageKit, Flatpak, Snap or Steam. It refuses to run as root and is
+not meant to be started by hand.
+.SH SEE ALSO
+https://github.com/caiolombello/inodune

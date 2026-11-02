@@ -129,3 +129,22 @@ class ChecksumListingTests(unittest.TestCase):
             (out / 'inodune-rust.spdx.json').unlink()
             with patch.object(module, 'OUT', out), self.assertRaises(RuntimeError):
                 module.write_checksums()
+
+
+class LintianWarningTests(unittest.TestCase):
+    """lintian W: extended-description-line-too-long and no-manual-page."""
+
+    def test_short_description_lines_and_compressed_man_pages(self):
+        import gzip
+        import json
+        conf = json.loads((ROOT / 'apps/desktop/src-tauri/tauri.conf.json').read_text())
+        self.assertLess(len(conf['bundle']['longDescription']), 80)
+        self.assertNotIn('\n', conf['bundle']['longDescription'])
+        files = conf['bundle']['linux']['deb']['files']
+        base = ROOT / 'apps/desktop/src-tauri'
+        for binary in ('inodune-desktop', 'inodune-cli', 'inodune-uninstall-helper'):
+            packed = (base / files[f'/usr/share/man/man1/{binary}.1.gz']).resolve()
+            source = ROOT / f'packaging/debian/man/{binary}.1'
+            self.assertEqual(gzip.decompress(packed.read_bytes()), source.read_bytes(),
+                             f'regenerate {binary}.1.gz (gzip -9n)')
+            self.assertTrue(source.read_text().startswith('.TH '))

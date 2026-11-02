@@ -1,0 +1,14 @@
+.TH INODUNE\-CLI 1 "2026-11-02" "inodune 0.1.11" "User Commands"
+.SH NAME
+inodune\-cli \- Inodune command line: scan and clean local caches
+.SH SYNOPSIS
+.B inodune\-cli
+[\fIoptions\fR]
+.SH DESCRIPTION
+Read-only scan with \fBscan\fR, cleanup plans with \fBclean\fR
+(\fB\-\-dry\-run\fR, \fB\-\-safe\fR, \fB\-\-review\fR \fIdetector\fR,
+\fB\-\-permanent\fR, \fB\-\-yes\fR) and the installed software inventory with
+\fBapps list\fR. Run \fBinodune\-cli \-\-help\fR for every option. Exit 2 means
+error; exit 3 means partial coverage or partial execution.
+.SH SEE ALSO
+https://github.com/caiolombello/inodune

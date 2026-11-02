@@ -38,7 +38,7 @@
     ],
     "category": "Utility",
     "shortDescription": "Free up space. Preserve what matters.",
-    "longDescription": "Local disk cleanup with explicit scopes, protected inventory, impact review and native confirmation. No account, telemetry or administrative permissions.",
+    "longDescription": "Local disk cleanup: explicit scopes, protected items, no account or telemetry.",
     "license": "MIT",
     "licenseFile": "../../../LICENSE",
     "linux": {
@@ -48,7 +48,10 @@
           "/usr/share/licenses/inodune/LICENSE": "../../../LICENSE",
           "/usr/bin/inodune-uninstall-helper": "../../../target/compat/release/inodune-uninstall-helper",
           "/usr/share/doc/inodune/copyright": "../../../packaging/debian/copyright",
-          "/usr/share/doc/inodune/changelog.gz": "../../../packaging/debian/changelog.gz"
+          "/usr/share/doc/inodune/changelog.gz": "../../../packaging/debian/changelog.gz",
+          "/usr/share/man/man1/inodune-desktop.1.gz": "../../../packaging/debian/man/inodune-desktop.1.gz",
+          "/usr/share/man/man1/inodune-cli.1.gz": "../../../packaging/debian/man/inodune-cli.1.gz",
+          "/usr/share/man/man1/inodune-uninstall-helper.1.gz": "../../../packaging/debian/man/inodune-uninstall-helper.1.gz"
         },
         "section": "utils",
         "depends": [
