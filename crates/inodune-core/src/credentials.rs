@@ -79,6 +79,46 @@ fn code_expression(value: &str) -> bool {
         || ["none", "null", "nil", "undefined", "true", "false"].contains(&lower.as_str())
 }
 
+fn typescript_file(path: &Path) -> bool {
+    let name = path
+        .file_name()
+        .map(|n| n.to_string_lossy().to_ascii_lowercase())
+        .unwrap_or_default();
+    [".ts", ".tsx", ".mts", ".cts"]
+        .iter()
+        .any(|ext| name.ends_with(ext))
+}
+
+/// `name: string;` in TypeScript declares a type, not a value. Quoted values
+/// and `=` assignments are values and still protect.
+fn type_annotation(line: &str, raw_value: &str) -> bool {
+    const TYPES: [&str; 12] = [
+        "string",
+        "number",
+        "boolean",
+        "any",
+        "unknown",
+        "never",
+        "undefined",
+        "null",
+        "object",
+        "bigint",
+        "symbol",
+        "void",
+    ];
+    let colon = line.find(':');
+    let equals = line.find('=');
+    if colon.is_none() || equals.is_some_and(|e| colon.is_some_and(|c| e < c)) {
+        return false;
+    }
+    let value = raw_value.trim().trim_end_matches([';', ',']).trim();
+    !value.starts_with(['"', '\'', '`'])
+        && value
+            .split('|')
+            .map(str::trim)
+            .all(|part| TYPES.contains(&part.trim_end_matches("[]")))
+}
+
 /// Keys that protect with any non-placeholder value, in every file type.
 fn strict_key(name: &str) -> bool {
     matches!(
@@ -196,10 +236,15 @@ pub fn credential_bytes(path: &Path, bytes: &[u8]) -> bool {
     if documentation_exempt(path) {
         return false;
     }
+    let typescript = typescript_file(path);
     if text.lines().any(|line| {
         assignment(line).is_some_and(|(key, value)| {
+            let raw = value;
             let value = clean_value(value);
-            strict_key(key) && !placeholder(value) && !code_expression(value)
+            strict_key(key)
+                && !placeholder(value)
+                && !code_expression(value)
+                && !(typescript && type_annotation(line, raw))
         })
     }) {
         return true;
@@ -358,6 +403,36 @@ mod tests {
         assert!(credential_bytes(
             Path::new("blob"),
             b"aws_secret_access_key: FAKE"
+        ));
+    }
+
+    #[test]
+    fn typescript_type_declarations_are_not_values() {
+        let decl = Path::new(
+            "node_modules/@aws-sdk/credential-provider-ini/dist-types/loadSharedConfigFiles.d.ts",
+        );
+        for line in [
+            "aws_secret_access_key: string;",
+            "  aws_secret_access_key?: string;",
+            "aws_secret_access_key: string | undefined;",
+            "aws_secret_access_key: unknown",
+        ] {
+            assert!(!credential_bytes(decl, line.as_bytes()), "{line}");
+        }
+        let code = Path::new("src/config.ts");
+        assert!(credential_bytes(
+            code,
+            b"aws_secret_access_key: \"wJalrXUtnFEMI/K7MDENG\","
+        ));
+        assert!(credential_bytes(
+            code,
+            b"aws_secret_access_key = \"abc123\";"
+        ));
+        assert!(credential_bytes(code, b"aws_secret_access_key: FAKEKEY123"));
+        // Outside TypeScript a bare word is still a value.
+        assert!(credential_bytes(
+            Path::new("blob"),
+            b"aws_secret_access_key: string"
         ));
     }
 
