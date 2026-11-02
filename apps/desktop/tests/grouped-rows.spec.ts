@@ -1,34 +1,47 @@
-import { expect, test } from '@playwright/test';
+import { expect, test, type Page } from '@playwright/test';
 
-// 0.1.11 QA: the grouped "Dependências Node" row must expand and list each
-// node_modules folder. Fixture IPC only.
-test('grouped node_modules row expands to list each folder', async ({
-  page,
-}) => {
-  await page.addInitScript(() => {
-    const node = (id: string, project: string) => ({
-      id,
-      title: 'Dependências Node',
-      display_path: `/home/user/./${project}/node_modules`,
-      detector_id: 'node.modules',
-      detector_version: '1',
-      scope_id: '/home/user',
-      category: 'Desenvolvimento',
-      project,
-      risk: 'review',
-      logical_bytes: 1_048_576,
-      allocated_bytes_estimate: 1_048_576,
-      identity: { dev: 1, ino: id.length, mtime_unix: 1 },
-      coverage_key: `1:${id}`,
-      selected_by_default: false,
-      reason: 'node_modules recriável',
-      impact: 'Recriável',
-      rebuild_hint: 'npm install',
-      preserved: 'Código preservado',
-      evidence: [],
-      activity: 'mtime',
-      supported_action: 'reviewed_cache_contents',
-    });
+// 0.1.12 QA (G-1): with real data the three "Dependências Node" folders
+// (different roots and projects) were three separate rows in the lists.
+// The fixture copies the format of `inodune-cli scan --json` with three
+// roots: real display paths, one scope per root, real sizes. Fixture IPC only.
+const node = (
+  id: string,
+  scope: string,
+  project: string,
+  bytes: number,
+  ino: number,
+) => ({
+  id,
+  title: 'Dependências Node',
+  display_path: `${scope}/${project}/node_modules`,
+  detector_id: 'node.modules',
+  detector_version: 'f3-v1',
+  scope_id: scope,
+  category: 'Desenvolvimento',
+  project,
+  risk: 'review',
+  logical_bytes: bytes,
+  allocated_bytes_estimate: bytes,
+  identity: { dev: 54, ino, mtime_unix: 1_793_600_000 },
+  coverage_key: `54:${ino}`,
+  selected_by_default: false,
+  reason:
+    'node_modules recriável pelo gerenciador do projeto. Fora da limpeza de 1 clique.',
+  impact: 'O próximo install baixa os pacotes de novo.',
+  rebuild_hint: 'npm install',
+  preserved: 'Manifest, lockfile e código do projeto permanecem.',
+  evidence: ['package.json'],
+  activity: 'Idade não comprova desuso.',
+  supported_action: 'reviewed_cache_contents',
+});
+const candidates = [
+  node('scan-1-0', '/home/user/projects', 'nativeapp', 56_728_371, 900896),
+  node('scan-2-1', '/home/user/work', 'webapp', 3_040_870, 900901),
+  node('scan-3-2', '/home/user/.cache', 'proj', 1_000_038, 900907),
+];
+
+async function boot(page: Page) {
+  await page.addInitScript((items) => {
     Object.assign(window, {
       isTauri: true,
       __TAURI_INTERNALS__: {
@@ -39,14 +52,19 @@ test('grouped node_modules row expands to list each folder', async ({
             return {
               job_id: 'job',
               status: 'done',
-              progress: { visited: 2, candidates: 2, stage: 'Concluído' },
+              progress: {
+                visited: 3,
+                candidates: items.length,
+                stage: 'Concluído',
+              },
               error: null,
               result: {
                 scan_id: 'scan',
-                candidates: [node('a', 'atelie'), node('b', 'farol')],
+                mode: 'local',
+                candidates: items,
                 issues: [],
                 stats: {
-                  visited: 2,
+                  visited: 3,
                   skipped: 0,
                   elapsed_ms: 1,
                   skip_reasons: {},
@@ -60,26 +78,75 @@ test('grouped node_modules row expands to list each folder', async ({
         },
       },
     });
-  });
+  }, candidates);
   await page.goto('/');
   await page
     .getByRole('button', { name: 'Analisar computador', exact: true })
     .first()
     .click();
-  await page.locator('.review-drawer > summary').click();
+}
+
+async function checkGroup(page: Page) {
   const toggle = page.getByRole('button', {
     name: 'Mostrar pastas de Dependências Node',
   });
+  await expect(toggle).toHaveCount(1);
   await expect(toggle).toHaveAttribute('aria-expanded', 'false');
   await toggle.click();
   const list = page.getByRole('list', { name: 'Pastas de Dependências Node' });
-  await expect(list.getByText('/home/user/atelie/node_modules')).toBeVisible();
-  await expect(list.getByText('/home/user/farol/node_modules')).toBeVisible();
+  for (const item of candidates)
+    await expect(list.getByText(item.display_path)).toBeVisible();
+  // Each folder has its own selection and its own "Por que…".
+  const webapp = list.getByRole('checkbox', {
+    name: 'Selecionar /home/user/work/webapp/node_modules',
+  });
+  await webapp.check();
+  await expect(webapp).toBeChecked();
   await expect(
-    page.getByRole('button', { name: 'Ocultar pastas de Dependências Node' }),
-  ).toHaveAttribute('aria-expanded', 'true');
+    list.getByRole('checkbox', {
+      name: 'Selecionar /home/user/projects/nativeapp/node_modules',
+    }),
+  ).not.toBeChecked();
+  const group = page.getByRole('checkbox', {
+    name: 'Selecionar Dependências Node',
+  });
+  expect(await group.evaluate((n: HTMLInputElement) => n.indeterminate)).toBe(
+    true,
+  );
+  await webapp.uncheck();
+  await list
+    .getByRole('button', {
+      name: 'Por que apareceu: /home/user/.cache/proj/node_modules',
+    })
+    .click();
+  const dialog = page.getByRole('dialog');
+  await expect(dialog).toContainText('Por que este item apareceu?');
+  await expect(dialog).toContainText('/home/user/.cache/proj/node_modules');
+  await page.keyboard.press('Escape');
+  await expect(dialog).toHaveCount(0);
   await page
     .getByRole('button', { name: 'Ocultar pastas de Dependências Node' })
     .click();
   await expect(list).toHaveCount(0);
+}
+
+test('overview drawer groups node_modules from different roots', async ({
+  page,
+}) => {
+  await boot(page);
+  await page.locator('.review-drawer > summary').click();
+  await checkGroup(page);
+});
+
+test('development list shows one expandable node_modules group', async ({
+  page,
+}) => {
+  await boot(page);
+  await page
+    .getByRole('button', { name: 'Desenvolvimento', exact: true })
+    .first()
+    .click();
+  await expect(page.locator('.item-row')).toHaveCount(1);
+  await expect(page.locator('.item-row')).toContainText('3 pastas');
+  await checkGroup(page);
 });

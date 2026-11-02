@@ -109,6 +109,9 @@
               <input
                 type="checkbox"
                 checked={g.all}
+                aria-label={group.items.length > 1
+                  ? `${t('Selecionar')} ${t(group.title)}`
+                  : undefined}
                 use:indeterminate={g.some}
                 disabled={disabled || !g.eligible.length}
                 onchange={(event) =>
@@ -157,7 +160,19 @@
                 class="group-paths"
                 aria-label={`${t('Pastas de')} ${t(group.title)}`}
               >
-                {#each group.items as item (item.id)}<li>
+                {#each group.items as item (item.id)}<li
+                    class:selected={picked.has(item.id)}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={picked.has(item.id)}
+                      disabled={disabled || !isSelectable(item)}
+                      aria-label={t('Selecionar') +
+                        ' ' +
+                        displayPath(item.display_path)}
+                      onchange={(event) =>
+                        onsetmany([item.id], event.currentTarget.checked)}
+                    />
                     <code>{displayPath(item.display_path)}</code>
                     <span>{formatBytes(item.logical_bytes)}</span>
                     <button
@@ -293,9 +308,13 @@
   }
   .group-paths li {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) 6.5rem 28px;
+    grid-template-columns: 18px minmax(0, 1fr) 6.5rem 28px;
     gap: 12px;
     align-items: center;
+    border-radius: 6px;
+  }
+  .group-paths li.selected {
+    background: var(--selected);
   }
   .group-paths code {
     overflow-wrap: anywhere;

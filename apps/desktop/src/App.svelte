@@ -1550,6 +1550,7 @@
             localMode={source === 'local'}
             {selected}
             ontoggle={toggle}
+            onsetmany={setMany}
             ondetail={(item) => (detail = item)}
           />
         </section>
