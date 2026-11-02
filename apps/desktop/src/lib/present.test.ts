@@ -48,6 +48,13 @@ describe('present', () => {
   });
 
   it('translates and groups OS errors', () => {
+    expect(
+      systemMessage(
+        'Entrada não examinada: Invalid cross-device link (os error 18)',
+      ),
+    ).toBe(
+      'Entrada em outro sistema de arquivos (ponto de montagem); não examinada',
+    );
     expect(systemMessage('Not a directory (os error 20)')).toBe(
       'Um arquivo está onde se esperava uma pasta',
     );

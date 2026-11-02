@@ -641,6 +641,15 @@ const catalog: Record<string, string> = {
   variação: 'change',
   disponíveis: 'available',
   // 0.1.9 UX review
+  'Entrada em outro sistema de arquivos (ponto de montagem); não examinada':
+    'Entry on another file system (mount point); not examined',
+  'Recurso ocupado': 'Resource busy',
+  'Argumento inválido': 'Invalid argument',
+  'Sem espaço no dispositivo': 'No space left on device',
+  'Sistema de arquivos somente leitura': 'Read-only file system',
+  'Operação não suportada': 'Operation not supported',
+  'Montagem desconectada': 'Mount disconnected',
+  'Cota de disco excedida': 'Disk quota exceeded',
   'linha de arquivo omitida neste relatório salvo; os totais estão completos.':
     'file line omitted from this saved report; totals are complete.',
   'linhas de arquivo omitidas neste relatório salvo; os totais estão completos.':

@@ -105,16 +105,37 @@ pub fn os_error_pt(message: &str) -> String {
     let text = match code {
         Some(1) => "operação não permitida",
         Some(2) => "arquivo ou pasta não existe mais",
+        Some(4) => "operação interrompida",
         Some(5) => "erro de leitura no disco",
+        Some(6) => "dispositivo ou endereço inexistente",
+        Some(9) => "descritor de arquivo inválido",
+        Some(11) => "recurso temporariamente indisponível",
+        Some(12) => "memória insuficiente",
         Some(13) => "permissão negada",
+        Some(16) => "recurso ocupado",
         Some(17) => "o destino já existe",
-        Some(18) => "o destino está em outro volume",
+        Some(18) => "está em outro sistema de arquivos (ponto de montagem ou volume diferente)",
+        Some(19) => "dispositivo não suportado",
         Some(20) => "um arquivo está onde se esperava uma pasta",
         Some(21) => "uma pasta está onde se esperava um arquivo",
+        Some(22) => "argumento inválido",
+        Some(23 | 24) => "arquivos abertos em excesso",
+        Some(26) => "arquivo em uso",
+        Some(27) => "arquivo grande demais",
         Some(28) => "sem espaço no dispositivo",
         Some(30) => "sistema de arquivos somente leitura",
+        Some(31) => "links em excesso",
+        Some(36) => "nome de arquivo longo demais",
         Some(39) => "a pasta não está vazia",
         Some(40) => "links simbólicos em excesso",
+        Some(61) => "atributo inexistente",
+        Some(75) => "valor grande demais para o tipo de dado",
+        Some(95) => "operação não suportada",
+        Some(107) => "montagem desconectada",
+        Some(110) => "tempo de espera esgotado",
+        Some(116) => "arquivo de rede desatualizado",
+        Some(121) => "erro de E/S remota",
+        Some(122) => "cota de disco excedida",
         _ => return message.to_owned(),
     };
     let prefix = message[..start].trim_end();
@@ -2335,6 +2356,20 @@ mod pytest_budget_tests {
     }
 }
 
+#[cfg(test)]
+mod os_error_tests {
+    #[test]
+    fn exdev_and_common_errnos_have_portuguese_text() {
+        let text = super::os_error_pt("Invalid cross-device link (os error 18)");
+        assert!(text.contains("outro sistema de arquivos"), "{text}");
+        for code in [
+            4, 6, 9, 11, 12, 16, 19, 22, 24, 26, 27, 31, 36, 61, 75, 95, 107, 110, 121, 122,
+        ] {
+            let raw = format!("X (os error {code})");
+            assert!(!super::os_error_pt(&raw).contains("os error"), "{code}");
+        }
+    }
+}
 #[cfg(test)]
 mod display_path_tests {
     #[test]

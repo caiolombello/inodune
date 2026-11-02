@@ -491,7 +491,7 @@ fn walk_structural(
                     limits,
                     &child_path,
                     "structural_unavailable",
-                    &format!("Entrada não examinada: {e}"),
+                    &unexamined_entry_text(e),
                 );
                 continue;
             }
@@ -675,13 +675,56 @@ fn is_system_path(p: &Path) -> bool {
     .any(|x| p.starts_with(x))
         && !p.starts_with("/run/media")
 }
+/// Portuguese reason for a structural entry that was not examined. The entry
+/// stays unexamined; only the text is translated (no raw "os error N").
+pub(crate) fn unexamined_entry_text(e: Errno) -> String {
+    if e == Errno::XDEV {
+        return "Entrada em outro sistema de arquivos (ponto de montagem); não examinada.".into();
+    }
+    format!(
+        "Entrada não examinada: {}.",
+        crate::scan::os_error_pt(&std::io::Error::from_raw_os_error(e.raw_os_error()).to_string())
+    )
+}
+
 fn issue(r: &mut DiscoveryResult, limits: &ScanLimits, path: &Path, code: &str, message: &str) {
     r.complete = false;
     if r.issues.len() < limits.max_issues {
         r.issues.push(ScanIssue {
-            display_path: path.to_string_lossy().into_owned(),
+            display_path: crate::scan::tidy_display_path(&path.to_string_lossy()),
             code: code.into(),
-            message: message.into(),
+            // Every discovery message, not only this call site, is translated.
+            message: crate::scan::os_error_pt(message),
         });
+    }
+}
+
+#[cfg(test)]
+mod unexamined_text_tests {
+    use super::unexamined_entry_text;
+    use rustix::io::Errno;
+
+    #[test]
+    fn exdev_and_common_errors_are_portuguese_without_raw_codes() {
+        let exdev = unexamined_entry_text(Errno::XDEV);
+        assert_eq!(
+            exdev,
+            "Entrada em outro sistema de arquivos (ponto de montagem); não examinada."
+        );
+        for errno in [
+            Errno::ACCESS,
+            Errno::PERM,
+            Errno::NOTDIR,
+            Errno::LOOP,
+            Errno::IO,
+            Errno::BUSY,
+            Errno::NOTCONN,
+            Errno::STALE,
+            Errno::INVAL,
+        ] {
+            let text = unexamined_entry_text(errno);
+            assert!(text.starts_with("Entrada não examinada: "), "{text}");
+            assert!(!text.contains("os error"), "{errno:?}: {text}");
+        }
     }
 }
