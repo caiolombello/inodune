@@ -5,7 +5,10 @@ use rustix::{
     fs::{self, FileType, OFlags, ResolveFlags},
 };
 use serde::Serialize;
-use std::{io::Read, path::Path};
+use std::{
+    io::{BufRead, BufReader, Read},
+    path::Path,
+};
 
 const MAX_REPORT_BYTES: u64 = 8 * 1024 * 1024;
 const MAX_DIRECTORY_ENTRIES: usize = 4096;
@@ -52,7 +55,8 @@ pub fn list_history(directory: &Path) -> Result<Vec<HistoryEntry>, String> {
     }
     names.sort();
     let mut result = Vec::with_capacity(names.len());
-    let mut journal_budget = 16 * 1024 * 1024usize;
+    // Streaming read; this only bounds total I/O when listing many journals.
+    let mut journal_budget = (4 * storage::MAX_JOURNAL_BYTES) as usize;
     for name in names {
         if valid_journal_name(&name) {
             let error = inspect_journal(&dir, &name, &mut journal_budget).err();
@@ -137,64 +141,78 @@ fn valid_journal_name(name: &str) -> bool {
         .is_some_and(|tail| tail.len() == 32 && tail.bytes().all(|b| b.is_ascii_hexdigit()))
 }
 
+fn mib(bytes: u64) -> String {
+    format!("{:.1} MiB", bytes as f64 / (1024.0 * 1024.0)).replace('.', ",")
+}
+
 // Presentation only: never open recovery paths or turn stored intents into plans.
+// Error codes: JOURNAL_UNSAFE (owner/type/mode/links), JOURNAL_TOO_LARGE,
+// JOURNAL_BUDGET, JOURNAL_CHANGED, JOURNAL_UNREADABLE; UNKNOWN is reserved for an
+// execution whose outcome the journal cannot confirm.
 fn inspect_journal(dir: impl AsFd, name: &str, budget: &mut usize) -> Result<(), String> {
-    let read = || -> Result<Vec<u8>, String> {
-        let fd = fs::openat2(
-            dir,
-            name,
-            OFlags::RDONLY | OFlags::NONBLOCK | OFlags::NOFOLLOW | OFlags::CLOEXEC,
-            fs::Mode::empty(),
-            ResolveFlags::BENEATH
-                | ResolveFlags::NO_SYMLINKS
-                | ResolveFlags::NO_MAGICLINKS
-                | ResolveFlags::NO_XDEV,
-        )
-        .map_err(|e| e.to_string())?;
-        let before = fs::fstat(&fd).map_err(|e| e.to_string())?;
-        if FileType::from_raw_mode(before.st_mode) != FileType::RegularFile
-            || before.st_nlink != 1
-            || before.st_uid != rustix::process::getuid().as_raw()
-            || before.st_mode & 0o777 != 0o600
-            || before.st_size < 0
-            || before.st_size > 4 * 1024 * 1024
-        {
-            return Err("journal não é arquivo privado válido dentro do limite de 4 MiB".into());
-        }
-        let mut file = std::fs::File::from(fd);
-        let mut bytes = Vec::new();
-        if *budget == 0 {
-            return Err("orçamento total de leitura atingido".into());
-        }
-        let limit = (*budget).min(4 * 1024 * 1024 + 1);
-        (&mut file)
-            .take(limit as u64)
-            .read_to_end(&mut bytes)
-            .map_err(|e| e.to_string())?;
-        *budget = budget.saturating_sub(bytes.len());
-        let after = fs::fstat(&file).map_err(|e| e.to_string())?;
-        if bytes.len() != before.st_size as usize
-            || inodune_core::scan::Fingerprint::from_stat(&before)
-                != inodune_core::scan::Fingerprint::from_stat(&after)
-        {
-            return Err("journal alterado durante a leitura".into());
-        }
-        Ok(bytes)
-    };
-    let bytes = read().map_err(|e| format!("UNKNOWN: {e}."))?;
+    let fd = fs::openat2(
+        dir,
+        name,
+        OFlags::RDONLY | OFlags::NONBLOCK | OFlags::NOFOLLOW | OFlags::CLOEXEC,
+        fs::Mode::empty(),
+        ResolveFlags::BENEATH
+            | ResolveFlags::NO_SYMLINKS
+            | ResolveFlags::NO_MAGICLINKS
+            | ResolveFlags::NO_XDEV,
+    )
+    .map_err(|e| format!("JOURNAL_UNREADABLE: {e}."))?;
+    let before = fs::fstat(&fd).map_err(|e| format!("JOURNAL_UNREADABLE: {e}."))?;
+    if FileType::from_raw_mode(before.st_mode) != FileType::RegularFile
+        || before.st_nlink != 1
+        || before.st_uid != rustix::process::getuid().as_raw()
+        || before.st_mode & 0o777 != 0o600
+        || before.st_size < 0
+    {
+        return Err(
+            "JOURNAL_UNSAFE: journal não é um arquivo privado válido (regular, do usuário, modo 0600, sem links)."
+                .into(),
+        );
+    }
+    let size = before.st_size as u64;
+    if size > storage::MAX_JOURNAL_BYTES {
+        return Err(format!(
+            "JOURNAL_TOO_LARGE: journal grande demais: {} > {}.",
+            mib(size),
+            mib(storage::MAX_JOURNAL_BYTES)
+        ));
+    }
+    if size as usize > *budget {
+        return Err(format!(
+            "JOURNAL_BUDGET: leitura do histórico limitada; este journal ({}) não foi inspecionado nesta listagem.",
+            mib(size)
+        ));
+    }
+    *budget -= size as usize;
+    let file = std::fs::File::from(fd);
+    let mut reader = BufReader::new((&file).take(size + 1));
+    let mut line = Vec::new();
+    let mut total = 0u64;
     let mut finished = false;
     let mut paths = Vec::new();
-    for (index, line) in bytes
-        .split(|b| *b == b'\n')
-        .filter(|l| !l.is_empty())
-        .enumerate()
-    {
-        if index >= 10_000 {
+    loop {
+        line.clear();
+        let read = reader
+            .read_until(b'\n', &mut line)
+            .map_err(|e| format!("JOURNAL_UNREADABLE: {e}."))?;
+        if read == 0 {
+            break;
+        }
+        total += read as u64;
+        if line.len() > storage::MAX_JOURNAL_RECORD + 1 {
             return Err(
-                "UNKNOWN: journal excede 10.000 registros; inspeção manual necessária.".into(),
+                "UNKNOWN: registro de journal acima do limite; inspeção manual necessária.".into(),
             );
         }
-        let value: serde_json::Value = serde_json::from_slice(line)
+        let record = line.strip_suffix(b"\n").unwrap_or(&line);
+        if record.is_empty() {
+            continue;
+        }
+        let value: serde_json::Value = serde_json::from_slice(record)
             .map_err(|_| "UNKNOWN: journal incompleto ou corrompido.".to_string())?;
         if finished {
             return Err("UNKNOWN: registros após encerramento do journal.".into());
@@ -220,6 +238,13 @@ fn inspect_journal(dir: impl AsFd, name: &str, budget: &mut usize) -> Result<(),
             Some("plan" | "intent" | "outcome") => {}
             _ => return Err("UNKNOWN: fase de journal desconhecida.".into()),
         }
+    }
+    let after = fs::fstat(&file).map_err(|e| format!("JOURNAL_UNREADABLE: {e}."))?;
+    if total != size
+        || inodune_core::scan::Fingerprint::from_stat(&before)
+            != inodune_core::scan::Fingerprint::from_stat(&after)
+    {
+        return Err("JOURNAL_CHANGED: journal alterado durante a leitura.".into());
     }
     if finished {
         Ok(())
@@ -429,7 +454,7 @@ mod tests {
         assert_eq!(fs::read(&journal).unwrap(), bytes);
     }
     #[test]
-    fn finished_journals_are_not_pending_and_linked_or_oversized_journals_stay_unknown() {
+    fn finished_journals_are_not_pending_and_linked_or_oversized_journals_get_specific_codes() {
         use std::os::unix::fs::{symlink, PermissionsExt};
         let temp = tempfile::tempdir().unwrap();
         let path = temp.path().join("reports");
@@ -451,13 +476,65 @@ mod tests {
         let oversized = path.join("journal-33333333333333333333333333333333.jsonl");
         fs::File::create(&oversized)
             .unwrap()
-            .set_len(4 * 1024 * 1024 + 1)
+            .set_len(storage::MAX_JOURNAL_BYTES + 1)
             .unwrap();
         fs::set_permissions(&oversized, fs::Permissions::from_mode(0o600)).unwrap();
         let entries = list_history(&path).unwrap();
         assert_eq!(entries.len(), 2);
-        assert!(entries
-            .iter()
-            .all(|entry| entry.error.as_ref().unwrap().contains("UNKNOWN")));
+        let error = |id: &str| {
+            entries
+                .iter()
+                .find(|e| e.report_id.contains(id))
+                .and_then(|e| e.error.clone())
+                .unwrap()
+        };
+        assert!(
+            error("2222").contains("JOURNAL_UNREADABLE"),
+            "{}",
+            error("2222")
+        );
+        let large = error("3333");
+        assert!(large.contains("JOURNAL_TOO_LARGE"), "{large}");
+        assert!(
+            large.contains("grande demais: 64,0 MiB > 64,0 MiB"),
+            "{large}"
+        );
+        assert!(!large.contains("UNKNOWN"));
+    }
+    #[test]
+    fn large_valid_private_journal_is_read_in_full() {
+        use std::{io::Write, os::unix::fs::PermissionsExt};
+        // QA: 0600 journal of 16,6 MiB with 41.651 lines (~13.900 files).
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("reports");
+        drop(storage::open_dir(&path, true, true).unwrap());
+        let journal = path.join("journal-44444444444444444444444444444444.jsonl");
+        let mut file = std::io::BufWriter::new(fs::File::create(&journal).unwrap());
+        let filler = "x".repeat(380);
+        for i in 0..41_650 {
+            writeln!(
+                file,
+                "{{\"phase\":\"intent\",\"path\":\"/fixture/{i}/{filler}\"}}"
+            )
+            .unwrap();
+        }
+        writeln!(
+            file,
+            "{}",
+            serde_json::json!({"phase":"finished", "report":sample_report()})
+        )
+        .unwrap();
+        drop(file);
+        fs::set_permissions(&journal, fs::Permissions::from_mode(0o600)).unwrap();
+        assert!(fs::metadata(&journal).unwrap().len() > 16 * 1024 * 1024);
+        assert!(list_history(&path).unwrap().is_empty());
+        // The privacy checks still apply to large journals.
+        fs::set_permissions(&journal, fs::Permissions::from_mode(0o644)).unwrap();
+        let entries = list_history(&path).unwrap();
+        assert!(entries[0]
+            .error
+            .as_ref()
+            .unwrap()
+            .contains("JOURNAL_UNSAFE"));
     }
 }

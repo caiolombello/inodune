@@ -12,8 +12,9 @@ use std::{
 const MAX_HISTORY_ENTRIES: u64 = 200;
 const MAX_HISTORY_BYTES: u64 = 256 * 1024 * 1024;
 const HISTORY_HEADROOM: u64 = 64 * 1024 * 1024;
-const MAX_JOURNAL_BYTES: u64 = 64 * 1024 * 1024;
-const MAX_JOURNAL_RECORD: usize = 8 * 1024 * 1024;
+/// Writer and reader share this cap.
+pub const MAX_JOURNAL_BYTES: u64 = 64 * 1024 * 1024;
+pub const MAX_JOURNAL_RECORD: usize = 8 * 1024 * 1024;
 const MAX_REPORT_BYTES: usize = 8 * 1024 * 1024;
 
 pub(crate) fn open_dir(path: &Path, create: bool, private: bool) -> Result<OwnedFd, String> {
