@@ -743,10 +743,13 @@ fn protected_files_have_no_raw_not_a_directory_reason() {
             candidate.display_path
         );
         assert!(!result.targets[&candidate.id].complete);
+        // 0.1.13 (B-6): one short sentence, no repeated coverage text.
         assert!(
-            candidate
-                .reason
-                .contains("Arquivo avulso: fica fora da limpeza."),
+            [
+                "Contém credencial ou não pôde ser lido; o arquivo e a pasta dele ficam fora da limpeza.",
+                "Estado, locks, credenciais ou instruções não são cache.",
+            ]
+            .contains(&candidate.reason.as_str()),
             "{}",
             candidate.reason
         );

@@ -113,3 +113,50 @@ fn an_unsafe_entry_in_an_otherwise_empty_cache_still_reports_incomplete_coverage
     assert!(reason.contains("Cobertura incompleta"), "{reason}");
     assert_eq!(item["risk"], "protected");
 }
+
+/// 0.1.12 QA (B-5/B-6): plural agreement and a short protection reason. Only
+/// the text changed; the items stay protected and out of every plan.
+#[test]
+fn nothing_to_clean_text_agrees_in_number_and_protection_reason_is_short() {
+    const KEY: &str = "-----BEGIN OPENSSH PRIVATE KEY-----\nb3BlbnNzaC1rZXktdjEAAAAAFAKEQAFIXTURE\n-----END OPENSSH PRIVATE KEY-----\n";
+    for (count, expected) in [
+        (
+            1,
+            "Nada a limpar: resta 1 item protegido, que fica no lugar.",
+        ),
+        (
+            4,
+            "Nada a limpar: restam 4 itens protegidos, que ficam no lugar.",
+        ),
+    ] {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path();
+        for index in 0..count {
+            let key = root.join(format!(".cache/pip/http/d{index}/blob"));
+            fs::create_dir_all(key.parent().unwrap()).unwrap();
+            fs::write(&key, KEY).unwrap();
+        }
+        let item = pip_item(root);
+        let reason = item["reason"].as_str().unwrap();
+        assert!(reason.ends_with(expected), "{reason}");
+        assert_eq!(item["risk"], "protected");
+        assert_eq!(item["supported_action"], "none");
+        let (_, out) = cli(root, &["scan", "--json", "--root", root.to_str().unwrap()]);
+        let scan: serde_json::Value = serde_json::from_str(&out).unwrap();
+        let kept: Vec<_> = scan["candidates"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|c| c["detector_id"] == "protected.state")
+            .collect();
+        assert_eq!(kept.len(), count);
+        for item in kept {
+            assert_eq!(
+                item["reason"],
+                "Contém credencial ou não pôde ser lido; o arquivo e a pasta dele ficam fora da limpeza."
+            );
+            assert_eq!(item["risk"], "protected");
+            assert_eq!(item["supported_action"], "none");
+        }
+    }
+}

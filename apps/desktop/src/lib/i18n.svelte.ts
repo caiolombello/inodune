@@ -198,6 +198,8 @@ const catalog: Record<string, string> = {
   'Pasta do sistema ou de outro usuário; escolha uma pasta sua.':
     'System folder or another user’s folder; choose a folder of your own.',
   'A pasta não existe.': 'The folder does not exist.',
+  'Contém credencial ou não pôde ser lido; o arquivo e a pasta dele ficam fora da limpeza.':
+    'Contains a credential or could not be read; the file and its folder stay out of the cleanup.',
   'Outros pacotes do sistema dependem deste; o PackageKit recusou a remoção. Nenhum pacote foi removido.':
     'Other system packages depend on this one; PackageKit refused the removal. No package was removed.',
   'É um arquivo, não uma pasta.': 'It is a file, not a folder.',
