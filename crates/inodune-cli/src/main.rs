@@ -207,21 +207,13 @@ fn run_clean(args: &[String], control: &ScanControl) -> Result<(String, bool), S
             "--dry-run" => dry_run = true,
             "--review" => {
                 index += 1;
-                let detector = args.get(index).ok_or_else(usage)?.clone();
-                if !matches!(
-                    detector.as_str(),
-                    "cargo.fingerprint-json"
-                        | "terraform.provider-package"
-                        | "python.pytest-nodeids"
-                        | "rust.target"
-                        | "python.pip-cache"
-                        | "npm.cache"
-                        | "next.cache"
-                        | "python.mypy-cache"
-                        | "python.ruff-cache"
-                ) {
-                    return Err(format!("Detector de revisão desconhecido: {detector}. Use um detector de cache revisável mostrado pela análise (Cargo, Terraform, Python, npm ou Next.js)."));
-                }
+                let requested = args.get(index).ok_or_else(usage)?;
+                let detector = review_detector(requested).ok_or_else(|| {
+                    format!(
+                        "Detector de revisão desconhecido: {requested}. IDs aceitos (como na análise): {}.",
+                        REVIEW_DETECTORS.join(", ")
+                    )
+                })?;
                 if review.replace(detector).is_some() {
                     return Err("Use --review uma única vez.".into());
                 }
@@ -389,11 +381,15 @@ fn run_clean(args: &[String], control: &ScanControl) -> Result<(String, bool), S
             let delta = match volume.observed_delta {
                 Some(delta) if delta < 0 => format!(
                     "−{}",
-                    inodune_apps::presentation::human_bytes(u64::try_from(delta.unsigned_abs()).unwrap_or(u64::MAX))
+                    inodune_apps::presentation::human_bytes(
+                        u64::try_from(delta.unsigned_abs()).unwrap_or(u64::MAX)
+                    )
                 ),
                 Some(delta) => format!(
                     "+{}",
-                    inodune_apps::presentation::human_bytes(u64::try_from(delta.unsigned_abs()).unwrap_or(u64::MAX))
+                    inodune_apps::presentation::human_bytes(
+                        u64::try_from(delta.unsigned_abs()).unwrap_or(u64::MAX)
+                    )
                 ),
                 None => "não medida".to_owned(),
             };
@@ -644,8 +640,7 @@ fn uninstall_apps(args: &[&str]) -> Result<(String, bool), String> {
         let mut transport = inodune_apps::uninstall::SystemTransport;
         let session = inodune_apps::uninstall::Session::prepare(request, &mut transport)?;
         let view = session.view();
-        let details =
-            inodune_apps::presentation::describe(source, &view.items, &group, &all_items);
+        let details = inodune_apps::presentation::describe(source, &view.items, &group, &all_items);
         packages += details.len();
         eprintln!(
             "{}\n",
@@ -658,7 +653,11 @@ fn uninstall_apps(args: &[&str]) -> Result<(String, bool), String> {
         eprintln!(
             "Plano válido por 2 minutos. Digite UNINSTALL {} para confirmar ({} no total).",
             ids.len(),
-            if packages == 1 { "1 pacote".to_owned() } else { format!("{packages} pacotes") }
+            if packages == 1 {
+                "1 pacote".to_owned()
+            } else {
+                format!("{packages} pacotes")
+            }
         );
         let mut line = String::new();
         stdin
@@ -676,7 +675,11 @@ fn uninstall_apps(args: &[&str]) -> Result<(String, bool), String> {
     Ok((
         format!(
             "Desinstalação concluída: {}.",
-            if packages == 1 { "1 pacote".to_owned() } else { format!("{packages} pacotes") }
+            if packages == 1 {
+                "1 pacote".to_owned()
+            } else {
+                format!("{packages} pacotes")
+            }
         ),
         false,
     ))
@@ -712,6 +715,32 @@ fn present_apps(inventory: &inodune_apps::Inventory, json: bool) -> Result<(Stri
         lines.join("\n")
     };
     Ok((output, partial))
+}
+
+/// Reviewable cache detectors, exactly as `scan` reports them.
+const REVIEW_DETECTORS: [&str; 10] = [
+    "cargo.fingerprint-json",
+    "terraform.provider-package",
+    "python.pytest-nodeids",
+    "rust.target",
+    "python.pip-cache",
+    "npm.cache",
+    "next.cache",
+    "python.mypy-cache",
+    "python.ruff-cache",
+    "node.modules",
+];
+
+/// Scan id, or the same id with `_`/`-` instead of `.` (`node_modules`).
+fn review_detector(requested: &str) -> Option<String> {
+    let normal = requested
+        .trim()
+        .to_ascii_lowercase()
+        .replace(['_', '-'], ".");
+    REVIEW_DETECTORS
+        .iter()
+        .find(|id| id.replace(['_', '-'], ".") == normal)
+        .map(|id| (*id).to_owned())
 }
 
 fn usage() -> String {
