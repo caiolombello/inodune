@@ -12,6 +12,7 @@ pub(crate) enum Query<'a> {
     Flatpak(bool),
     AptManual,
     Dpkg,
+    CoreOwners(bool),
     Snap,
 }
 impl Query<'_> {
@@ -25,6 +26,23 @@ impl Query<'_> {
             },
             Self::Flatpak(user) => ("/usr/bin/flatpak", vec!["list", "--app", if *user {"--user"} else {"--system"}, "--columns=application,name,version,size,branch,arch"].into_iter().map(str::to_owned).collect()),
             Self::AptManual => ("/usr/bin/apt-mark", vec!["showmanual".into()]),
+            Self::CoreOwners(apt) => {
+                let mut paths = Vec::new();
+                for name in ["ls", "cat", "cp", "mv", "rm", "sh", "bash", "env", "chmod", "chown", "mkdir", "rmdir", "ln", "readlink", "stat", "touch", "id", "true", "false", "sleep", "sort", "cut", "head", "tail", "wc", "find", "grep", "sed", "awk"] {
+                    let path = std::path::PathBuf::from(format!("/usr/bin/{name}"));
+                    if path.exists() {
+                        let resolved = std::fs::canonicalize(&path).map_err(|_| "Binário básico não verificável")?;
+                        let resolved = resolved.to_string_lossy();
+                        // dpkg databases may retain /bin paths on merged-/usr systems.
+                        paths.push(if *apt { format!("*/{}", resolved.strip_prefix("/usr/").unwrap_or(resolved.trim_start_matches('/'))) } else { resolved.into_owned() });
+                    }
+                }
+                paths.sort(); paths.dedup();
+                if paths.is_empty() { return Err("Nenhum binário básico verificável".into()); }
+                let mut args: Vec<String> = if *apt { vec!["-S".into(), "--".into()] } else { vec!["-qf".into(), "--qf=%{NAME}\n".into(), "--".into()] };
+                args.extend(paths);
+                (if *apt { "/usr/bin/dpkg-query" } else { "/usr/bin/rpm" }, args)
+            },
             Self::Dpkg => ("/usr/bin/dpkg-query", vec!["-W".into(), "-f=${binary:Package}\t${Version}\t${Installed-Size}\t${Status}\t${Essential}\t${Priority}\n".into()]),
             Self::Snap => ("/usr/bin/snap", vec!["list".into(), "--all".into()]),
         };

@@ -152,6 +152,11 @@ pub fn package_blocked(name: &str) -> bool {
 fn fixed_block(name: &str) -> bool {
     let n = name.split(':').next().unwrap_or(name).to_ascii_lowercase();
     if [
+        "bash",
+        "coreutils",
+        "rust-coreutils",
+        "coreutils-from-uutils",
+        "packagekit",
         "systemd",
         "apt",
         "dpkg",
@@ -164,6 +169,7 @@ fn fixed_block(name: &str) -> bool {
         "inodune",
     ]
     .contains(&n.as_str())
+        || n.starts_with("kernel-core-")
         || n.starts_with("linux-image")
         || n.starts_with("linux-modules")
         || n.starts_with("gnome-shell")
@@ -363,15 +369,44 @@ fn protect_native(source: Source, items: &[Removal]) -> Result<(), String> {
         // de leitura impede estabelecer a política e deve recusar a transação.
         protected_dnf()?
     };
+    let core_owners = core_utility_owners(source)?;
     for item in items {
         let name = package_name(&item.id)?;
         validate_id(source, name)?;
-        if fixed_block(name) || protected.contains(name) {
+        if fixed_block(name) || protected.contains(name) || core_owners.contains(name) {
             return Err(format!("Plano inteiro recusado: pacote protegido {name}"));
         }
     }
     Ok(())
 }
+pub(crate) fn core_utility_owners(source: Source) -> Result<BTreeSet<String>, String> {
+    let apt = source == Source::Apt;
+    let text = crate::command::run(crate::command::Query::CoreOwners(apt))?;
+    parse_core_utility_owners(source, &text)
+}
+fn parse_core_utility_owners(source: Source, text: &str) -> Result<BTreeSet<String>, String> {
+    let apt = source == Source::Apt;
+    let mut names = BTreeSet::new();
+    for line in text.lines() {
+        let owner = if apt {
+            line.split_once(": ")
+                .ok_or("Resposta de proprietário inválida")?
+                .0
+        } else {
+            line
+        };
+        for name in owner.split(", ") {
+            let name = name.split(':').next().unwrap_or(name);
+            validate_id(source, name)?;
+            names.insert(name.to_owned());
+        }
+    }
+    if names.is_empty() {
+        return Err("Proprietários dos binários básicos indisponíveis".into());
+    }
+    Ok(names)
+}
+
 fn protected_dnf() -> Result<BTreeSet<String>, String> {
     use std::path::Path;
     let mut names = BTreeSet::new();
@@ -420,7 +455,7 @@ mod packagekit {
             interface,
             gio::Cancellable::NONE,
         )
-        .map_err(|e| format!("PackageKit indisponível: {e}"))
+        .map_err(|_| "PackageKit indisponível. Verifique se o serviço PackageKit e o barramento do sistema estão instalados e em execução; nenhum pacote foi removido.".to_owned())
     }
     #[derive(Default)]
     struct Reply {
@@ -429,11 +464,11 @@ mod packagekit {
         error: Option<String>,
     }
 
-    // Contrato legado Package(): INSTALLED=1 e REMOVING=13. Não aceitamos
-    // aliases numéricos de APIs novas: qualquer divergência é fail-closed.
+    // Low 16 bits are PkInfoEnum; high bits carry update severity.
+    // Discovery remains strict; real progress cannot expand the approved plan.
     fn package_signal(method: &str, info: u32, id: String) -> Result<Removal, String> {
         let expected = if method == "Resolve" { 1 } else { 13 };
-        if info != expected {
+        if info & 0xffff != expected {
             return Err(
                 "PackageKit propôs ação diferente de remoção/instalado; plano inteiro recusado"
                     .into(),
@@ -441,17 +476,36 @@ mod packagekit {
         }
         package_name(&id)?;
         let fields: Vec<_> = id.split(';').collect();
-        let installed = fields[3] == "installed"
-            || fields[3].starts_with("installed:")
-            || fields[3] == "@System"
-            || fields[3].starts_with("@System:");
-        if !installed {
-            return Err("PackageKit retornou pacote fora da instalação local".into());
-        }
         Ok(Removal {
             id: id.clone(),
             version: fields[1].into(),
         })
+    }
+    fn transaction_package_signal(
+        method: &str,
+        simulate: bool,
+        approved: &[Removal],
+        info: u32,
+        id: String,
+    ) -> Result<Option<Removal>, String> {
+        if method != "RemovePackages" || simulate {
+            return package_signal(method, info, id).map(Some);
+        }
+        package_name(&id)?;
+        if !approved.iter().any(|item| item.id == id) {
+            return Err(
+                "PackageKit sinalizou pacote fora do plano aprovado; resultado desconhecido".into(),
+            );
+        }
+        // REMOVING, CLEANUP, FINISHED, PREPARING only. These are observations,
+        // not additional removals or evidence of transaction success.
+        match info & 0xffff {
+            13 | 14 | 18 | 21 => Ok(None),
+            _ => Err(
+                "PackageKit propôs ação diferente da remoção aprovada; resultado desconhecido"
+                    .into(),
+            ),
+        }
     }
     fn removal_parameters(items: &[Removal], simulate: bool) -> glib::Variant {
         let ids = items.iter().map(|i| i.id.clone()).collect::<Vec<_>>();
@@ -462,6 +516,7 @@ mod packagekit {
         method: &str,
         args: glib::Variant,
         simulate: bool,
+        approved: &[Removal],
     ) -> Result<Vec<Removal>, String> {
         let context = glib::MainContext::new();
         context
@@ -475,7 +530,7 @@ mod packagekit {
                         10000,
                         gio::Cancellable::NONE,
                     )
-                    .map_err(|e| e.to_string())?;
+                    .map_err(|_| "PackageKit indisponível. Verifique o serviço e o barramento do sistema; nenhum pacote foi removido.".to_owned())?;
                 let path = path
                     .child_value(0)
                     .str()
@@ -485,6 +540,7 @@ mod packagekit {
                 let reply = Arc::new(Mutex::new(Reply::default()));
                 let state = reply.clone();
                 let method_owned = method.to_owned();
+                let approved = approved.to_vec();
                 let signal = tx.connect_g_signal(move |_, _, name, args| {
                     let Ok(mut reply) = state.lock() else {
                         return;
@@ -494,8 +550,9 @@ mod packagekit {
                             if let Some((info, id, _summary)) = args.get::<(u32, String, String)>()
                             {
                                 if reply.items.len() < 10000 {
-                                    match package_signal(&method_owned, info, id) {
-                                        Ok(item) => reply.items.push(item),
+                                    match transaction_package_signal(&method_owned, simulate, &approved, info, id) {
+                                        Ok(Some(item)) => reply.items.push(item),
+                                        Ok(None) => {},
                                         Err(error) => reply.error = Some(error),
                                     }
                                 } else {
@@ -505,6 +562,23 @@ mod packagekit {
                                 reply.error = Some(
                                     "PackageKit retornou uma lista incompleta ou ambígua".into(),
                                 );
+                            }
+                        }
+                        "Packages" => {
+                            if let Some((packages,)) = args.get::<(Vec<(u32, String, String)>,)>() {
+                                for (info, id, _) in packages {
+                                    if reply.items.len() >= 10000 {
+                                        reply.error = Some("Simulação acima do limite".into());
+                                        break;
+                                    }
+                                    match transaction_package_signal(&method_owned, simulate, &approved, info, id) {
+                                        Ok(Some(item)) => reply.items.push(item),
+                                        Ok(None) => {},
+                                        Err(error) => reply.error = Some(error),
+                                    }
+                                }
+                            } else {
+                                reply.error = Some("PackageKit retornou lista inválida".into());
                             }
                         }
                         "ErrorCode" => reply.error = Some(
@@ -560,6 +634,7 @@ mod packagekit {
             "Resolve",
             (1u64 << 2, vec![id.to_owned()]).to_variant(),
             true,
+            &[],
         )
     }
     pub fn remove(items: &[Removal], simulate: bool) -> Result<Vec<Removal>, String> {
@@ -567,6 +642,7 @@ mod packagekit {
             "RemovePackages",
             removal_parameters(items, simulate),
             simulate,
+            items,
         )
     }
     #[cfg(test)]
@@ -581,7 +657,14 @@ mod packagekit {
                         package_signal(method, info, "vendor-tool;1;amd64;installed".into());
                     assert_eq!(result.is_ok(), info == accepted, "{method} {info}");
                 }
-                for data in ["installed", "installed:stable", "@System", "@System:fedora"] {
+                for data in [
+                    "installed",
+                    "installed:stable",
+                    "@System",
+                    "@System:fedora",
+                    "manual:ubuntu-resolute-universe",
+                    "auto:ubuntu-resolute-main",
+                ] {
                     assert!(package_signal(
                         method,
                         accepted,
@@ -589,11 +672,78 @@ mod packagekit {
                     )
                     .is_ok());
                 }
-                for data in ["available", "fedora", "installed-fake", "@System-fake", ""] {
-                    assert!(package_signal(
-                        method,
-                        accepted,
-                        format!("vendor-tool;1;amd64;{data}")
+                for data in [
+                    "available",
+                    "manual:ubuntu-resolute-main",
+                    "auto:debian",
+                    "installed",
+                    "@System",
+                ] {
+                    assert!(
+                        package_signal("Resolve", 2, format!("vendor-tool;1;amd64;{data}"))
+                            .is_err()
+                    );
+                }
+            }
+        }
+        #[test]
+        fn severity_bits_never_change_discovery_or_simulation_actions() {
+            for severity in [0, 1, 8, 0xffff] {
+                for info in 0..32 {
+                    let id = "hello;1;amd64;manual:ubuntu-main".to_owned();
+                    assert_eq!(
+                        package_signal("Resolve", info | severity << 16, id.clone()).is_ok(),
+                        info == 1
+                    );
+                    assert_eq!(
+                        transaction_package_signal(
+                            "RemovePackages",
+                            true,
+                            &[],
+                            info | severity << 16,
+                            id
+                        )
+                        .is_ok(),
+                        info == 13
+                    );
+                }
+            }
+        }
+        #[test]
+        fn real_progress_is_allowlisted_and_bound_to_exact_approved_ids() {
+            let id = "hello;1;amd64;manual:ubuntu-main".to_owned();
+            let approved = [Removal {
+                id: id.clone(),
+                version: "1".into(),
+            }];
+            for severity in [0, 8, 0xffff] {
+                for info in 0..32 {
+                    let result = transaction_package_signal(
+                        "RemovePackages",
+                        false,
+                        &approved,
+                        info | severity << 16,
+                        id.clone(),
+                    );
+                    assert_eq!(result.is_ok(), matches!(info, 13 | 14 | 18 | 21), "{info}");
+                    if let Ok(item) = result {
+                        assert!(item.is_none());
+                    }
+                }
+            }
+            for foreign in [
+                "other;1;amd64;manual:ubuntu-main",
+                "hello;2;amd64;manual:ubuntu-main",
+                "hello;1;arm64;manual:ubuntu-main",
+                "hello;1;amd64;auto:ubuntu-main",
+            ] {
+                for info in [13, 14, 18, 21] {
+                    assert!(transaction_package_signal(
+                        "RemovePackages",
+                        false,
+                        &approved,
+                        info,
+                        foreign.into()
                     )
                     .is_err());
                 }
@@ -840,6 +990,11 @@ mod tests {
         assert_eq!(operation.join().unwrap(), "completed");
         drop(notice);
         for name in [
+            "bash",
+            "coreutils",
+            "rust-coreutils",
+            "coreutils-from-uutils",
+            "packagekit",
             "sddm",
             "kwin-wayland",
             "mutter",
@@ -850,14 +1005,7 @@ mod tests {
         ] {
             assert!(fixed_block(name), "{name}");
         }
-        for name in [
-            "bash",
-            "coreutils",
-            "aptitude",
-            "linux-firmware",
-            "network-manager",
-            "hello",
-        ] {
+        for name in ["aptitude", "linux-firmware", "network-manager", "hello"] {
             assert!(!fixed_block(name), "{name}");
         }
     }
@@ -912,8 +1060,29 @@ mod tests {
         }
     }
     #[test]
+    fn core_binary_owner_queries_protect_nonstandard_providers() {
+        let owners = parse_core_utility_owners(
+            Source::Apt,
+            "custom-tools:amd64: /usr/bin/ls\nother-tools: /usr/bin/cat\n",
+        )
+        .unwrap();
+        assert!(owners.contains("custom-tools"));
+        assert!(owners.contains("other-tools"));
+        assert!(parse_core_utility_owners(Source::Apt, "hello;id: /usr/bin/ls").is_err());
+        assert!(parse_core_utility_owners(Source::Rpm, "").is_err());
+        assert!(parse_core_utility_owners(Source::Rpm, "custom-tools\n")
+            .unwrap()
+            .contains("custom-tools"));
+    }
+    #[test]
     fn fixed_session_and_kernel_packages_are_always_blocked() {
         for n in [
+            "bash",
+            "coreutils",
+            "rust-coreutils",
+            "coreutils-from-uutils",
+            "packagekit",
+            "kernel-core-6.1",
             "linux-image-6.1",
             "linux-modules-extra",
             "plasma-desktop",
@@ -925,7 +1094,7 @@ mod tests {
         ] {
             assert!(fixed_block(n), "{n}");
         }
-        for n in ["systemd-libs", "NetworkManager", "kernel-core", "bash"] {
+        for n in ["systemd-libs", "NetworkManager", "kernel-core"] {
             assert!(!fixed_block(n), "{n}");
         }
     }

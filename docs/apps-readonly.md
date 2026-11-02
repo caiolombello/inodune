@@ -73,7 +73,7 @@ APIs consultadas: [PackageKit RemovePackages/Resolve](https://www.freedesktop.or
 
 Depois de tentar enviar o ID para execução, o processo Tauri nunca mata o helper, nem em Drop, erro de canal ou timeout. Um reaper aguarda apenas esse filho. Planos não enviados continuam canceláveis. A espera Tauri é de 900 s. O helper anuncia resultado desconhecido após 600 s de execução (180 s para Flatpak), mas continua aguardando a chamada original: esses prazos notificam, não cancelam nem matam uma mutação. O usuário deve consultar o inventário e não repetir automaticamente.
 
-Sinais PackageKit seguem o contrato legado `Package`: Resolve aceita somente INSTALLED=1; RemovePackages SIMULATE aceita somente REMOVING=13. Qualquer outro info recusa a lista inteira. O quarto campo do package_id deve ser `installed`, prefixo `installed:`, `@System` ou prefixo `@System:`. Outros dados, versões do protocolo ou listas incompletas bloqueiam; não interpretamos AVAILABLE como instalado. Os IDs completos, incluindo versão/arquitetura, da re-simulação são enviados sem alterações para a remoção real, com allow_deps=false e autoremove=false, cobertos por teste de argumentos.
+Sinais PackageKit seguem o contrato legado `Package`: Resolve aceita somente INSTALLED=1; RemovePackages SIMULATE aceita somente REMOVING=13. Qualquer outro info recusa a lista inteira. O campo de origem/dados do package_id é opaco: `manual:*`, `auto:*`, `installed:*` e `@System` não determinam estado. Apenas `info=INSTALLED` em Resolve e `info=REMOVING` na remoção são aceitos. Enums diferentes e listas incompletas bloqueiam. Os IDs completos, incluindo versão/arquitetura, da re-simulação são enviados sem alterações para a remoção real, com allow_deps=false e autoremove=false, cobertos por teste de argumentos.
 
 Os bloqueios fixos incluem prefixos dos gerenciadores (dnf/libdnf/rpm/apt/dpkg/packagekit/flatpak/snapd), kernel, sessão, login, rede, D-Bus, PAM, shell e ferramentas básicas. Há regressões para dnf5, libdnf5 e gnome-session-*, além de fixtures de ciclo de vida que demonstram que um helper enviado continua vivo quando a GUI deixa de aguardá-lo.
 
@@ -90,3 +90,31 @@ Para verificar o release padrão, compile sem features em um target separado:
 `strings /tmp/inodune-release-check/release/inodune-cli` não deve conter
 `INODUNE_CONTAINER_DPKG`. Com a variável definida, um ID ausente do inventário
 continua recusado pelo fluxo normal, sem chamar dpkg diretamente.
+
+## Regressão 0.1.8 em container
+
+Compile `cargo build --release --locked -p inodune-apps --bin inodune-uninstall-helper`
+e rode `sh scripts/test-packagekit-container.sh`. O script instala os pacotes
+apenas no container descartável Ubuntu 26.04, inicia D-Bus e polkit e usa o
+helper não privilegiado com autorização limitada a package-remove para o
+usuário de teste. O PackageKit é ativado por D-Bus. O teste deve terminar com
+`HELLO_REMOVED_VIA_PACKAGEKIT`; erros não equivalem a validação de remoção.
+A feature `container-dpkg-test` não participa desse teste.
+
+A limpeza de caches usa Lixeira por padrão, inclusive pip/npm; exclusão
+permanente exige seleção explícita. Credenciais por nome ou assinatura nos
+primeiros 4 KiB bloqueiam o item inteiro e são rechecadas pelo executor comum.
+Não há garantia de detectar segredos sem formato reconhecível ou após esse
+prefixo. `--safe` inclui somente risco baixo.
+
+### Sinais PackageKit durante a execução real
+
+O enum é extraído com `info & 0xFFFF`; os bits altos de severidade não
+alteram a ação. Resolve continua aceitando apenas INSTALLED e a simulação
+apenas REMOVING. Na transação real, REMOVING, CLEANUP, FINISHED e PREPARING
+são observações aceitas somente para IDs completos já aprovados. Não
+ampliam o plano nem comprovam sucesso: o sinal Finished da transação
+continua obrigatório. INSTALLING, UPDATING, DOWNGRADING, REINSTALLING,
+qualquer outro enum e qualquer ID fora do plano são recusados; numa
+transação já iniciada isso significa resultado desconhecido, sem retry.
+A falha intermitente original do QA não foi reproduzida neste sandbox.

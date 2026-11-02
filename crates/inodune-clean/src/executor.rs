@@ -231,12 +231,7 @@ fn execute_inner(
             .map(|c| c.detector_id.clone())
             .unwrap_or_default();
         let kind = CacheKind::detector(&detector_id);
-        let action =
-            if plan.action == Action::Permanent || crate::tools::direct_delete(&detector_id) {
-                Action::Permanent
-            } else {
-                plan.action
-            };
+        let action = plan.action;
         let mut item = ItemResult {
             candidate_id: id,
             files: vec![],
@@ -819,6 +814,13 @@ fn process_file(
         && fp.nlink <= expected.nlink;
     if !same_file || fp.uid != uid || FileType::from_raw_mode(fp.mode) != FileType::RegularFile {
         return fail("Arquivo mudou, trocou de dono ou não é regular.");
+    }
+    if relative
+        .components()
+        .any(|part| inodune_core::scan::protected_name(part.as_os_str()))
+        || inodune_core::scan::sensitive_content(&target.root, relative)
+    {
+        return fail("Credencial, chave privada ou leitura insegura; arquivo protegido.");
     }
     if fp.nlink > 1 && !links_inside(target, fp.dev, fp.ino, fp.nlink) {
         return fail("Hardlink com elo fora do item; preservado.");

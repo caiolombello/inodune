@@ -112,3 +112,105 @@ fn protected_scope_and_unknown_clean_flags_cannot_select_files() {
     assert_eq!(unknown.status.code(), Some(2));
     assert_eq!(fs::read(&secret).unwrap(), b"protected fixture");
 }
+
+#[test]
+fn cli_credentials_inside_cache_are_never_removed_even_with_permanent() {
+    for (relative, detector, name) in [
+        (".cache/pip/http/keys", "python.pip-cache", "id_ed25519"),
+        (".npm/_cacache/x", "npm.cache", ".netrc"),
+        ("projects/rsproj/target/debug", "rust.target", "id_ed25519"),
+        (".npm/_cacache/x", "npm.cache", "innocent"),
+    ] {
+        let temp = tempfile::tempdir().unwrap();
+        let home = temp.path().join("home");
+        let cache = home.join(relative);
+        fs::create_dir_all(&cache).unwrap();
+        if detector == "rust.target" {
+            fs::write(
+                home.join("projects/rsproj/Cargo.toml"),
+                b"[package]\nname=\"fixture\"\nversion=\"0.0.1\"\n",
+            )
+            .unwrap();
+        }
+        fs::write(
+            cache.join(name),
+            b"-----BEGIN OPENSSH PRIVATE KEY-----\nfake fixture",
+        )
+        .unwrap();
+        fs::write(cache.join("ordinary"), b"ordinary fixture").unwrap();
+        for permanent in [false, true] {
+            let mut cmd = Command::new(env!("CARGO_BIN_EXE_inodune-cli"));
+            cmd.args(["clean", "--review", detector, "--yes", "--root"])
+                .arg(&home)
+                .env("XDG_CACHE_HOME", home.join(".cache"))
+                .env("HOME", &home)
+                .env("XDG_DATA_HOME", home.join(".local/share"));
+            if permanent {
+                cmd.arg("--permanent");
+            }
+            let result = cmd.output().unwrap();
+            assert!(!String::from_utf8_lossy(&result.stdout).contains("Trashed"));
+            assert!(!String::from_utf8_lossy(&result.stdout).contains("Removed"));
+            assert!(cache.join(name).exists());
+            assert!(cache.join("ordinary").exists());
+        }
+    }
+}
+
+#[test]
+fn safe_dry_run_excludes_review_caches() {
+    let temp = tempfile::tempdir().unwrap();
+    fs::create_dir_all(temp.path().join(".npm/_cacache")).unwrap();
+    fs::write(
+        temp.path().join(".npm/_cacache/blob"),
+        b"recreatable fixture",
+    )
+    .unwrap();
+    let result = Command::new(env!("CARGO_BIN_EXE_inodune-cli"))
+        .args(["clean", "--safe", "--dry-run", "--json", "--root"])
+        .arg(temp.path())
+        .output()
+        .unwrap();
+    let text = String::from_utf8_lossy(&result.stdout);
+    assert!(result.status.success(), "{text}");
+    let view: serde_json::Value = serde_json::from_slice(&result.stdout).unwrap();
+    assert!(view["plan"].is_null(), "{text}");
+    assert_eq!(view["eligible_items"], 0);
+    assert!(temp.path().join(".npm/_cacache/blob").exists());
+}
+
+#[test]
+fn cli_reviewed_cache_uses_xdg_trash_by_default() {
+    let temp = tempfile::tempdir().unwrap();
+    let home = temp.path().join("home");
+    let cache = home.join(".npm/_cacache/x");
+    fs::create_dir_all(&cache).unwrap();
+    fs::write(cache.join("ordinary"), b"ordinary fixture").unwrap();
+    let data = home.join(".local/share");
+    let result = Command::new(env!("CARGO_BIN_EXE_inodune-cli"))
+        .args([
+            "clean",
+            "--review",
+            "npm.cache",
+            "--yes",
+            "--json",
+            "--root",
+        ])
+        .arg(&home)
+        .env("HOME", &home)
+        .env("XDG_DATA_HOME", &data)
+        .env("XDG_STATE_HOME", home.join(".local/state"))
+        .output()
+        .unwrap();
+    assert!(
+        result.status.success(),
+        "{} {}",
+        String::from_utf8_lossy(&result.stdout),
+        String::from_utf8_lossy(&result.stderr)
+    );
+    let report: serde_json::Value = serde_json::from_slice(&result.stdout).unwrap();
+    assert_eq!(report["action"], "trash");
+    assert_eq!(report["items"][0]["files"][0]["status"], "trashed");
+    assert!(!cache.join("ordinary").exists());
+    assert_eq!(fs::read_dir(data.join("Trash/info")).unwrap().count(), 1);
+}

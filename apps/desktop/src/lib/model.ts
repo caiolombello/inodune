@@ -170,7 +170,7 @@ export function isCarefulItem(item: Candidate): boolean {
 export function selectOverviewDefaults(items: Candidate[]): string[] {
   return items
     .filter((item) => {
-      if (item.risk === 'protected' || isCarefulItem(item)) return false;
+      if (item.risk !== 'low' || isCarefulItem(item)) return false;
       if (isLocallyEligible(item)) return true;
       return item.risk === 'low' && item.selected_by_default;
     })

@@ -266,7 +266,7 @@ fn run_clean(args: &[String], control: &ScanControl) -> Result<(String, bool), S
             .iter()
             .filter(|candidate| {
                 is_safe_detector(&candidate.detector_id)
-                    && candidate.risk != Risk::Protected
+                    && candidate.risk == Risk::Low
                     && !matches!(candidate.supported_action, SupportedAction::None)
             })
             .map(|candidate| candidate.id.clone())

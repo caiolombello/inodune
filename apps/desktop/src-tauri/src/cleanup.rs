@@ -124,7 +124,7 @@ pub fn prepare_cleanup(
     Ok(view)
 }
 fn safe_candidate(candidate: &inodune_core::Candidate) -> bool {
-    candidate.risk != inodune_core::Risk::Protected
+    candidate.risk == inodune_core::Risk::Low
         && !matches!(
             candidate.supported_action,
             inodune_core::SupportedAction::None
@@ -384,4 +384,21 @@ pub fn cancel_cleanup(state: State<'_, Backend>, job_id: String) -> Result<(), S
     }
     j.control.cancel();
     Ok(())
+}
+
+#[cfg(test)]
+mod safe_selection_tests {
+    use super::*;
+    #[test]
+    fn safe_selection_never_accepts_review_risk() {
+        let mut candidate = inodune_core::demo_inventory().unwrap().candidates[0].clone();
+        candidate.detector_id = "python.pycache".into();
+        candidate.supported_action = inodune_core::SupportedAction::CacheContents;
+        candidate.risk = inodune_core::Risk::Low;
+        assert!(safe_candidate(&candidate));
+        candidate.risk = inodune_core::Risk::Review;
+        assert!(!safe_candidate(&candidate));
+        candidate.risk = inodune_core::Risk::Protected;
+        assert!(!safe_candidate(&candidate));
+    }
 }

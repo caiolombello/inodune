@@ -41,6 +41,13 @@ impl PackageSource for RpmDnf {
             items.extend(parsed);
             warnings.extend(batch_warnings);
         }
+        let owners = crate::uninstall::core_utility_owners(Source::Rpm)?;
+        for item in &mut items {
+            if owners.contains(&item.id) {
+                item.protected = true;
+                item.notes.push("Fornece binário básico do sistema".into());
+            }
+        }
         let mut result = report(self.name(), "ok", items);
         result.warnings = warnings;
         if let Err(e) = protected {
@@ -217,6 +224,13 @@ impl PackageSource for AptDpkg {
     fn list(&self) -> Result<SourceReport, String> {
         let manual = ids(&run(Query::AptManual)?)?;
         let (mut items, mut warnings) = parse_dpkg(&run(Query::Dpkg)?, &manual)?;
+        let owners = crate::uninstall::core_utility_owners(Source::Apt)?;
+        for item in &mut items {
+            if owners.contains(item.id.split(':').next().unwrap_or(&item.id)) {
+                item.protected = true;
+                item.notes.push("Fornece binário básico do sistema".into());
+            }
+        }
         let (dates, date_warnings) = dpkg_dates(Path::new("/var/log"));
         warnings.extend(date_warnings);
         for item in &mut items {

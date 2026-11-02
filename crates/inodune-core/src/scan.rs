@@ -710,6 +710,17 @@ impl<F: FnMut(ScanProgress)> Walker<'_, F> {
                     n == ".git" || n == ".ssh" || n == ".gnupg" || protected_name(n)
                 })
             {
+                note(&mut blocks, "credencial ou estado protegido");
+                complete = false;
+                continue;
+            }
+            if FileType::from_raw_mode(st.st_mode) == FileType::RegularFile
+                && sensitive_content(root, &path)
+            {
+                note(
+                    &mut blocks,
+                    "assinatura de chave privada ou leitura insegura",
+                );
                 complete = false;
                 continue;
             }
@@ -1407,7 +1418,10 @@ impl<F: FnMut(ScanProgress)> Walker<'_, F> {
         let name_sensitive = rel
             .file_name()
             .is_some_and(|name| protected_name(name) || name == ".ssh" || name == ".gnupg");
-        let sensitive_here = inherited || name_sensitive;
+        let sensitive_here = inherited
+            || name_sensitive
+            || (FileType::from_raw_mode(st.st_mode) == FileType::RegularFile
+                && sensitive_content(root, rel));
         match FileType::from_raw_mode(st.st_mode) {
             FileType::Directory => {
                 let Some(names) = self.names(root, rel) else {
@@ -1463,7 +1477,13 @@ impl<F: FnMut(ScanProgress)> Walker<'_, F> {
             }
             return;
         }
-        if root.kind == ScopeKind::Protected || is_protected_agent_path(root.path()) {
+        if root.kind == ScopeKind::Protected
+            || is_protected_agent_path(root.path())
+            || root
+                .path()
+                .components()
+                .any(|c| protected_name(c.as_os_str()))
+        {
             self.candidate(root,Path::new("."),&root.path.file_name().unwrap_or_default().to_string_lossy(),CandidatePolicy{detector:"ai.history",title:"Inventário protegido",category:"IA & Agentes",risk:Risk::Protected,reason:"Escopo de conteúdo não regenerável; apenas metadados e tamanhos são inventariados."});
             return;
         }
@@ -1530,7 +1550,7 @@ impl<F: FnMut(ScanProgress)> Walker<'_, F> {
                     continue;
                 }
                 if kind == FileType::RegularFile {
-                    if protected_name(name) {
+                    if protected_name(name) || sensitive_content(root, &path) {
                         self.candidate(
                             root,
                             &path,
@@ -1552,6 +1572,10 @@ impl<F: FnMut(ScanProgress)> Walker<'_, F> {
                         "special",
                         "Arquivo especial preservado.",
                     );
+                    continue;
+                }
+                if protected_name(name) {
+                    self.candidate(root, &path, &project, CandidatePolicy { detector: "protected.state", title: "Credenciais / estado protegido", category: "Desenvolvimento", risk: Risk::Protected, reason: "Diretório de credenciais ou estado protegido; nenhuma limpeza autorizada." });
                     continue;
                 }
                 let n = name.to_string_lossy();
@@ -1811,19 +1835,99 @@ fn trash_keeps_entry(path: &Path) -> bool {
             .and_then(|parent| parent.file_name())
             .is_some_and(|parent| parent == ".docker")
 }
-fn protected_name(name: &std::ffi::OsStr) -> bool {
+pub fn protected_name(name: &std::ffi::OsStr) -> bool {
     let n = name.to_string_lossy();
-    n.contains(".tfstate")
+    let lower = n.to_ascii_lowercase();
+    let n = lower.as_str();
+    (n.starts_with("id_") && !n.ends_with(".pub"))
+        || [
+            ".netrc",
+            ".ssh",
+            ".gnupg",
+            ".kube",
+            ".cursor",
+            ".pgpass",
+            ".npmrc",
+            ".pypirc",
+            ".docker",
+            ".git-credentials",
+            ".aws",
+            ".azure",
+            "azure",
+            "gcloud",
+            "keyrings",
+            "tokens",
+            "token",
+            "access_tokens.db",
+            "application_default_credentials.json",
+        ]
+        .contains(&n)
+        || n.contains("token")
+        || [".key", ".p12", ".pfx", ".kdbx"]
+            .iter()
+            .any(|ext| n.ends_with(ext))
+        || n.contains("credential")
+        || n.contains("credencia")
+        || n.contains(".tfstate")
         || n.ends_with(".tfvars")
         || n.ends_with(".tfplan")
         || n == ".terraform.lock.hcl"
-        || n == ".env"
-        || n.starts_with(".env.")
+        || n.starts_with(".env")
         || n.ends_with(".ovpn")
         || n.ends_with(".pem")
         || n == "credentials"
-        || ["AGENTS.md", "CLAUDE.md", "auth.json", "credentials.json"].contains(&n.as_ref())
+        || ["agents.md", "claude.md", "auth.json", "credentials.json"].contains(&n)
 }
+/// Bounded signature check through the retained root; never follows symlinks.
+/// Unreadable or unstable content is preserved, not assumed safe.
+pub fn sensitive_content(root: &ApprovedRoot, path: &Path) -> bool {
+    let Ok(fd) = root.open_relative(path, OFlags::RDONLY | OFlags::NONBLOCK | OFlags::NOATIME)
+    else {
+        return true;
+    };
+    let Ok(before) = fs::fstat(&fd) else {
+        return true;
+    };
+    if FileType::from_raw_mode(before.st_mode) != FileType::RegularFile {
+        return true;
+    }
+    let mut file = std::fs::File::from(fd);
+    let mut bytes = Vec::with_capacity(4096);
+    if (&mut file).take(4096).read_to_end(&mut bytes).is_err() {
+        return true;
+    }
+    let Ok(after) = fs::fstat(&file) else {
+        return true;
+    };
+    if Fingerprint::from_stat(&before) != Fingerprint::from_stat(&after) {
+        return true;
+    }
+    let text = String::from_utf8_lossy(&bytes);
+    let lower = text.to_ascii_lowercase();
+    (text.contains("-----BEGIN ") && text.contains("PRIVATE KEY-----"))
+        || bytes
+            .windows(b"openssh-key-v1\0".len())
+            .any(|w| w == b"openssh-key-v1\0")
+        || [
+            "_authtoken",
+            "aws_secret_access_key",
+            "aws_session_token",
+            "access_token",
+            "refresh_token",
+            "client_secret",
+            "private_key",
+            "accountkey=",
+            "password=",
+            "password =",
+            "secret_access_key",
+        ]
+        .iter()
+        .any(|marker| lower.contains(marker))
+        || lower.lines().any(|line| {
+            line.contains("machine ") && (line.contains("login ") || line.contains("password "))
+        })
+}
+
 pub fn user_trash_dir() -> Option<PathBuf> {
     #[cfg(test)]
     if let Some(path) = TRASH_DIR_OVERRIDE.with(|slot| slot.borrow().clone()) {
@@ -2150,5 +2254,79 @@ mod trash_sensitivity_tests {
             .files
             .iter()
             .any(|(path, _)| path.ends_with("notes.trashinfo")));
+    }
+}
+
+#[cfg(test)]
+mod credential_cache_regressions {
+    use super::*;
+    #[test]
+    fn nested_credentials_block_the_entire_cache_manifest() {
+        for (name, bytes) in [
+            ("id_ed25519", "fake fixture"),
+            (".netrc", "machine example.invalid login fake"),
+            ("blob", "-----BEGIN OPENSSH PRIVATE KEY-----\nfake fixture"),
+            ("opaque", "-----BEGIN RSA PRIVATE KEY-----\nfake fixture"),
+            (
+                "blob-auth",
+                "//registry.example.invalid/:_authToken=fixture-not-a-token",
+            ),
+            ("blob-cloud", "aws_secret_access_key=fixture-not-a-key"),
+            (".pgpass", "fake fixture"),
+            (".aws/credentials", "fake fixture"),
+        ] {
+            let temp = tempfile::tempdir().unwrap();
+            let cache = temp.path().join(".npm/_cacache/x");
+            std::fs::create_dir_all(&cache).unwrap();
+            let secret = cache.join(name);
+            std::fs::create_dir_all(secret.parent().unwrap()).unwrap();
+            std::fs::write(&secret, bytes).unwrap();
+            std::fs::write(cache.join("ordinary"), "recreatable fixture").unwrap();
+            let root = ApprovedRoot::open(temp.path(), ScopeKind::Projects).unwrap();
+            let snapshot = scan(
+                &[root],
+                &ScanControl::default(),
+                &ScanLimits::default(),
+                |_| {},
+            )
+            .unwrap();
+            let item = snapshot
+                .candidates
+                .iter()
+                .find(|c| c.detector_id == "npm.cache")
+                .unwrap();
+            assert_eq!(item.risk, Risk::Protected, "{name}");
+            assert!(matches!(item.supported_action, SupportedAction::None));
+            assert!(item.reason.contains("protegido"));
+            assert!(secret.exists());
+        }
+    }
+    #[test]
+    fn names_preserve_existing_protections_and_public_keys_are_not_private() {
+        for name in [
+            "AGENTS.md",
+            "CLAUDE.md",
+            ".env.local",
+            "state.tfstate",
+            "id_ecdsa",
+            ".netrc",
+            "service.key",
+            "backup.p12",
+            "vault.kdbx",
+            "azure",
+            "session-token",
+        ] {
+            assert!(protected_name(std::ffi::OsStr::new(name)), "{name}");
+        }
+        assert!(!protected_name(std::ffi::OsStr::new("id_ed25519.pub")));
+    }
+    #[test]
+    fn signature_probe_never_follows_symlinks() {
+        let temp = tempfile::tempdir().unwrap();
+        std::fs::write(temp.path().join("ordinary"), "fixture").unwrap();
+        std::os::unix::fs::symlink("ordinary", temp.path().join("link")).unwrap();
+        let root = ApprovedRoot::open(temp.path(), ScopeKind::Projects).unwrap();
+        assert!(sensitive_content(&root, Path::new("link")));
+        assert!(!sensitive_content(&root, Path::new("ordinary")));
     }
 }

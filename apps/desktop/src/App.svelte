@@ -559,7 +559,12 @@
     scanState = 'cancelled';
     selected = [];
   }
-  function askClean(ids: string[]) {
+  let homeConfirmation: HTMLDivElement | undefined = $state();
+  async function askClean(ids: string[]) {
+    if (!ids.length) {
+      cleanupError = t('Selecione ao menos um item para limpar.');
+      return;
+    }
     if (
       !ids.length ||
       scanBusy ||
@@ -568,8 +573,12 @@
       localScanStale
     )
       return;
+    cleanupError = '';
     selected = ids;
     homeConfirm = true;
+    await tick();
+    homeConfirmation?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    homeConfirmation?.focus();
   }
   async function confirmOverviewClean() {
     homeConfirm = false;
@@ -1117,6 +1126,7 @@
       {#if page === 'apps'}
         <InstalledApps />
       {:else if page === 'overview' && !scanBusy}
+        {#if cleanupError}<p role="alert">{cleanupError}</p>{/if}
         {#if source === 'local'}<NativeStorage
             automatic={scanMode === 'automatic'}
             volumes={nativeResult?.volumes ?? []}
@@ -1273,9 +1283,12 @@
           </div>
           {#if candidates.length}<details class="review-drawer">
               <summary>{t('Revisar itens')}</summary>
-              {#each [...new Set(candidates.filter((item) => item.risk !== 'protected').map((item) => item.category))] as category (category)}
+              {#each [...new Set(candidates
+                    .filter((item) => item.risk !== 'protected')
+                    .map((item) => item.category))] as category (category)}
                 {@const cleanable = candidates.filter(
-                  (item) => item.category === category && item.risk !== 'protected',
+                  (item) =>
+                    item.category === category && item.risk !== 'protected',
                 )}
                 <section>
                   <h3>
@@ -1303,10 +1316,12 @@
                   </ul>
                 </section>
               {/each}
-              {#if candidates.some((item) => item.risk === 'protected')}<section>
+              {#if candidates.some((item) => item.risk === 'protected')}<section
+                >
                   <h3>
                     {t('Protegidos')} · {formatNumber(
-                      candidates.filter((item) => item.risk === 'protected').length,
+                      candidates.filter((item) => item.risk === 'protected')
+                        .length,
                     )} · {formatBytes(
                       candidates
                         .filter((item) => item.risk === 'protected')
@@ -1314,7 +1329,8 @@
                     )}
                   </h3>
                   <ul>
-                    {#each candidates.filter((item) => item.risk === 'protected') as item (item.id)}<li>
+                    {#each candidates.filter((item) => item.risk === 'protected') as item (item.id)}<li
+                      >
                         <label>
                           <input type="checkbox" disabled />
                           <span>{item.title}</span>
@@ -1327,6 +1343,9 @@
                 </section>{/if}
             </details>{/if}
           {#if homeConfirm}<div
+              bind:this={homeConfirmation}
+              tabindex="-1"
+              style="max-height: 70vh; overflow-y: auto"
               role="dialog"
               aria-label={t('Confirmar limpeza')}
             >
@@ -1334,7 +1353,7 @@
               <p>
                 {formatNumber(selected.length)}
                 {t('itens')} · {formatBytes(budget.logicalBytes)}. {t(
-                  'Caches recriáveis e a Lixeira são apagados. O restante vai para a Lixeira, salvo se a ação permanente estiver marcada.',
+                  'Os itens vão para a Lixeira, salvo se a ação permanente estiver marcada.',
                 )}
               </p>
               <button
@@ -1382,7 +1401,9 @@
             </div>{:else if candidates.length === 0}<div class="empty-state">
               <Folder size={28} />
               <h3>{t('Nenhum item nesta seleção')}</h3>
-              <p>{t('Ajuste os filtros ou escolha outro escopo de exemplo.')}</p>
+              <p>
+                {t('Ajuste os filtros ou escolha outro escopo de exemplo.')}
+              </p>
             </div>{/if}
         </section>
         <div class="trust-footer">

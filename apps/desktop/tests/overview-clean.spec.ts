@@ -207,7 +207,9 @@ test('overview clean flow and uninstall button', async ({ page }) => {
     .getByRole('button', { name: 'Analisar computador', exact: true })
     .first()
     .click();
-  await expect(page.getByRole('button', { name: /Limpar/ }).first()).toBeVisible();
+  await expect(
+    page.getByRole('button', { name: /Limpar/ }).first(),
+  ).toBeVisible();
   await expect(page.getByText('Cache npm')).toBeHidden();
   await expect(page.getByText('Item / origem')).toHaveCount(0);
   await page.screenshot({ path: shot('overview'), fullPage: true });
@@ -226,8 +228,31 @@ test('overview clean flow and uninstall button', async ({ page }) => {
   expect((skip?.y ?? 0) < 0).toBeTruthy();
   await page.locator('.review-drawer').scrollIntoViewIfNeeded();
   await page.screenshot({ path: shot('review-open'), fullPage: false });
-  const npm = page.getByRole('checkbox').first();
+  const review = page.locator('.review-drawer');
+  const npm = review.getByRole('checkbox', { name: /Cache npm/ });
+  await expect(npm).toBeChecked();
   await npm.uncheck();
+  // Rows are grouped by category: npm, Node, Terraform, then thumbnails.
+  await expect(
+    review.getByRole('checkbox', { name: /Dependências Node/ }),
+  ).not.toBeChecked();
+  await expect(
+    review.getByRole('checkbox', { name: /Provider Terraform/ }),
+  ).not.toBeChecked();
+  const thumbs = review.getByRole('checkbox', { name: /Miniaturas/ });
+  await expect(thumbs).toBeChecked();
+  await thumbs.uncheck();
+  await page
+    .getByRole('button', { name: /Limpar/ })
+    .first()
+    .click();
+  await expect(page.getByRole('alert')).toContainText(
+    'Selecione ao menos um item',
+  );
+  await expect(
+    page.getByRole('dialog', { name: 'Confirmar limpeza' }),
+  ).toHaveCount(0);
+  await thumbs.check();
   await page
     .getByRole('button', { name: /Limpar/ })
     .first()
@@ -235,6 +260,9 @@ test('overview clean flow and uninstall button', async ({ page }) => {
   await expect(
     page.getByRole('dialog', { name: 'Confirmar limpeza' }),
   ).toBeVisible();
+  const confirmation = page.getByRole('dialog', { name: 'Confirmar limpeza' });
+  await expect(confirmation).toBeInViewport();
+  await expect(confirmation).toBeFocused();
   await page.screenshot({ path: shot('confirm'), fullPage: true });
   await page
     .getByRole('button', { name: 'Confirmar limpeza', exact: true })

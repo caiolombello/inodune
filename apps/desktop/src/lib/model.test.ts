@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   demo,
   selectDefaults,
+  selectOverviewDefaults,
   simulateBudget,
   toggleSelection,
   executeDemo,
@@ -138,4 +139,20 @@ describe('conservative simulation policy', () => {
     expect(executeDemo('thumbs', 'normal', true)).toBe('cancelled');
     expect(executeDemo('thumbs', 'normal', false)).toBe('simulated');
   });
+});
+
+it('overview preselects only low risk eligible items', () => {
+  const low = {
+    ...demo.candidates[0],
+    risk: 'low' as const,
+    supported_action: 'cache_contents' as const,
+    selected_by_default: true,
+  };
+  const review = {
+    ...low,
+    id: 'review',
+    risk: 'review' as const,
+    supported_action: 'reviewed_cache_contents' as const,
+  };
+  expect(selectOverviewDefaults([low, review])).toEqual([low.id]);
 });
