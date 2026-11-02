@@ -241,7 +241,11 @@ impl PlanSession {
             }
             validate_relative(&target.relative)?;
             let absolute = target.root.path().join(&target.relative);
-            if absolute.to_str().is_none() || candidate.display_path != absolute.to_string_lossy() {
+            // Both sides in the scanner's display form (no `.` components).
+            if absolute.to_str().is_none()
+                || candidate.display_path
+                    != inodune_core::scan::tidy_display_path(&absolute.to_string_lossy())
+            {
                 return Err("O caminho do item não pode ser representado sem ambiguidade.".into());
             }
             for keep in &target.preserved {

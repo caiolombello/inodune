@@ -2279,7 +2279,16 @@ fn scan_with_validation_budget(
     .to_owned();
     let event = walk.progress_event(&final_stage);
     (walk.on_progress)(event);
-    Ok(walk.out)
+    let mut out = walk.out;
+    // Display paths without `.` components (`/home/u/./.cache` -> `/home/u/.cache`).
+    // The plan compares the same normalized form, so identity is unchanged.
+    for candidate in &mut out.candidates {
+        candidate.display_path = tidy_display_path(&candidate.display_path);
+    }
+    for issue in &mut out.issues {
+        issue.display_path = tidy_display_path(&issue.display_path);
+    }
+    Ok(out)
 }
 
 #[cfg(test)]

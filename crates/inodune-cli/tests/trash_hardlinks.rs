@@ -45,6 +45,8 @@ fn scan_json(root: &Path) -> serde_json::Value {
     let (code, out, err) = cli(root, &["scan", "--json", "--root", root_arg]);
     // 0 = complete, 3 = partial coverage (documented CLI exit codes).
     assert!(matches!(code, Some(0 | 3)), "{err}");
+    // Display paths in the JSON have no `.` components.
+    assert!(!out.contains("/./"), "{out}");
     serde_json::from_str(&out).unwrap()
 }
 

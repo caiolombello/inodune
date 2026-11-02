@@ -37,6 +37,24 @@ fn permanent_dry_run_text_follows_the_plan_action() {
     );
     assert!(text.contains("2,6 MiB"), "{text}");
     assert!(!text.contains("bytes lógicos"), "{text}");
+    assert!(!text.contains("/./"), "{text}");
+    let json = Command::new(env!("CARGO_BIN_EXE_inodune-cli"))
+        .args([
+            "clean",
+            "--dry-run",
+            "--json",
+            "--review",
+            "npm.cache",
+            "--root",
+        ])
+        .arg(temp.path())
+        .output()
+        .unwrap();
+    let json = String::from_utf8_lossy(&json.stdout);
+    assert!(
+        json.contains("display_path") && !json.contains("/./"),
+        "{json}"
+    );
 }
 
 /// 0.1.10 QA: two node_modules under one root were refused ("restrinja o

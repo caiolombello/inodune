@@ -73,7 +73,8 @@ fn clean_dry_run_is_explicit_and_noninteractive_apply_does_not_touch_the_fixture
     assert_eq!(view["eligible_items"], 1, "{view}");
     assert_eq!(
         view["plan"]["items"][0]["display_path"],
-        format!("{}/./project/__pycache__", root.path().display())
+        // Display form without `.` components (0.1.11).
+        format!("{}/project/__pycache__", root.path().display())
     );
     assert_eq!(fs::read(&pyc_path).unwrap(), before);
 
