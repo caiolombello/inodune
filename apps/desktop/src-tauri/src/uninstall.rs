@@ -154,7 +154,8 @@ pub async fn uninstall_execute(
             ))
             .blocking_show();
         if !accepted {
-            return Err("Desinstalação cancelada; plano consumido".into());
+            // Declined before the execute command reaches the helper.
+            return Err("Desinstalação cancelada. Nada foi removido.".into());
         }
         prepared.child.mark_execution_sent();
         writeln!(

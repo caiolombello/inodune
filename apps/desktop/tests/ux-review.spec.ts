@@ -192,7 +192,11 @@ async function mock(page: Page) {
               ],
             };
           if (cmd === 'uninstall_execute')
-            throw 'Autorização negada ou cancelada na janela de senha do sistema (polkit). Nenhum pacote foi removido.';
+            throw (
+              (window as unknown as { __uninstallError?: string })
+                .__uninstallError ??
+              'Autorização negada ou cancelada na janela de senha do sistema (polkit). Nenhum pacote foi removido.'
+            );
           return null;
         },
       },
@@ -305,11 +309,25 @@ test('apps: search, filters, counter and a readable uninstall dialog', async ({
       'aisleriot;1:3.22.35-5;amd64;manual:ubuntu-resolute-universe',
     ),
   ).toBeHidden();
-  // (f): specific, alert-styled error.
+  // 0.1.12: a denied/cancelled authorization that removed nothing is a
+  // neutral notice, still specific.
   await dialog.getByRole('button', { name: 'Desinstalar 2 pacotes' }).click();
+  const notice = page.locator('.notice.neutral');
+  await expect(notice).toContainText('Autorização não concedida');
+  await expect(notice).toContainText('polkit');
+  await expect(page.locator('.notice.error')).toHaveCount(0);
+  // (f): a real failure keeps the specific, alert-styled error.
+  await page.evaluate(() => {
+    (window as unknown as { __uninstallError?: string }).__uninstallError =
+      'Outros pacotes dependem desta seleção, e o Inodune não remove dependentes automaticamente. Nenhum pacote foi removido.';
+  });
+  await page.getByRole('button', { name: 'Desinstalar aisleriot' }).click();
+  await page
+    .getByRole('dialog', { name: 'Confirmar desinstalação' })
+    .getByRole('button', { name: 'Desinstalar 2 pacotes' })
+    .click();
   const alert = page.getByRole('alert');
-  await expect(alert).toContainText('Autorização não concedida');
-  await expect(alert).toContainText('polkit');
+  await expect(alert).toContainText('Outros programas dependem desta seleção');
   await expect(page.locator('.notice.error')).toBeVisible();
 });
 

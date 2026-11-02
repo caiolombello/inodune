@@ -107,4 +107,24 @@ describe('present', () => {
     expect(actionLabel(undefined)).not.toContain('permanente');
     expect(actionLabel(null)).not.toContain('Lixeira');
   });
+
+  it('treats a cancellation that removed nothing as information', () => {
+    language.value = 'pt-BR';
+    const dialog = uninstallError(
+      'Desinstalação cancelada. Nada foi removido.',
+    );
+    expect(dialog.cancelled).toBe(true);
+    expect(dialog.title).toBe('Desinstalação cancelada');
+    const polkit = uninstallError(
+      'Autorização negada ou cancelada na janela de senha do sistema (polkit). Nenhum pacote foi removido.',
+    );
+    expect(polkit.cancelled).toBe(true);
+    // Cancelled mid-transaction without that guarantee stays an error.
+    expect(
+      uninstallError(
+        'A transação foi cancelada antes de terminar. Confira a lista de programas antes de tentar de novo.',
+      ).cancelled,
+    ).toBe(false);
+    expect(uninstallError('Pacote bloqueado: coreutils').cancelled).toBe(false);
+  });
 });

@@ -284,7 +284,19 @@
     </div>{/if}
 
   <div bind:this={resultBox} tabindex="-1" class="result-slot">
-    {#if result?.kind === 'error'}<div class="notice error" role="alert">
+    {#if result?.kind === 'error' && result.info.cancelled}<div
+        class="notice neutral"
+        role="status"
+      >
+        <CircleAlert size={20} />
+        <div>
+          <strong>{result.info.title}</strong>
+          <p>{result.info.detail}</p>
+        </div>
+      </div>{:else if result?.kind === 'error'}<div
+        class="notice error"
+        role="alert"
+      >
         <CircleAlert size={20} />
         <div>
           <strong>{result.info.title}</strong>
@@ -606,6 +618,10 @@
   .notice strong {
     display: block;
     margin-bottom: 2px;
+  }
+  .notice.neutral {
+    background: var(--subtle);
+    color: var(--text);
   }
   .notice.success {
     background: var(--safe-bg);

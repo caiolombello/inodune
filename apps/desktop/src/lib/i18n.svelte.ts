@@ -641,6 +641,8 @@ const catalog: Record<string, string> = {
   variação: 'change',
   disponíveis: 'available',
   // 0.1.9 UX review
+  'Desinstalação cancelada. Nada foi removido.':
+    'Uninstall cancelled. Nothing was removed.',
   'Mostrar pastas de': 'Show folders of',
   'Ocultar pastas de': 'Hide folders of',
   'Pastas de': 'Folders of',

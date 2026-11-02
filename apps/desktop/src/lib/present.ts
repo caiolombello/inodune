@@ -150,14 +150,24 @@ export function sourceLabel(source: string): string {
 export interface ErrorInfo {
   title: string;
   detail: string;
+  /** Cancelled or denied with nothing removed: show as neutral information. */
+  cancelled?: boolean;
 }
 /** Título específico para erros de desinstalação; o texto original fica como detalhe. */
 export function uninstallError(raw: string): ErrorInfo {
   const text = raw.replace(/^Error:\s*/, '');
   const lower = text.toLocaleLowerCase('pt-BR');
+  // A cancellation or a denied authorization that states nothing was
+  // removed is information, not a failure.
+  const nothingRemoved =
+    lower.includes('nada foi removido') ||
+    lower.includes('nenhum pacote foi removido');
   const pick = (title: string): ErrorInfo => ({
     title: t(title),
     detail: t(text),
+    cancelled:
+      nothingRemoved &&
+      (lower.includes('cancelad') || lower.includes('autorização negada')),
   });
   if (lower.includes('polkit') || lower.includes('autorização negada'))
     return pick('Autorização não concedida');
