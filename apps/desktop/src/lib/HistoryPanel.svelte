@@ -158,6 +158,17 @@
                 <code>{displayPath(exportedPath)}</code>
               </p>{/if}
           </header>
+          {@const omitted = report.items.reduce(
+            (n, item) => n + (item.omitted_files ?? 0),
+            0,
+          )}
+          {#if omitted > 0}<p class="omitted" role="note">
+              {countLabel(
+                omitted,
+                'linha de arquivo omitida neste relatório salvo; os totais estão completos.',
+                'linhas de arquivo omitidas neste relatório salvo; os totais estão completos.',
+              )}
+            </p>{/if}
           <FileOutcomes files={report.items.flatMap((item) => item.files)} />
         {:else if selected}<p>
             {reportLoading

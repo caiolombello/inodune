@@ -311,6 +311,7 @@ mod tests {
                 candidate_id: "candidate".into(),
                 files: vec![],
                 complete: true,
+                omitted_files: 0,
             }],
             volumes: vec![],
             complete: true,

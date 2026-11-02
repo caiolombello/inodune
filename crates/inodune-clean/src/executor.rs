@@ -44,6 +44,9 @@ pub struct ItemResult {
     pub candidate_id: String,
     pub files: Vec<FileOutcome>,
     pub complete: bool,
+    /// File lines left out of a stored report to keep it bounded; totals stay.
+    #[serde(default)]
+    pub omitted_files: u64,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct VolumeDelta {
@@ -70,6 +73,69 @@ pub struct ExecutionReport {
     #[serde(default)]
     pub journal_path: Option<String>,
 }
+/// Bytes of file lines kept in a stored report (JSON, pretty-printed below the
+/// 8 MiB report and journal-record limits).
+pub const STORED_REPORT_BUDGET: usize = 4 * 1024 * 1024;
+
+impl ExecutionReport {
+    pub fn omitted_files(&self) -> u64 {
+        self.items.iter().map(|item| item.omitted_files).sum()
+    }
+
+    /// Copy for history and the journal: every total, item and warning is kept;
+    /// file lines that need attention (failed, skipped, cancelled, quarantined)
+    /// come first, then moved/removed ones until the budget is spent. Omitted
+    /// lines are counted per item and announced in a warning.
+    pub fn for_storage(&self, budget: usize) -> ExecutionReport {
+        let mut out = self.clone();
+        let mut order: Vec<(usize, usize, bool)> = Vec::new();
+        for (i, item) in self.items.iter().enumerate() {
+            for (j, file) in item.files.iter().enumerate() {
+                let routine = matches!(file.status, FileStatus::Trashed | FileStatus::Removed);
+                order.push((i, j, routine));
+            }
+        }
+        // Stable: attention lines first, original order within each group.
+        order.sort_by_key(|(_, _, routine)| *routine);
+        let mut keep: Vec<Vec<bool>> = self
+            .items
+            .iter()
+            .map(|i| vec![false; i.files.len()])
+            .collect();
+        let mut used = 0usize;
+        let mut full = false;
+        for (i, j, _) in order {
+            if full {
+                break;
+            }
+            let size = serde_json::to_vec_pretty(&self.items[i].files[j])
+                .map(|bytes| bytes.len() + 16)
+                .unwrap_or(usize::MAX);
+            if used.saturating_add(size) > budget {
+                full = true;
+                continue;
+            }
+            used += size;
+            keep[i][j] = true;
+        }
+        let mut omitted_total = 0u64;
+        for (item, kept) in out.items.iter_mut().zip(keep) {
+            let before = item.files.len();
+            let mut flags = kept.into_iter();
+            item.files.retain(|_| flags.next().unwrap_or(false));
+            let omitted = (before - item.files.len()) as u64;
+            item.omitted_files += omitted;
+            omitted_total += omitted;
+        }
+        if omitted_total > 0 {
+            out.warnings.push(format!(
+                "Relatório resumido: {omitted_total} linhas de arquivo omitidas para caber no limite; falhas e itens preservados aparecem primeiro e os totais estão completos."
+            ));
+        }
+        out
+    }
+}
+
 #[derive(Clone, Serialize)]
 pub struct ExecutionProgress {
     pub completed_files: usize,
@@ -236,6 +302,7 @@ fn execute_inner(
             candidate_id: id,
             files: vec![],
             complete: true,
+            omitted_files: 0,
         };
         let preflight = if let Some(e) = &journal_error {
             Err(format!("Journal indisponível: {e}"))
@@ -396,8 +463,18 @@ fn execute_inner(
             }
         }
     }
+    // The stored copy is bounded so the final journal record and the report
+    // file always fit; the report returned to the caller keeps every line.
+    let mut stored = report.for_storage(STORED_REPORT_BUDGET);
+    if let Some(note) = stored
+        .warnings
+        .last()
+        .filter(|_| stored.omitted_files() > 0)
+    {
+        report.warnings.push(note.clone());
+    }
     if let Ok(j) = &mut journal {
-        if let Err(e) = j.record(&serde_json::json!({"phase":"finished","report":report})) {
+        if let Err(e) = j.record(&serde_json::json!({"phase":"finished","report":stored})) {
             report.complete = false;
             report
                 .warnings
@@ -405,7 +482,9 @@ fn execute_inner(
         }
     }
     if let Some(path) = &options.history_directory {
-        match storage::save_report(path, &report) {
+        stored.complete = report.complete;
+        stored.warnings.clone_from(&report.warnings);
+        match storage::save_report(path, &stored) {
             Ok(p) => report.history_path = Some(p.to_string_lossy().into()),
             Err(e) => {
                 report

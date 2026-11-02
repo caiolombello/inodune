@@ -641,6 +641,10 @@ const catalog: Record<string, string> = {
   variação: 'change',
   disponíveis: 'available',
   // 0.1.9 UX review
+  'linha de arquivo omitida neste relatório salvo; os totais estão completos.':
+    'file line omitted from this saved report; totals are complete.',
+  'linhas de arquivo omitidas neste relatório salvo; os totais estão completos.':
+    'file lines omitted from this saved report; totals are complete.',
   'ação ainda não confirmada': 'action not yet confirmed',
   Limpar: 'Clean',
   'Revisar itens': 'Review items',

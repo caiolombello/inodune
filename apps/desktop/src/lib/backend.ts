@@ -94,6 +94,8 @@ export interface CleanupExecutionReport {
   items: {
     candidate_id: string;
     files: CleanupFileResult[];
+    /** Lines left out of a stored report to keep it bounded. */
+    omitted_files?: number;
     complete: boolean;
   }[];
   volumes: {
