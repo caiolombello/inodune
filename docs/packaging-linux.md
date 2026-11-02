@@ -66,3 +66,11 @@ O workflow manual `Linux package artifacts` gera somente um artefato de CI; não
 
 
 O procedimento é reproduzível pelos scripts e lockfiles, com imagens base por digest e versões registradas. Reprodutibilidade bit a bit não foi demonstrada: repositórios apt/dnf e timestamps de pacotes variam. A inspeção Git avançada requer Git e Bubblewrap com `--ro-bind-fd` (0.12 no host verificado); ausência ou versão incompatível preserva o inventário como protegido, sem instalar serviços ou contornar permissões.
+
+## Renderização WebKitGTK sem DRI3 (0.1.12)
+
+Em ambientes sem DRI3/DMA-BUF (por exemplo containers, com `libEGL warning: DRI3 error`), o `inodune-desktop` caía com SIGSEGV no primeiro segundo em 5 de 14 aberturas; com `WEBKIT_DISABLE_DMABUF_RENDERER=1`, em 0 de 6. Desde a 0.1.12 o próprio binário define `WEBKIT_DISABLE_DMABUF_RENDERER=1` **somente quando a variável não existe** no ambiente. Qualquer valor já definido pelo usuário, inclusive vazio, é respeitado.
+
+- **Onde:** primeira instrução de `main` (`apps/desktop/src-tauri/src/graphics_env.rs`), antes de qualquer thread, do GTK e do WebKit. `setenv` não é seguro com várias threads (e `set_var` é `unsafe` na edition 2024); nesse ponto o processo ainda tem uma só thread.
+- **Por que não `Exec=env …` no `.desktop`:** não cobre quem executa o binário diretamente (terminal, tarball, `install-user.py`).
+- **Como reverter:** inicie com `WEBKIT_DISABLE_DMABUF_RENDERER=0 inodune-desktop` para voltar ao renderizador DMA-BUF do WebKit.

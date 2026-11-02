@@ -2,6 +2,7 @@
 compile_error!("fixture-tests is forbidden in release builds");
 mod backend;
 mod cleanup;
+mod graphics_env;
 mod history;
 mod uninstall;
 use tauri::Manager;
@@ -12,6 +13,9 @@ async fn list_installed_apps() -> Result<inodune_apps::Inventory, String> {
         .map_err(|e| e.to_string())?
 }
 fn main() {
+    // First statement: the process is still single-threaded here (see
+    // graphics_env::apply_before_threads for the safety argument).
+    graphics_env::apply_before_threads();
     inodune_clean::diagnostics::install_local_panic_reporter();
     #[cfg(feature = "fixture-tests")]
     let backend = backend::Backend::fixtures().expect("failed to create isolated fixture roots");
