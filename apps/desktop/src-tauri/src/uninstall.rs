@@ -132,15 +132,50 @@ pub async fn uninstall_execute(
     if prepared.view.id != plan_id {
         return Err("ID de plano inválido".into());
     }
-    tauri::async_runtime::spawn_blocking(move|| {
-        let message=inodune_apps::presentation::confirmation_text(&prepared.view.details,prepared.view.steam_handoff);
-        let accepted=app.dialog().message(message).title("Confirmar desinstalação").kind(MessageDialogKind::Warning).buttons(MessageDialogButtons::OkCancel).blocking_show();
-        if !accepted {return Err("Desinstalação cancelada; plano consumido".into());}
+    tauri::async_runtime::spawn_blocking(move || {
+        let message = inodune_apps::presentation::confirmation_text(
+            &prepared.view.details,
+            prepared.view.steam_handoff,
+        );
+        let accepted = app
+            .dialog()
+            .message(message)
+            .title("Confirmar desinstalação")
+            .kind(MessageDialogKind::Warning)
+            .buttons(MessageDialogButtons::OkCancel)
+            .blocking_show();
+        if !accepted {
+            return Err("Desinstalação cancelada; plano consumido".into());
+        }
         prepared.child.mark_execution_sent();
-        writeln!(prepared.child.stdin.as_mut().ok_or("Canal indisponível")?,"{}",serde_json::to_string(&plan_id).map_err(|e|e.to_string())?).map_err(|e|e.to_string())?;
-        let result=uninstall::read_message(prepared.child.stdout.as_mut().ok_or("Canal indisponível")?,Duration::from_secs(900)).map_err(|_|"Resultado desconhecido; consulte o inventário. O helper não foi encerrado.".to_owned())?;
-        let value:serde_json::Value=serde_json::from_str(&result).map_err(|_|"Resposta inválida; resultado desconhecido")?;
-        if value["status"]!="completed" {return Err(value["error"].as_str().unwrap_or("Resultado desconhecido; não tente novamente sem consultar o inventário").to_owned());}
-        Ok(if prepared.view.steam_handoff {"Confirmação aberta no Steam. O inodune não confirma a remoção."}else{"Transação concluída pelo gerenciador de pacotes."}.to_owned())
-    }).await.map_err(|e|e.to_string())?
+        writeln!(
+            prepared.child.stdin.as_mut().ok_or("Canal indisponível")?,
+            "{}",
+            serde_json::to_string(&plan_id).map_err(|e| e.to_string())?
+        )
+        .map_err(|e| e.to_string())?;
+        let result = uninstall::read_message(
+            prepared.child.stdout.as_mut().ok_or("Canal indisponível")?,
+            Duration::from_secs(900),
+        )
+        .map_err(|_| {
+            "Resultado desconhecido; consulte o inventário. O helper não foi encerrado.".to_owned()
+        })?;
+        let value: serde_json::Value = serde_json::from_str(&result)
+            .map_err(|_| "Resposta inválida; resultado desconhecido")?;
+        if value["status"] != "completed" {
+            return Err(value["error"]
+                .as_str()
+                .unwrap_or("Resultado desconhecido; não tente novamente sem consultar o inventário")
+                .to_owned());
+        }
+        Ok(if prepared.view.steam_handoff {
+            "Confirmação aberta no Steam. O inodune não confirma a remoção."
+        } else {
+            "Transação concluída pelo gerenciador de pacotes."
+        }
+        .to_owned())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
