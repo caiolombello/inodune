@@ -187,12 +187,14 @@ const CODE_EXTENSIONS: [&str; 14] = [
 
 /// Credential signatures in already-read bytes. See the module docs.
 pub fn credential_bytes(path: &Path, bytes: &[u8]) -> bool {
-    if documentation_exempt(path) {
-        return false;
-    }
     let text = String::from_utf8_lossy(bytes);
+    // A private-key header protects everywhere, documentation included.
     if text.lines().any(private_key_header) {
         return true;
+    }
+    // The documentation exemption only covers the value-based rules below.
+    if documentation_exempt(path) {
+        return false;
     }
     if text.lines().any(|line| {
         assignment(line).is_some_and(|(key, value)| {
@@ -373,6 +375,27 @@ mod tests {
         ));
         assert!(!credential_bytes(path, b"password = secret_from_prompt()"));
         assert!(!credential_bytes(path, b"Enter the machine password here"));
+    }
+
+    #[test]
+    fn private_key_protects_even_in_exempt_documentation() {
+        let key =
+            b"Docs\n-----BEGIN RSA PRIVATE KEY-----\nMIIFAKEQA\n-----END RSA PRIVATE KEY-----\n";
+        for path in [
+            "node_modules/left-pad/README.md",
+            "node_modules/pkg/CHANGELOG",
+            "node_modules/netrc/docs/doc.txt",
+            "site-packages/pkg-1.0.dist-info/METADATA",
+            ".cargo/registry/src/x/crate/docs/keys.md",
+        ] {
+            assert!(documentation_exempt(Path::new(path)), "{path}");
+            assert!(credential_bytes(Path::new(path), key), "{path}");
+        }
+        // Value-based rules stay exempt in documentation.
+        assert!(!credential_bytes(
+            Path::new("node_modules/aws-sdk/README.md"),
+            b"aws_secret_access_key = wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"
+        ));
     }
 
     #[test]

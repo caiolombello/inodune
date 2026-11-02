@@ -224,3 +224,32 @@ fn review_accepts_scan_ids_and_aliases_and_lists_accepted_ids() {
     assert!(error.contains("node.modules"), "{error}");
     assert!(error.contains("python.pip-cache"), "{error}");
 }
+
+/// 0.1.10 QA: a private key at line start in package documentation (README in
+/// node_modules) is protected; the documentation exemption only covers the
+/// AWS/_authToken/netrc rules.
+#[test]
+fn private_key_in_package_readme_is_protected_in_both_modes() {
+    let readme = b"# left-pad\n\nUsage notes.\n\n-----BEGIN RSA PRIVATE KEY-----\nMIIFAKEQA\n-----END RSA PRIVATE KEY-----\n";
+    for permanent in [false, true] {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path();
+        layout(root, "projects/webapp/node_modules");
+        let path = root.join("projects/webapp/node_modules/left-pad/README.md");
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(&path, readme).unwrap();
+        let output = clean(root, "node.modules", permanent);
+        let context = format!(
+            "permanent={permanent}\n{}{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert_eq!(fs::read(&path).unwrap(), readme, "{context}");
+        assert!(
+            !root
+                .join("projects/webapp/node_modules/zz-safe/ordinary")
+                .exists(),
+            "{context}"
+        );
+    }
+}
