@@ -483,20 +483,23 @@ fn confirm_plan(plan: &inodune_clean::plan::PlanView) -> Result<(), String> {
         inodune_clean::plan::Action::Permanent => format!("DELETE {}", plan.items.len()),
     };
     eprintln!(
-        "Plano {} | hash {} | ação {:?} | {} | risco {} | impacto estimado {} bytes lógicos / {} bytes alocados",
+        "Plano {} | hash {} | ação: {} | {} | risco {} | impacto estimado {} lógicos / {} alocados\n{}",
         plan.id,
         plan.hash,
-        plan.action,
+        plan.action.label(false),
         count(plan.items.len(), "item", "itens"),
         if plan.review_required { "revisão" } else { "baixo" },
-        plan.logical_bytes_estimate,
-        plan.allocated_bytes_estimate.map(|n| n.to_string()).unwrap_or_else(|| "desconhecido".into())
+        inodune_apps::presentation::human_bytes(plan.logical_bytes_estimate),
+        plan.allocated_bytes_estimate
+            .map(inodune_apps::presentation::human_bytes)
+            .unwrap_or_else(|| "desconhecido".into()),
+        plan.action.consequence(false)
     );
     for item in &plan.items {
         eprintln!(
-            "{} | {:?} | {} | impacto: {} | reconstrução: {}",
+            "{} | {} | {} | impacto: {} | reconstrução: {}",
             scan::tidy_display_path(&item.display_path),
-            item.risk,
+            risk_label(&item.risk),
             inodune_apps::presentation::human_bytes(item.logical_bytes),
             item.impact,
             item.rebuild_hint
@@ -536,9 +539,9 @@ fn format_plan(view: &CleanView) -> String {
         .iter()
         .map(|item| {
             format!(
-                "  {} | {:?} | {} | impacto: {} | reconstrução: {}",
+                "  {} | {} | {} | impacto: {} | reconstrução: {}",
                 scan::tidy_display_path(&item.display_path),
-                item.risk,
+                risk_label(&item.risk),
                 inodune_apps::presentation::human_bytes(item.logical_bytes),
                 item.impact,
                 item.rebuild_hint
@@ -547,13 +550,16 @@ fn format_plan(view: &CleanView) -> String {
         .collect::<Vec<_>>()
         .join("\n");
     format!(
-        "Plano somente leitura: {}, hash {}. Ação {:?}; risco {}; impacto estimado {} bytes lógicos / {} bytes alocados.\n{}\nNenhuma limpeza executada.",
+        "Plano somente leitura: {}, hash {}. Ação: {}; risco {}; impacto estimado {} lógicos / {} alocados.\n{}\n{}\nNenhuma limpeza executada.",
         count(plan.items.len(), "item", "itens"),
         plan.hash,
-        plan.action,
+        plan.action.label(false),
         if plan.review_required { "revisão" } else { "baixo" },
-        plan.logical_bytes_estimate,
-        plan.allocated_bytes_estimate.map(|n| n.to_string()).unwrap_or_else(|| "desconhecido".into()),
+        inodune_apps::presentation::human_bytes(plan.logical_bytes_estimate),
+        plan.allocated_bytes_estimate
+            .map(inodune_apps::presentation::human_bytes)
+            .unwrap_or_else(|| "desconhecido".into()),
+        plan.action.consequence(false),
         details
     )
 }
@@ -834,6 +840,14 @@ fn refuse_incomplete(
         count(snapshot.candidates.len(), "candidato", "candidatos"),
         issue_summary(issues)
     ))
+}
+
+fn risk_label(risk: &Risk) -> &'static str {
+    match risk {
+        Risk::Low => "risco baixo",
+        Risk::Review => "revisão",
+        Risk::Protected => "protegido",
+    }
 }
 
 fn count(n: usize, one: &str, many: &str) -> String {

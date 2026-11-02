@@ -39,6 +39,25 @@ impl Action {
         }
     }
 
+    /// Display impact of one item under this action. The scan text assumes the
+    /// default (Trash); for a permanent plan, sentences about the Trash are
+    /// replaced by the permanent consequence. The plan hash keeps the original.
+    pub fn item_impact(self, impact: &str) -> String {
+        if self == Action::Trash {
+            return impact.to_owned();
+        }
+        let kept: String = impact
+            .split_inclusive(". ")
+            .filter(|sentence| {
+                let lower = sentence.to_lowercase();
+                !lower.contains("lixeira") && !lower.contains("exclusão permanente")
+            })
+            .collect();
+        format!("{} {}", kept.trim(), self.consequence(false))
+            .trim()
+            .to_owned()
+    }
+
     /// What happens to every file of the plan.
     pub fn consequence(self, english: bool) -> &'static str {
         match (self, english) {
@@ -309,7 +328,7 @@ impl PlanSession {
                 logical_bytes: candidate.logical_bytes,
                 allocated_bytes_estimate: candidate.allocated_bytes_estimate,
                 risk: candidate.risk.clone(),
-                impact: candidate.impact.clone(),
+                impact: action.item_impact(&candidate.impact),
                 rebuild_hint: candidate.rebuild_hint.clone(),
             });
         }
@@ -506,6 +525,14 @@ mod action_text_tests {
         }
         assert_eq!(Action::Trash.label(false), "Lixeira");
         assert_eq!(Action::Permanent.label(false), "exclusão permanente");
+        let scan_text = "Somente os arquivos revisados do manifesto vão para a Lixeira; exclusões protegidas permanecem no lugar. Exclusão permanente exige escolha explícita.";
+        assert_eq!(Action::Trash.item_impact(scan_text), scan_text);
+        let permanent = Action::Permanent.item_impact(scan_text);
+        assert!(!permanent.contains("Lixeira;") && !permanent.contains("exige escolha"));
+        assert!(
+            permanent.contains("apagados permanentemente"),
+            "{permanent}"
+        );
     }
 }
 #[cfg(test)]
