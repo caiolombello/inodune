@@ -980,10 +980,14 @@ impl<F: FnMut(ScanProgress)> Walker<'_, F> {
             blocks,
             preserved,
         } = self.measure(root, rel, partial_credentials);
-        // Only the preserved credential subtree is left (e.g. after a cleanup):
-        // nothing to clean, said plainly instead of "incomplete coverage".
-        let only_preserved =
-            partial_credentials && files.is_empty() && !preserved.is_empty() && blocks.is_empty();
+        // Nothing left to clean (only empty folders and/or the preserved
+        // credential subtree, e.g. after a cleanup): the item stays
+        // non-cleanable exactly as before (complete = false below), but it is
+        // reported as "nothing to clean" instead of "incomplete coverage"
+        // when the walk itself found nothing unsafe.
+        let measured_complete = complete;
+        let nothing_to_clean =
+            partial_credentials && files.is_empty() && blocks.is_empty() && measured_complete;
         if partial_credentials && files.is_empty() {
             complete = false;
         }
@@ -1033,6 +1037,7 @@ impl<F: FnMut(ScanProgress)> Walker<'_, F> {
             .and_then(|fd| fs::fstat(&fd))
             .is_ok_and(|after| Fingerprint::from_stat(&after) == Fingerprint::from_stat(&st));
         complete &= stable;
+        let nothing_to_clean = nothing_to_clean && stable;
         // A candidate that is not a directory (.env, tfstate, a preserved
         // credential file) is never cleanable: same outcome as 0.1.10, where
         // opening it as a directory failed (complete = false, Risk::Protected,
@@ -1073,6 +1078,7 @@ impl<F: FnMut(ScanProgress)> Walker<'_, F> {
 
         let id = format!("{}-{}", self.out.id, self.out.candidates.len());
         let reviewed_cache = complete && risk == Risk::Review && rebuildable;
+        let nothing_to_clean = nothing_to_clean && ancestor_refusal.is_none();
         self.out.targets.insert(
             id.clone(),
             ScannedTarget {
@@ -1088,10 +1094,10 @@ impl<F: FnMut(ScanProgress)> Walker<'_, F> {
         self.out.candidates.push(Candidate{
             id, title:title.into(),display_path:root.path.join(rel).to_string_lossy().into(),detector_id:detector.into(),detector_version:"1".into(),scope_id:root.display_path(),category:category.into(),project:project.into(),
             selected_by_default:risk==Risk::Low,risk,logical_bytes:logical,allocated_bytes_estimate:Some(allocated),identity:Some(Identity{dev:st.st_dev,ino:st.st_ino,mtime_unix:st.st_mtime}),coverage_key:(ancestor_refusal.is_none() && coverage_complete && stable).then(||format!("{}:{}",st.st_dev,st.st_ino)),
-            reason:if complete && !preserved.is_empty(){format!("{reason} {} fora da limpeza; somente o manifesto seguro vai para a Lixeira com revisão.",preserved_label(preserved.len()))}else if only_preserved && ancestor_refusal.is_none(){format!("{reason} Nada a limpar: só resta {}, que fica no lugar.",preserved_label(preserved.len()))}else if let Some(why)=ancestor_refusal{format!("{reason} {why}")}else if complete{reason.into()}else if blocks.is_empty(){format!("{reason} Cobertura incompleta: protegido.")}else{format!("{reason} Cobertura incompleta ({}): protegido.", blocks.join(", "))},
+            reason:if complete && !preserved.is_empty(){format!("{reason} {} fora da limpeza; somente o manifesto seguro vai para a Lixeira com revisão.",preserved_label(preserved.len()))}else if nothing_to_clean{if preserved.is_empty(){format!("{reason} Nada a limpar: restam só pastas vazias.")}else{format!("{reason} Nada a limpar: só resta {}, que fica no lugar.",preserved_label(preserved.len()))}}else if let Some(why)=ancestor_refusal{format!("{reason} {why}")}else if complete{reason.into()}else if blocks.is_empty(){format!("{reason} Cobertura incompleta: protegido.")}else{format!("{reason} Cobertura incompleta ({}): protegido.", blocks.join(", "))},
             impact:if partial_credentials {"Somente os arquivos revisados do manifesto vão para a Lixeira; exclusões protegidas permanecem no lugar. Exclusão permanente exige escolha explícita.".into()}else if py||thumbs {"O aplicativo recriará o cache; a primeira abertura pode ser mais lenta.".into()}else if reviewed_cache{"Pode exigir reconstrução ou novo download. Só vai para a Lixeira se você marcar este item e confirmar o plano.".into()}else{"Pode conter dados de trabalho ou exigir reconstrução/download. Inventário não autoriza remoção.".into()},
             rebuild_hint:if uv_managed{"use `uv cache clean`".into()}else if detector=="python.pip-cache" {"Equivalente oficial: pip cache purge (apenas informativo).".into()}else if detector=="npm.cache" {"Equivalente oficial: npm cache clean --force (apenas informativo).".into()}else if detector=="rust.target" {"Equivalente oficial: cargo clean (apenas informativo).".into()}else if rebuildable {"A ferramenta recria o cache; pode exigir download/recompilação.".into()}else if py {"Bytecode recriado ao importar o módulo.".into()}else if thumbs{"Miniaturas recriadas pelo aplicativo.".into()}else{"Custo não medido; revisão necessária.".into()},
-            preserved:if partial_credentials{"Credenciais e diretórios excluídos permanecem no lugar; a raiz do cache nunca é removida inteira."}else{"Código, estado, configuração, credenciais, sessões e memória nunca entram em remoção genérica."}.into(),evidence:vec!["root-approved".into(),"openat2-no-symlinks-no-xdev".into(),if complete{"coverage-complete"}else{"coverage-incomplete"}.into()],activity:format!("mtime Unix {} (metadado; não comprova desuso)",st.st_mtime),supported_action:if low_cache{SupportedAction::CacheContents}else if reviewed_cache{SupportedAction::ReviewedCacheContents}else{SupportedAction::None},
+            preserved:if partial_credentials{"Credenciais e diretórios excluídos permanecem no lugar; a raiz do cache nunca é removida inteira."}else{"Código, estado, configuração, credenciais, sessões e memória nunca entram em remoção genérica."}.into(),evidence:vec!["root-approved".into(),"openat2-no-symlinks-no-xdev".into(),if complete{"coverage-complete"}else if nothing_to_clean{"nothing-to-clean"}else{"coverage-incomplete"}.into()],activity:format!("mtime Unix {} (metadado; não comprova desuso)",st.st_mtime),supported_action:if low_cache{SupportedAction::CacheContents}else if reviewed_cache{SupportedAction::ReviewedCacheContents}else{SupportedAction::None},
         });
     }
     fn build_subsets(
