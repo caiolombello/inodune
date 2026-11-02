@@ -316,7 +316,12 @@ async fn begin_authorized(
                     "Inodune · Confirmar plano de limpeza"
                 })
                 .kind(MessageDialogKind::Warning)
-                .buttons(MessageDialogButtons::OkCancel)
+                // Distinct labels: OK maps to true, Cancel/close to false.
+                .buttons(if english {
+                    MessageDialogButtons::OkCancelCustom("Clean".into(), "Cancel".into())
+                } else {
+                    MessageDialogButtons::OkCancelCustom("Limpar".into(), "Cancelar".into())
+                })
                 .blocking_show()
         })
         .await

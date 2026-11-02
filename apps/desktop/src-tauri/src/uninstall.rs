@@ -142,7 +142,16 @@ pub async fn uninstall_execute(
             .message(message)
             .title("Confirmar desinstalação")
             .kind(MessageDialogKind::Warning)
-            .buttons(MessageDialogButtons::OkCancel)
+            // Distinct labels: OK maps to true, Cancel/close to false.
+            .buttons(MessageDialogButtons::OkCancelCustom(
+                if prepared.view.steam_handoff {
+                    "Abrir no Steam"
+                } else {
+                    "Desinstalar"
+                }
+                .into(),
+                "Cancelar".into(),
+            ))
             .blocking_show();
         if !accepted {
             return Err("Desinstalação cancelada; plano consumido".into());
