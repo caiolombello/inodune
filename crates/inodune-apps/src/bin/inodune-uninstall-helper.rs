@@ -1,5 +1,5 @@
 //! Processo não privilegiado, uma preparação e no máximo uma execução.
-use inodune_apps::uninstall::{self, Request, Session, SystemTransport};
+use inodune_apps::uninstall::{self, ExecutionDeadline, Request, Session, SystemTransport};
 use std::{io::Write, time::Duration};
 fn main() {
     let result = run();
@@ -17,6 +17,10 @@ fn run() -> Result<(), String> {
     )?)
     .map_err(|_| "Pedido inválido")?;
     let mut transport = SystemTransport;
+    let is_flatpak = matches!(
+        request.source,
+        inodune_apps::Source::FlatpakUser | inodune_apps::Source::FlatpakSystem
+    );
     let session = Session::prepare(request, &mut transport)?;
     let view = session.view();
     writeln!(
@@ -31,6 +35,17 @@ fn run() -> Result<(), String> {
         Duration::from_secs(120),
     )?)
     .map_err(|_| "ID do plano inválido")?;
+    let _deadline = ExecutionDeadline::start(
+        Duration::from_secs(if is_flatpak { 180 } else { 600 }),
+        || {
+            let _ = writeln!(
+                std::io::stdout(),
+                "{}",
+                serde_json::json!({"error":"Resultado desconhecido; consulte o inventário. O helper continua aguardando a transação, sem kill ou retry."})
+            );
+            let _ = std::io::stdout().flush();
+        },
+    );
     session.execute(&plan_id, &mut transport)?;
     writeln!(
         std::io::stdout(),

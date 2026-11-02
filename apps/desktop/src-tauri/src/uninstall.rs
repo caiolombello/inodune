@@ -1,8 +1,8 @@
 //! O renderer recebe uma vista. A autoridade continua no helper de uso único.
-use inodune_apps::uninstall::{self, Request, View};
+use inodune_apps::uninstall::{self, HelperChild, Request, View};
 use std::{
     io::Write,
-    process::{Child, Command, Stdio},
+    process::{Command, Stdio},
     sync::{
         atomic::{AtomicBool, Ordering},
         Mutex,
@@ -16,14 +16,8 @@ pub struct UninstallState {
     active: AtomicBool,
 }
 struct Prepared {
-    child: Child,
+    child: HelperChild,
     view: View,
-}
-impl Drop for Prepared {
-    fn drop(&mut self) {
-        let _ = self.child.kill();
-        let _ = self.child.wait();
-    }
 }
 struct Active<'a>(&'a AtomicBool);
 impl Drop for Active<'_> {
@@ -64,7 +58,7 @@ pub async fn uninstall_prepare(
             .spawn()
             .map_err(|_| "Helper de desinstalação indisponível")?;
         let mut prepared = Prepared {
-            child,
+            child: HelperChild::new(child),
             view: View {
                 id: String::new(),
                 items: vec![],
@@ -84,7 +78,7 @@ pub async fn uninstall_prepare(
                 .stdout
                 .as_mut()
                 .ok_or("Resposta indisponível")?,
-            Duration::from_secs(100),
+            Duration::from_secs(900),
         )?;
         let value: serde_json::Value =
             serde_json::from_str(&text).map_err(|_| "Resposta inválida do helper")?;
@@ -121,8 +115,9 @@ pub async fn uninstall_execute(
         let message=if prepared.view.steam_handoff {format!("Abrir a confirmação de desinstalação no Steam?\n\n{list}")}else{format!("Remover os pacotes abaixo? A lista inteira foi simulada. Não será executado autoremove. A autorização do sistema pode ser solicitada pelo polkit.\n\n{list}")};
         let accepted=app.dialog().message(message).title("Confirmar desinstalação").kind(MessageDialogKind::Warning).buttons(MessageDialogButtons::OkCancel).blocking_show();
         if !accepted {return Err("Desinstalação cancelada; plano consumido".into());}
+        prepared.child.mark_execution_sent();
         writeln!(prepared.child.stdin.as_mut().ok_or("Canal indisponível")?,"{}",serde_json::to_string(&plan_id).map_err(|e|e.to_string())?).map_err(|e|e.to_string())?;
-        let result=uninstall::read_message(prepared.child.stdout.as_mut().ok_or("Canal indisponível")?,Duration::from_secs(100))?;
+        let result=uninstall::read_message(prepared.child.stdout.as_mut().ok_or("Canal indisponível")?,Duration::from_secs(900)).map_err(|_|"Resultado desconhecido; consulte o inventário. O helper não foi encerrado.".to_owned())?;
         let value:serde_json::Value=serde_json::from_str(&result).map_err(|_|"Resposta inválida; resultado desconhecido")?;
         if value["status"]!="completed" {return Err(value["error"].as_str().unwrap_or("Resultado desconhecido; não tente novamente sem consultar o inventário").to_owned());}
         Ok(if prepared.view.steam_handoff {"Confirmação aberta no Steam. O inodune não confirma a remoção."}else{"Transação concluída pelo gerenciador de pacotes."}.to_owned())

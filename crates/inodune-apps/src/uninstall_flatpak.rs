@@ -129,7 +129,23 @@ fn validate_operations(
     }
     Ok(items)
 }
+fn reviewed_operations(
+    root: &str,
+    raw: Vec<(String, String, Option<String>)>,
+    expected: Option<&[Removal]>,
+) -> Result<Vec<Removal>, String> {
+    let current = crate::uninstall::canonical(validate_operations(root, raw)?)?;
+    if let Some(expected) = expected {
+        if current != crate::uninstall::canonical(expected.to_vec())? {
+            return Err("A transação Flatpak mudou em ready-pre-auth; nada foi autorizado".into());
+        }
+    }
+    Ok(current)
+}
 pub(super) fn simulate(request: &Request) -> Result<Vec<Removal>, String> {
+    transaction(request, None)
+}
+fn transaction(request: &Request, expected: Option<&[Removal]>) -> Result<Vec<Removal>, String> {
     let listing = run(Query::Flatpak(request.source == Source::FlatpakUser))?;
     let matches: Vec<_> = listing
         .lines()
@@ -148,7 +164,8 @@ pub(super) fn simulate(request: &Request) -> Result<Vec<Removal>, String> {
     let api = Rc::new(Api::open()?);
     // As assinaturas correspondem à API C libflatpak estável. Todos os objetos
     // transfer-full são convertidos em wrappers GLib; a biblioteca fica viva
-    // até o último callback/objeto ser descartado. Nenhuma operação é executada.
+    // até o último callback/objeto ser descartado. Na simulação o callback
+    // sempre aborta; na execução ele só autoriza a lista exata revisada.
     unsafe {
         let new: New = api.symbol(if request.source == Source::FlatpakUser {
             b"flatpak_installation_new_user\0"
@@ -192,10 +209,14 @@ pub(super) fn simulate(request: &Request) -> Result<Vec<Removal>, String> {
             api.symbol(b"flatpak_transaction_operation_get_old_metadata\0")?;
         let installed: Installed = api.symbol(b"flatpak_installation_get_installed_ref\0")?;
         let commit: Text = api.symbol(b"flatpak_ref_get_commit\0")?;
+        let operation_commit: Text = api.symbol(b"flatpak_transaction_operation_get_commit\0")?;
         let captured = Rc::new(RefCell::new(None));
         let result = captured.clone();
         let held = api.clone();
         let install = installation.clone();
+        let expected = expected.map(<[Removal]>::to_vec);
+        let real_execution = expected.is_some();
+        let root_for_signal = root.clone();
         let signal = tx.connect_local("ready-pre-auth", false, move |values| {
             let _held = &held;
             let outcome = (|| {
@@ -232,7 +253,12 @@ pub(super) fn simulate(request: &Request) -> Result<Vec<Removal>, String> {
                             ),
                             error,
                         )?;
-                        let hash = text(commit(current.as_ptr().cast()))?;
+                        let hash = text(operation_commit(op))?;
+                        if hash != text(commit(current.as_ptr().cast()))? {
+                            return Err(
+                                "Commit instalado diverge da operação Flatpak resolvida".into()
+                            );
+                        }
                         let metadata = old_metadata(op);
                         let extension = if metadata.is_null() {
                             None
@@ -254,8 +280,11 @@ pub(super) fn simulate(request: &Request) -> Result<Vec<Removal>, String> {
                 glib::ffi::g_list_free(list);
                 outcome
             })();
-            *result.borrow_mut() = Some(outcome);
-            Some(false.to_value()) // Aborta sempre, antes de autorização/mutação.
+            let checked = outcome
+                .and_then(|ops| reviewed_operations(&root_for_signal, ops, expected.as_deref()));
+            let authorize = real_execution && checked.is_ok();
+            *result.borrow_mut() = Some(checked);
+            Some(authorize.to_value()) // Mesma transação, validada antes do polkit.
         });
         let add: Add = api.symbol(b"flatpak_transaction_add_uninstall\0")?;
         let root_c = CString::new(root.as_str()).map_err(|_| "Ref inválido")?;
@@ -268,7 +297,7 @@ pub(super) fn simulate(request: &Request) -> Result<Vec<Removal>, String> {
         }
         let run: Run = api.symbol(b"flatpak_transaction_run\0")?;
         error = std::ptr::null_mut();
-        run(tx.as_ptr().cast(), std::ptr::null_mut(), &mut error);
+        let succeeded = run(tx.as_ptr().cast(), std::ptr::null_mut(), &mut error);
         if !error.is_null() {
             let _: glib::Error = from_glib_full(error);
         }
@@ -276,41 +305,56 @@ pub(super) fn simulate(request: &Request) -> Result<Vec<Removal>, String> {
         let result = captured.borrow_mut().take().ok_or(
             "libflatpak não forneceu a lista completa antes de autorizar; remoção bloqueada",
         )??;
-        validate_operations(&root, result)
+        if real_execution && succeeded == 0 {
+            return Err(
+                "Flatpak não confirmou conclusão; consulte o inventário antes de repetir".into(),
+            );
+        }
+        Ok(result)
     }
 }
 pub(super) fn execute(request: &Request, items: &[Removal]) -> Result<(), String> {
-    let roots: Vec<_> = items.iter().filter(|i| i.id.starts_with("app/")).collect();
-    if roots.len() != 1 {
-        return Err("Plano Flatpak ambíguo".into());
-    }
-    validate_ref(&roots[0].id)?;
-    let mut command = std::process::Command::new("/usr/bin/flatpak");
-    command
-        .args([
-            "uninstall",
-            if request.source == Source::FlatpakUser {
-                "--user"
-            } else {
-                "--system"
-            },
-            "--noninteractive",
-            "--",
-            roots[0].id.as_str(),
-        ])
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null());
-    let status = command.status().map_err(|_| "Flatpak indisponível")?;
-    if status.success() {
-        Ok(())
-    } else {
-        Err("Flatpak não confirmou remoção completa; consulte o inventário".into())
-    }
+    transaction(request, Some(items)).map(|_| ())
 }
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn execution_ready_gate_rejects_added_related_refs_and_changed_commits() {
+        let root = "app/org.example.Tool/x86_64/stable";
+        let hash = "a".repeat(64);
+        let expected = vec![Removal {
+            id: root.into(),
+            version: hash.clone(),
+        }];
+        let app = (root.into(), hash.clone(), None);
+        assert!(reviewed_operations(root, vec![app.clone()], Some(&expected)).is_ok());
+        assert!(reviewed_operations(
+            root,
+            vec![(root.into(), "b".repeat(64), None)],
+            Some(&expected)
+        )
+        .is_err());
+        let locale = (
+            "runtime/org.example.Tool.Locale/x86_64/stable".into(),
+            hash.clone(),
+            Some(root.into()),
+        );
+        assert!(
+            reviewed_operations(root, vec![app.clone(), locale.clone()], Some(&expected)).is_err()
+        );
+        let expected_two = vec![
+            expected[0].clone(),
+            Removal {
+                id: "runtime/org.example.Tool.Locale/x86_64/stable".into(),
+                version: hash,
+            },
+        ];
+        assert!(reviewed_operations(root, vec![app.clone()], Some(&expected_two)).is_err());
+        assert!(reviewed_operations(root, vec![locale, app], Some(&expected_two)).is_ok());
+    }
     #[test]
     fn accepts_exact_app_and_authoritative_related_extensions_but_never_base_runtimes() {
         let root = "app/org.example.Tool/x86_64/stable";

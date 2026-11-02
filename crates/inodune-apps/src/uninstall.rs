@@ -73,7 +73,7 @@ impl Session {
         transport.execute(&self.request, &current)
     }
 }
-fn canonical(mut items: Vec<Removal>) -> Result<Vec<Removal>, String> {
+pub(crate) fn canonical(mut items: Vec<Removal>) -> Result<Vec<Removal>, String> {
     if items.is_empty() || items.len() > 10000 {
         return Err("Lista de remoção vazia ou acima do limite".into());
     }
@@ -154,6 +154,28 @@ fn fixed_block(name: &str) -> bool {
         "gnome-shell",
         "network-manager",
         "networkmanager",
+        "dnf",
+        "libdnf",
+        "rpm",
+        "apt",
+        "dpkg",
+        "packagekit",
+        "flatpak",
+        "snapd",
+        "gnome-session",
+        "sddm",
+        "kwin",
+        "mutter",
+        "dbus",
+        "pam",
+        "shadow-utils",
+        "bash",
+        "coreutils",
+        "util-linux",
+        "glibc",
+        "libc6",
+        "xorg-x11-server",
+        "xwayland",
     ]
     .iter()
     .any(|p| n.starts_with(p))
@@ -343,6 +365,36 @@ mod packagekit {
         done: bool,
         error: Option<String>,
     }
+
+    // Contrato legado Package(): INSTALLED=1 e REMOVING=13. Não aceitamos
+    // aliases numéricos de APIs novas: qualquer divergência é fail-closed.
+    fn package_signal(method: &str, info: u32, id: String) -> Result<Removal, String> {
+        let expected = if method == "Resolve" { 1 } else { 13 };
+        if info != expected {
+            return Err(
+                "PackageKit propôs ação diferente de remoção/instalado; plano inteiro recusado"
+                    .into(),
+            );
+        }
+        package_name(&id)?;
+        let fields: Vec<_> = id.split(';').collect();
+        let installed = fields[3] == "installed"
+            || fields[3].starts_with("installed:")
+            || fields[3] == "@System"
+            || fields[3].starts_with("@System:");
+        if !installed {
+            return Err("PackageKit retornou pacote fora da instalação local".into());
+        }
+        Ok(Removal {
+            id: id.clone(),
+            version: fields[1].into(),
+        })
+    }
+    fn removal_parameters(items: &[Removal], simulate: bool) -> glib::Variant {
+        let ids = items.iter().map(|i| i.id.clone()).collect::<Vec<_>>();
+        (if simulate { 1u64 << 2 } else { 0u64 }, ids, false, false).to_variant()
+    }
+
     fn transaction(
         method: &str,
         args: glib::Variant,
@@ -369,17 +421,20 @@ mod packagekit {
                 let tx = proxy(&path, IFACE)?;
                 let reply = Arc::new(Mutex::new(Reply::default()));
                 let state = reply.clone();
+                let method_owned = method.to_owned();
                 let signal = tx.connect_g_signal(move |_, _, name, args| {
                     let Ok(mut reply) = state.lock() else {
                         return;
                     };
                     match name {
                         "Package" => {
-                            if let Some((_info, id, _summary)) = args.get::<(u32, String, String)>()
+                            if let Some((info, id, _summary)) = args.get::<(u32, String, String)>()
                             {
                                 if reply.items.len() < 10000 {
-                                    let version = id.split(';').nth(1).unwrap_or("").to_owned();
-                                    reply.items.push(Removal { id, version });
+                                    match package_signal(&method_owned, info, id) {
+                                        Ok(item) => reply.items.push(item),
+                                        Err(error) => reply.error = Some(error),
+                                    }
                                 } else {
                                     reply.error = Some("Simulação acima do limite".into());
                                 }
@@ -445,12 +500,77 @@ mod packagekit {
         )
     }
     pub fn remove(items: &[Removal], simulate: bool) -> Result<Vec<Removal>, String> {
-        let ids = items.iter().map(|i| i.id.clone()).collect::<Vec<_>>();
         transaction(
             "RemovePackages",
-            (if simulate { 1u64 << 2 } else { 0 }, ids, false, false).to_variant(),
+            removal_parameters(items, simulate),
             simulate,
         )
+    }
+    #[cfg(test)]
+    mod signal_tests {
+        use super::*;
+        #[test]
+        fn rejects_non_removal_signals_and_non_installed_resolve_results() {
+            for method in ["Resolve", "RemovePackages"] {
+                let accepted = if method == "Resolve" { 1 } else { 13 };
+                for info in 0..27 {
+                    let result =
+                        package_signal(method, info, "vendor-tool;1;amd64;installed".into());
+                    assert_eq!(result.is_ok(), info == accepted, "{method} {info}");
+                }
+                for data in ["installed", "installed:stable", "@System", "@System:fedora"] {
+                    assert!(package_signal(
+                        method,
+                        accepted,
+                        format!("vendor-tool;1;amd64;{data}")
+                    )
+                    .is_ok());
+                }
+                for data in ["available", "fedora", "installed-fake", "@System-fake", ""] {
+                    assert!(package_signal(
+                        method,
+                        accepted,
+                        format!("vendor-tool;1;amd64;{data}")
+                    )
+                    .is_err());
+                }
+            }
+        }
+        #[test]
+        fn real_removal_uses_exact_resimulated_versioned_ids_without_dependencies_or_autoremove() {
+            let items = vec![
+                Removal {
+                    id: "vendor-tool;6.2.0;amd64;installed".into(),
+                    version: "6.2.0".into(),
+                },
+                Removal {
+                    id: "vendor-plugin;1.2.3;x86_64;@System".into(),
+                    version: "1.2.3".into(),
+                },
+            ];
+            let args = removal_parameters(&items, false)
+                .get::<(u64, Vec<String>, bool, bool)>()
+                .unwrap();
+            assert_eq!(
+                args,
+                (
+                    0,
+                    vec![
+                        "vendor-tool;6.2.0;amd64;installed".into(),
+                        "vendor-plugin;1.2.3;x86_64;@System".into()
+                    ],
+                    false,
+                    false
+                )
+            );
+            assert_eq!(
+                removal_parameters(&items, true)
+                    .get::<(u64, Vec<String>, bool, bool)>()
+                    .unwrap()
+                    .0,
+                4
+            );
+        }
     }
 }
 
@@ -488,6 +608,78 @@ pub fn read_message(
     String::from_utf8(bytes).map_err(|_| "Mensagem do helper não é UTF-8".into())
 }
 
+/// Antes do envio, o plano é cancelável. Após qualquer tentativa de envio,
+/// nem timeout nem Drop podem matar o processo que pode estar modificando
+/// pacotes. Fechamos os canais e um reaper aguarda somente nosso próprio filho.
+pub struct HelperChild {
+    child: Option<std::process::Child>,
+    sent: bool,
+}
+impl HelperChild {
+    pub fn new(child: std::process::Child) -> Self {
+        Self {
+            child: Some(child),
+            sent: false,
+        }
+    }
+    pub fn mark_execution_sent(&mut self) {
+        self.sent = true;
+    }
+}
+impl std::ops::Deref for HelperChild {
+    type Target = std::process::Child;
+    fn deref(&self) -> &Self::Target {
+        self.child.as_ref().expect("filho retido até Drop")
+    }
+}
+impl std::ops::DerefMut for HelperChild {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        self.child.as_mut().expect("filho retido até Drop")
+    }
+}
+impl Drop for HelperChild {
+    fn drop(&mut self) {
+        if let Some(mut child) = self.child.take() {
+            child.stdin.take();
+            child.stdout.take();
+            child.stderr.take();
+            if self.sent {
+                std::thread::spawn(move || {
+                    let _ = child.wait();
+                });
+            } else {
+                let _ = child.kill();
+                let _ = child.wait();
+            }
+        }
+    }
+}
+/// Prazo de notificação, não de cancelamento. O helper continua na chamada
+/// original após anunciar resultado desconhecido; ninguém mata a mutação.
+pub struct ExecutionDeadline(std::sync::Arc<std::sync::atomic::AtomicBool>);
+impl ExecutionDeadline {
+    pub fn start(timeout: Duration, notify: impl FnOnce() + Send + 'static) -> Self {
+        use std::sync::{
+            atomic::{AtomicBool, Ordering},
+            Arc,
+        };
+        let done = Arc::new(AtomicBool::new(false));
+        let finished = done.clone();
+        std::thread::spawn(move || {
+            std::thread::sleep(timeout);
+            if !finished.load(Ordering::SeqCst) {
+                notify();
+            }
+        });
+        Self(done)
+    }
+}
+impl Drop for ExecutionDeadline {
+    fn drop(&mut self) {
+        self.0.store(true, std::sync::atomic::Ordering::SeqCst);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -523,6 +715,87 @@ mod tests {
         Request {
             source: Source::Apt,
             id: "vendor-tool".into(),
+        }
+    }
+
+    #[test]
+    fn lifecycle_fixture() {
+        if let Some(path) = std::env::var_os("INODUNE_HELPER_LIFECYCLE_FIXTURE") {
+            std::thread::sleep(Duration::from_millis(150));
+            std::fs::write(path, b"completed").unwrap();
+        }
+    }
+    #[test]
+    fn dropping_a_sent_helper_reaps_without_killing_the_mutation_fixture() {
+        use std::process::{Command, Stdio};
+        for sent in [false, true] {
+            let dir = tempfile::tempdir().unwrap();
+            let finished = dir.path().join("finished");
+            let child = Command::new(std::env::current_exe().unwrap())
+                .args([
+                    "--exact",
+                    "uninstall::tests::lifecycle_fixture",
+                    "--nocapture",
+                ])
+                .env_clear()
+                .env("INODUNE_HELPER_LIFECYCLE_FIXTURE", &finished)
+                .stdin(Stdio::piped())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .spawn()
+                .unwrap();
+            let mut guard = HelperChild::new(child);
+            if sent {
+                guard.mark_execution_sent();
+            }
+            drop(guard);
+            let start = Instant::now();
+            while start.elapsed() < Duration::from_secs(2) && !finished.exists() {
+                std::thread::sleep(Duration::from_millis(10));
+                if !sent && start.elapsed() > Duration::from_millis(200) {
+                    break;
+                }
+            }
+            assert_eq!(finished.exists(), sent);
+        }
+    }
+    #[test]
+    fn timeout_notice_never_cancels_the_in_progress_operation() {
+        let (tx, rx) = std::sync::mpsc::channel();
+        let notice = ExecutionDeadline::start(Duration::from_millis(10), move || {
+            tx.send("unknown").unwrap();
+        });
+        assert_eq!(rx.recv_timeout(Duration::from_secs(1)).unwrap(), "unknown");
+        let (release, go) = std::sync::mpsc::channel();
+        let operation = std::thread::spawn(move || {
+            go.recv().unwrap();
+            "completed"
+        });
+        assert!(!operation.is_finished());
+        release.send(()).unwrap();
+        assert_eq!(operation.join().unwrap(), "completed");
+        drop(notice);
+        for name in [
+            "dnf5",
+            "libdnf5",
+            "rpm-libs",
+            "apt-utils",
+            "gnome-session-wayland",
+            "sddm",
+            "kwin-wayland",
+            "mutter",
+            "dbus-broker",
+            "pam",
+            "shadow-utils",
+            "bash",
+            "coreutils",
+            "util-linux",
+            "glibc-common",
+            "libc6",
+            "xorg-x11-server-Xorg",
+            "xwayland",
+        ] {
+            assert!(fixed_block(name), "{name}");
         }
     }
     #[test]
