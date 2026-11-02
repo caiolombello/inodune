@@ -93,3 +93,25 @@ fn review_cleans_every_candidate_of_the_detector() {
         assert!(!file.exists(), "{text}");
     }
 }
+
+#[test]
+fn apply_with_nothing_eligible_is_not_reported_as_a_dry_run() {
+    let temp = tempfile::tempdir().unwrap();
+    fs::write(temp.path().join("notes.txt"), "not a cache").unwrap();
+    let json = Command::new(env!("CARGO_BIN_EXE_inodune-cli"))
+        .args(["clean", "--yes", "--json", "--root"])
+        .arg(temp.path())
+        .output()
+        .unwrap();
+    assert_eq!(json.status.code(), Some(0));
+    let view: serde_json::Value = serde_json::from_slice(&json.stdout).unwrap();
+    assert_eq!(view["mode"], "nothing_eligible", "{view}");
+    assert_eq!(view["eligible_items"], 0);
+    let text = Command::new(env!("CARGO_BIN_EXE_inodune-cli"))
+        .args(["clean", "--yes", "--root"])
+        .arg(temp.path())
+        .output()
+        .unwrap();
+    let text = String::from_utf8_lossy(&text.stdout);
+    assert!(text.starts_with("Nada elegível para limpar"), "{text}");
+}

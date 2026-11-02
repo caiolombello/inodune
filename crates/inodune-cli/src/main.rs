@@ -316,8 +316,9 @@ fn run_clean(args: &[String], control: &ScanControl) -> Result<(String, bool), S
         .filter(|candidate| candidate.risk != Risk::Low)
         .count();
     if selected.is_empty() {
+        // An apply request with nothing eligible is not a dry run.
         let view = CleanView {
-            mode: "dry_run",
+            mode: if apply { "nothing_eligible" } else { "dry_run" },
             action,
             plan: None,
             eligible_items: 0,
@@ -328,7 +329,8 @@ fn run_clean(args: &[String], control: &ScanControl) -> Result<(String, bool), S
             serde_json::to_string_pretty(&view).map_err(|e| e.to_string())?
         } else {
             format!(
-                "Plano somente leitura: nenhum item elegível; {} protegidos ou para revisão. Nenhuma limpeza executada.",
+                "{}: nenhum item elegível; {} protegidos ou para revisão. Nenhuma limpeza executada.",
+                if apply { "Nada elegível para limpar" } else { "Plano somente leitura" },
                 count(protected_or_review_items, "item", "itens")
             )
         };
