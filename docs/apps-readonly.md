@@ -76,3 +76,17 @@ Depois de tentar enviar o ID para execução, o processo Tauri nunca mata o help
 Sinais PackageKit seguem o contrato legado `Package`: Resolve aceita somente INSTALLED=1; RemovePackages SIMULATE aceita somente REMOVING=13. Qualquer outro info recusa a lista inteira. O quarto campo do package_id deve ser `installed`, prefixo `installed:`, `@System` ou prefixo `@System:`. Outros dados, versões do protocolo ou listas incompletas bloqueiam; não interpretamos AVAILABLE como instalado. Os IDs completos, incluindo versão/arquitetura, da re-simulação são enviados sem alterações para a remoção real, com allow_deps=false e autoremove=false, cobertos por teste de argumentos.
 
 Os bloqueios fixos incluem prefixos dos gerenciadores (dnf/libdnf/rpm/apt/dpkg/packagekit/flatpak/snapd), kernel, sessão, login, rede, D-Bus, PAM, shell e ferramentas básicas. Há regressões para dnf5, libdnf5 e gnome-session-*, além de fixtures de ciclo de vida que demonstram que um helper enviado continua vivo quando a GUI deixa de aguardá-lo.
+
+### Teste isolado de dpkg em container
+
+O atalho de teste não é compilado por padrão. Para o teste com `hello`,
+compile `cargo build --release -p inodune-cli --features container-dpkg-test`
+e execute o binário somente no container com `INODUNE_CONTAINER_DPKG=1`
+e `apps uninstall hello --yes`. Os bloqueios de container, uid e pacotes
+essenciais continuam ativos. Nunca habilite essa feature no empacotamento.
+
+Para verificar o release padrão, compile sem features em um target separado:
+`cargo build --release -p inodune-cli --no-default-features --target-dir /tmp/inodune-release-check`.
+`strings /tmp/inodune-release-check/release/inodune-cli` não deve conter
+`INODUNE_CONTAINER_DPKG`. Com a variável definida, um ID ausente do inventário
+continua recusado pelo fluxo normal, sem chamar dpkg diretamente.

@@ -516,16 +516,19 @@ fn validate_root_count(count: usize) -> Result<(), String> {
     }
 }
 
+#[cfg(feature = "container-dpkg-test")]
 fn container_marker() -> bool {
     std::path::Path::new("/run/.containerenv").exists()
         || std::path::Path::new("/.dockerenv").exists()
 }
+#[cfg(feature = "container-dpkg-test")]
 fn dpkg_query_blocks(record: &str) -> bool {
     let mut fields = record.split('\t');
     let essential = fields.next().unwrap_or("").trim();
     let priority = fields.next().unwrap_or("").trim();
     essential.eq_ignore_ascii_case("yes") || priority.eq_ignore_ascii_case("required")
 }
+#[cfg(feature = "container-dpkg-test")]
 fn dpkg_direct(ids: &[String], yes: bool) -> Result<(String, bool), String> {
     if !yes {
         return Err("dpkg direto no container exige --yes. Nada foi removido.".into());
@@ -589,6 +592,7 @@ fn uninstall_apps(args: &[&str]) -> Result<(String, bool), String> {
     if ids.is_empty() {
         return Err("Informe ao menos um ID. Uso: inodune apps uninstall ID... [--yes]".into());
     }
+    #[cfg(feature = "container-dpkg-test")]
     if std::env::var("INODUNE_CONTAINER_DPKG").ok().as_deref() == Some("1") {
         return dpkg_direct(&ids, yes);
     }
@@ -684,10 +688,14 @@ fn usage() -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{confirmation_matches, dpkg_query_blocks, present_apps, run};
+    use super::{confirmation_matches, present_apps, run};
     use std::fs;
 
+    #[cfg(feature = "container-dpkg-test")]
+    use super::dpkg_query_blocks;
+
     #[test]
+    #[cfg(feature = "container-dpkg-test")]
     fn dpkg_query_refuses_essential_and_required_priority() {
         assert!(dpkg_query_blocks("yes\toptional"));
         assert!(dpkg_query_blocks("no\trequired"));
