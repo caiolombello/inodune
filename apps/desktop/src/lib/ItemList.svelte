@@ -1,10 +1,15 @@
 <script lang="ts">
   import { Folder, ChevronRight, LockKeyhole } from '@lucide/svelte';
-  import { formatBytes, isCarefulItem, isLocallyEligible, type Candidate } from './model';
+  import {
+    formatBytes,
+    isCarefulItem,
+    isLocallyEligible,
+    type Candidate,
+  } from './model';
   import RiskBadge from './RiskBadge.svelte';
-  import { protectionReason } from './protection';
   import VirtualList from './VirtualList.svelte';
   import { t } from './i18n.svelte';
+  import { displayPath, tidyReason } from './present';
   let {
     items,
     selected,
@@ -36,6 +41,7 @@
           <div class="item-name">
             {#if item.risk === 'protected'}<span
                 class="locked"
+                role="img"
                 aria-label={t('Item protegido')}><LockKeyhole size={17} /></span
               >
             {:else}<input
@@ -49,7 +55,10 @@
             <div>
               <button class="item-title" onclick={() => ondetail(item)}
                 >{t(item.title)}</button
-              ><span class="path">{item.display_path}</span>
+              ><span class="path">{displayPath(item.display_path)}</span
+              >{#if item.risk === 'protected'}<span class="protected-reason"
+                  >{t(tidyReason(item.reason))}</span
+                >{/if}
             </div>
           </div>
           <strong class="item-size"
@@ -58,14 +67,12 @@
               : t('Não somado')}</strong
           >
           <div>
-            {#if isCarefulItem(item)}<span class="badge neutral">{t('Exige cuidado')}</span>
+            {#if isCarefulItem(item)}<span class="badge neutral"
+                >{t('Exige cuidado')}</span
+              >
             {:else}<RiskBadge risk={item.risk} />{/if}
-            {#if item.risk === 'protected'}<small
-                class="item-policy-note"
-                title={item.reason}>{t(protectionReason(item.reason))}</small
-              >{/if}
-            {#if !isCarefulItem(item) && !isSelectable(item)}<small class="item-policy-note"
-                >{t('Somente análise')}</small
+            {#if item.risk !== 'protected' && !isCarefulItem(item) && !isSelectable(item)}<small
+                class="item-policy-note">{t('Somente análise')}</small
               >{/if}
           </div>
           <button

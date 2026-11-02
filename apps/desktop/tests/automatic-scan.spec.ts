@@ -223,14 +223,15 @@ test('allows reviewing a selected complete item from a partial automatic scan', 
     .click();
   await page.getByRole('button', { name: 'Analisar computador' }).click();
   await expect(
-    page.getByText('Análise com cobertura parcial / exclusões'),
+    page.getByText('Algumas áreas ficaram fora da análise'),
   ).toBeVisible();
   await page.getByRole('button', { name: 'Abrir a lista completa' }).click();
   const candidateBox = page.getByRole('checkbox', {
     name: 'Selecionar Cache parcial de fixture',
   });
-  await expect(candidateBox).not.toBeChecked();
-  await candidateBox.check();
+  // G1: low-risk eligible items are pre-selected even when an automatic
+  // scan skipped other areas.
+  await expect(candidateBox).toBeChecked();
   await page.getByRole('button', { name: 'Revisar impacto' }).click();
   await page.getByRole('button', { name: 'Preparar limpeza segura' }).click();
   await expect(page.getByRole('dialog')).toContainText(

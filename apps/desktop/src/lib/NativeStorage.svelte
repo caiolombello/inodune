@@ -3,6 +3,7 @@
   import { formatBytes, type ScanState } from './model';
   import type { NativeVolume } from './backend';
   import { t } from './i18n.svelte';
+  import { countLabel, displayPath } from './present';
   let {
     volumes,
     potential,
@@ -12,6 +13,7 @@
     scanStatus,
     onclean,
     cleanLabel,
+    selectedCount = 0,
     automatic = false,
   }: {
     volumes: NativeVolume[];
@@ -22,6 +24,7 @@
     scanStatus: ScanState;
     onclean: () => void;
     cleanLabel: string;
+    selectedCount?: number;
     automatic?: boolean;
   } = $props();
   let device = $state(0);
@@ -39,16 +42,12 @@
           360 * (1 - volume.available_bytes / volume.total_bytes) +
           'deg, var(--subtle) 0deg)'}
         role="img"
-        aria-label={'Volume: ' +
-          formatBytes(volume.total_bytes) +
-          ' totais, ' +
-          formatBytes(volume.available_bytes) +
-          ' disponíveis ao usuário'}
+        aria-label={`${t('Volume')}: ${formatBytes(volume.total_bytes)} ${t('totais')}, ${formatBytes(volume.available_bytes)} ${t('disponíveis')}`}
       >
         <div>
           <HardDrive size={19} /><strong
             >{formatBytes(volume.total_bytes)}</strong
-          ><small>{t('capacidade do filesystem')}</small>
+          ><small>{t('capacidade')}</small>
         </div>
       </div>{:else}<div class="unmeasured-volume">
         <HardDrive size={40} /><span>{t('Sem medição')}</span>
@@ -78,7 +77,8 @@
             ><i class="legend-dot free"></i> {t('Disponível ao usuário')}</span
           ><strong>{formatBytes(volume.available_bytes)}</strong>
         </div>
-        <small>{volume.scope_path} · statvfs · medição deste scan</small
+        <small
+          >{displayPath(volume.scope_path)} · {t('medido nesta análise')}</small
         >{:else}<small
           >{t(
             automatic
@@ -90,7 +90,7 @@
           >{t('Volume')}
           <select aria-label={t('Volume')} bind:value={device}
             >{#each unique as vol, index (vol.device)}<option value={index}
-                >{vol.scope_path}</option
+                >{displayPath(vol.scope_path)}</option
               >{/each}</select
           ></label
         >{/if}
@@ -103,12 +103,23 @@
         ? '—'
         : formatBytes(potential)}
     </div>
-    <p>{count} {t('candidatos')} · {protectedCount} {t('itens protegidos')}</p>
-    <button class="button primary" onclick={onclean} disabled={!count || busy}
+    <p>
+      {countLabel(count, 'candidato', 'candidatos')} · {countLabel(
+        protectedCount,
+        'item protegido',
+        'itens protegidos',
+      )}
+    </p>
+    <button
+      class="button primary"
+      onclick={onclean}
+      disabled={!count || !selectedCount || busy}
       >{cleanLabel} <ArrowRight size={17} /></button
-    ><small
+    ><small class="clean-hint" aria-live="polite"
       ><ShieldCheck size={14} />
-      {t('A limpeza só começa depois da confirmação.')}</small
+      {count && !selectedCount && scanStatus !== 'idle'
+        ? t('Nenhum item marcado. Marque itens na lista abaixo.')
+        : t('A limpeza só começa depois da confirmação.')}</small
     >
   </div>
 </section>
@@ -129,6 +140,12 @@
   }
   .ring strong {
     font-size: 24px;
+  }
+  /* Fixed height: switching hints must not move the button. */
+  .clean-hint {
+    height: 3.4em;
+    align-items: flex-start !important;
+    overflow: hidden;
   }
   .storage-legend label {
     display: block;

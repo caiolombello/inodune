@@ -1,9 +1,11 @@
 <script lang="ts">
   import { invoke } from '@tauri-apps/api/core';
-  import { formatDate, formatNumber, language, t } from './i18n.svelte';
+  import { formatDate, language, t } from './i18n.svelte';
   import FileOutcomes from './FileOutcomes.svelte';
   import RecoveryGuide from './RecoveryGuide.svelte';
   import type { CleanupExecutionReport } from './backend';
+  import { formatBytes } from './model';
+  import { countLabel, displayPath } from './present';
 
   type Entry = {
     report_id: string;
@@ -117,11 +119,10 @@
                     : t('Incompleto')}</strong
                 >{/if}
               {#if !entry.error}<span
-                  >{formatNumber(entry.files_count)}
-                  {t('arquivos')} · {formatNumber(
+                  >{countLabel(entry.files_count, 'arquivo', 'arquivos')} · {formatBytes(
                     entry.logical_bytes_processed,
                   )}
-                  {t('bytes processados')}</span
+                  {t('processados')}</span
                 >{/if}
               {#if entry.error}<span class="error"
                   >{t('Relatório indisponível')}: {entry.error}</span
@@ -133,8 +134,11 @@
         {#if selected && report}
           <header>
             <h3>{t('Detalhes do relatório')}</h3>
-            <p>{t('Plano')}: <code>{report.plan_id}</code></p>
             <p>{t(report.measurement_note)}</p>
+            <details class="technical">
+              <summary>{t('Detalhes técnicos')}</summary>
+              <p>{t('Plano')}: <code>{report.plan_id}</code></p>
+            </details>
             <RecoveryGuide
               action={report.action}
               complete={report.complete}
@@ -150,7 +154,8 @@
               )}
             </p>
             {#if exportedPath}<p role="status">
-                {t('Relatório exportado')}: <code>{exportedPath}</code>
+                {t('Relatório exportado')}:
+                <code>{displayPath(exportedPath)}</code>
               </p>{/if}
           </header>
           <FileOutcomes files={report.items.flatMap((item) => item.files)} />

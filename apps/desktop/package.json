@@ -10,7 +10,9 @@
     "typecheck": "svelte-check --tsconfig ./tsconfig.json",
     "test": "vitest run",
     "test:e2e": "playwright test",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "build:e2e": "INODUNE_DEMO=1 vite build --outDir dist-e2e",
+    "preview:e2e": "vite preview --outDir dist-e2e --host 127.0.0.1 --port 1420 --strictPort"
   },
   "dependencies": {
     "@lucide/svelte": "1.66.0",

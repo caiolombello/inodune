@@ -84,15 +84,30 @@ test('inventory is opt-in, read-only and exposes partial sources and signal conf
   await expect(inventory.getByText('Synthetic Editor')).toBeVisible();
   await expect(inventory.getByText('Protegido', { exact: true })).toBeVisible();
   await expect(inventory.getByText(/confiança baixa/)).toBeVisible();
-  await expect(inventory.getByText('Último uso desconhecido.')).toBeVisible();
-  await expect(inventory.getByText('Tamanho desconhecido')).toBeVisible();
+  await expect(
+    inventory.locator('.app-size').getByText('Tamanho desconhecido'),
+  ).toHaveCount(1);
   await expect(
     inventory.getByText('Fonte de sistema indisponível'),
   ).toBeVisible();
   await expect(inventory.getByRole('checkbox')).toHaveCount(1);
   await expect(
-    inventory.getByRole('button', { name: 'Desinstalar', exact: true }),
-  ).toHaveCount(2);
+    inventory.getByRole('button', { name: /^Desinstalar / }),
+  ).toHaveCount(1);
+  // H: search, filters and counter.
+  await expect(inventory.getByText(/^2 de 2 programas$/)).toBeVisible();
+  await inventory.getByLabel('Filtrar por proteção').selectOption('protected');
+  await expect(inventory.getByText(/^1 de 2 programas$/)).toBeVisible();
+  await inventory
+    .getByRole('button', { name: 'Limpar filtros' })
+    .first()
+    .click();
+  await inventory.getByLabel('Buscar programa').fill('synthetic');
+  await expect(inventory.getByText('Synthetic Editor')).toBeVisible();
+  await inventory
+    .getByRole('button', { name: 'Limpar filtros' })
+    .first()
+    .click();
   expect(
     await page.evaluate(
       () => (window as unknown as { __appsCalls: string[] }).__appsCalls,

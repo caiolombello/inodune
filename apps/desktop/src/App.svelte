@@ -39,6 +39,14 @@
   import ScanExperience from './lib/ScanExperience.svelte';
   import FeedbackSettings from './lib/FeedbackSettings.svelte';
   import FontCredits from './lib/FontCredits.svelte';
+  import CoverageNotice from './lib/CoverageNotice.svelte';
+  import OverviewReview from './lib/OverviewReview.svelte';
+  import {
+    countLabel,
+    displayPath,
+    tidyReason,
+    warningText,
+  } from './lib/present';
   import { SoundFeedback } from './lib/sound-feedback';
   import { formatNumber, language, t, type Locale } from './lib/i18n.svelte';
   import {
@@ -54,10 +62,10 @@
   } from './lib/backend';
   import {
     demo,
+    demoAvailable,
     formatBytes,
     formatSignedBytes,
     selectOverviewDefaults,
-    isCarefulItem,
     isLocallyEligible,
     toggleSelection,
     simulateBudget,
@@ -114,11 +122,11 @@
     report: 'O resultado, sem atalhos.',
   };
   let page = $state<Page>('overview');
-  let onboarding = $state<number | null>(isDesktop ? null : 0);
-  let source = $state<'local' | 'demo'>(isDesktop ? 'local' : 'demo');
-  let scopes = $state<string[]>(
-    isDesktop ? [] : ['demo-cache', 'demo-projects', 'demo-agents'],
-  );
+  // Release builds have no demo corpus, so they always start in local mode.
+  const demoMode = __INODUNE_DEMO__ && !isDesktop && demoAvailable;
+  let onboarding = $state<number | null>(demoMode ? 0 : null);
+  let source = $state<'local' | 'demo'>(demoMode ? 'demo' : 'local');
+  let scopes = $state<string[]>(demoMode ? demo.scopes.map((s) => s.id) : []);
   let scanMode = $state<'automatic' | 'manual'>('automatic');
   let nativeScopes = $state<NativeScope[]>([]);
   let nativeResult = $state<NativeResult | null>(null);
@@ -501,9 +509,13 @@
         nativeJob = null;
         if (!result.result.cancelled)
           sound.play(result.result.complete ? 'ready' : 'attention');
-        selected = result.result.complete
-          ? selectOverviewDefaults(candidates)
-          : [];
+        // Low risk only. Automatic scans are rarely "complete" (system areas are
+        // skipped), yet their plans are accepted; manual partial scans are not.
+        selected =
+          !result.result.cancelled &&
+          (result.result.complete || scanMode === 'automatic')
+            ? selectOverviewDefaults(candidates, true)
+            : [];
         return;
       }
       nativeTimer = setTimeout(() => void pollNative(), 150);
@@ -559,12 +571,7 @@
     scanState = 'cancelled';
     selected = [];
   }
-  let homeConfirmation: HTMLDivElement | undefined = $state();
   async function askClean(ids: string[]) {
-    if (!ids.length) {
-      cleanupError = t('Selecione ao menos um item para limpar.');
-      return;
-    }
     if (
       !ids.length ||
       scanBusy ||
@@ -574,14 +581,36 @@
     )
       return;
     cleanupError = '';
-    selected = ids;
+    homeIds = ids;
     homeConfirm = true;
-    await tick();
-    homeConfirmation?.scrollIntoView({ block: 'center', behavior: 'smooth' });
-    homeConfirmation?.focus();
   }
+  let homeIds = $state<string[]>([]);
+  const homeItems = $derived(
+    candidates.filter((item) => homeIds.includes(item.id)),
+  );
+  const homeBytes = $derived(
+    homeItems.reduce((n, item) => n + item.logical_bytes, 0),
+  );
+  const isSelectable = (item: Candidate) =>
+    source === 'local' ? isLocallyEligible(item) : item.risk !== 'protected';
+  function setMany(ids: string[], checked: boolean) {
+    if (scanBusy || executing || preparingCleanup || localScanStale) return;
+    const allowed = ids.filter((id) => {
+      const item = candidates.find((c) => c.id === id);
+      return item && isSelectable(item);
+    });
+    selected = checked
+      ? [...new Set([...selected, ...allowed])]
+      : selected.filter((id) => !allowed.includes(id));
+    status = '';
+  }
+  const selectedBytesOf = (items: Candidate[]) =>
+    items
+      .filter((item) => selected.includes(item.id))
+      .reduce((n, item) => n + item.logical_bytes, 0);
   async function confirmOverviewClean() {
     homeConfirm = false;
+    selected = homeIds;
     if (source === 'local') {
       await prepareLocalCleanup();
       if (!cleanupPlan) return;
@@ -946,12 +975,28 @@
               page === 'overview'
                 ? 'VISÃO GERAL'
                 : page === 'impact'
-                  ? 'SPACE BUDGET SIMULATOR'
+                  ? 'SIMULADOR DE ESPAÇO'
                   : page === 'projects'
-                    ? 'PROJECT LENS'
+                    ? 'LENTE DE PROJETOS'
                     : page === 'protected'
-                      ? 'PROTECTION LEDGER'
-                      : 'INODUNE',
+                      ? 'REGISTRO DE PROTEÇÕES'
+                      : page === 'apps'
+                        ? 'PROGRAMAS INSTALADOS'
+                        : page === 'settings'
+                          ? 'PREFERÊNCIAS'
+                          : page === 'history'
+                            ? 'HISTÓRICO'
+                            : page === 'report'
+                              ? 'RELATÓRIO'
+                              : [
+                                    'development',
+                                    'git',
+                                    'ai',
+                                    'system',
+                                    'review',
+                                  ].includes(page)
+                                ? 'REVISÃO DE ITENS'
+                                : 'INODUNE',
             )}
           </div>
           <h1 bind:this={heading} tabindex="-1">{t(pageNames[page])}</h1>
@@ -965,7 +1010,11 @@
                     ? 'Artefatos, custos e proteções no contexto de cada projeto.'
                     : page === 'impact'
                       ? 'Uma estimativa para revisar. Nenhuma operação será executada.'
-                      : 'Decisões claras, com você no controle.',
+                      : page === 'apps'
+                        ? 'Encontre, filtre e remova programas com um plano revisável.'
+                        : page === 'settings'
+                          ? 'Idioma, aparência e como a análise funciona.'
+                          : 'Decisões claras, com você no controle.',
             )}
           </p>
         </div>
@@ -991,28 +1040,20 @@
           >{/if}
       </div>
       {#if page !== 'apps'}
-        <div class="demo-banner">
-          <FlaskConical size={16} /><span
-            ><strong
-              >{t(
-                source === 'local' ? 'Análise local' : 'Protótipo navegável',
-              )}</strong
+        {#if __INODUNE_DEMO__ && source === 'demo'}<div class="demo-banner">
+            <FlaskConical size={16} /><span
+              ><strong>{t('Protótipo navegável')}</strong>
+              · {t(
+                'Pastas e valores fictícios. Seus arquivos não são acessados.',
+              )}</span
+            ><button
+              onclick={() => {
+                onboarding = 0;
+              }}
+              disabled={executing || scanBusy || preparingCleanup}
+              >{t('Conhecer o fluxo')} <ArrowUpRight size={14} /></button
             >
-            · {t(
-              source === 'local'
-                ? scanMode === 'automatic'
-                  ? 'Descoberta local automática. A limpeza pede confirmação.'
-                  : 'Pastas aprovadas. A limpeza pede confirmação.'
-                : 'Pastas e valores fictícios. Seus arquivos não são acessados.',
-            )}</span
-          ><button
-            onclick={() => {
-              onboarding = 0;
-            }}
-            disabled={executing || scanBusy || preparingCleanup}
-            >{t('Conhecer o fluxo')} <ArrowUpRight size={14} /></button
-          >
-        </div>
+          </div>{/if}
         <div class="live-status" role="status" aria-live="polite">
           {t(status)}
         </div>
@@ -1080,10 +1121,12 @@
             <div>
               <strong>{t('Análise cancelada')}</strong>
               <p>
-                {candidates.length}
-                {t(
-                  'itens parciais disponíveis. Nenhuma seleção automática foi mantida.',
+                {countLabel(
+                  candidates.length,
+                  'item parcial disponível.',
+                  'itens parciais disponíveis.',
                 )}
+                {t('Nenhuma seleção automática foi mantida.')}
               </p>
             </div>
           </div>
@@ -1094,39 +1137,19 @@
             role="alert"
           >
             <CircleAlert size={20} />
-            <p>{nativeError}</p>
+            <p>{t(nativeError)}</p>
           </div>{/if}
-        {#if source === 'local' && nativeResult && (!nativeResult.complete || nativeResult.issues.length)}<section
-            class="notice"
-          >
-            <CircleAlert size={20} />
-            <div>
-              <strong>{t('Análise com cobertura parcial / exclusões')}</strong>
-              <p>
-                {formatNumber(nativeResult.stats.skipped)}
-                {t(
-                  'entradas ignoradas no scan e na descoberta. Symlinks internos de um item apagável não entram nesta conta. Itens incertos permanecem protegidos.',
-                )}
-              </p>
-              {#if nativeResult.stats.skip_reasons}<ul>
-                  {#each Object.entries(nativeResult.stats.skip_reasons) as [code, count] (code)}<li
-                    >
-                      {code}: {formatNumber(count)}
-                    </li>{/each}
-                </ul>{/if}
-              <details>
-                <summary>{t('Ver motivos e caminhos')}</summary
-                >{#each nativeResult.issues as issue, index (index)}<p>
-                    <code>{issue.display_path}</code> · {t(issue.message)}
-                  </p>{/each}
-              </details>
-            </div>
-          </section>{/if}
+        {#if source === 'local' && page === 'overview' && !scanBusy && nativeResult && (!nativeResult.complete || nativeResult.issues.length)}<CoverageNotice
+            result={nativeResult}
+          />{/if}
       {/if}
       {#if page === 'apps'}
         <InstalledApps />
       {:else if page === 'overview' && !scanBusy}
-        {#if cleanupError}<p role="alert">{cleanupError}</p>{/if}
+        {#if cleanupError}<div class="notice error" role="alert">
+            <CircleAlert size={20} />
+            <p>{t(cleanupError)}</p>
+          </div>{/if}
         {#if source === 'local'}<NativeStorage
             automatic={scanMode === 'automatic'}
             volumes={nativeResult?.volumes ?? []}
@@ -1136,10 +1159,11 @@
             busy={scanBusy}
             scanStatus={scanState}
             onclean={() => askClean(selected)}
+            selectedCount={selected.length}
             cleanLabel={selected.length
-              ? `${t('Limpar')} ${formatBytes(budget.logicalBytes)}`
+              ? `${t('Limpar')} ${countLabel(selected.length, 'item', 'itens')} · ${formatBytes(budget.logicalBytes)}`
               : t('Limpar')}
-          />{:else}
+          />{:else if __INODUNE_DEMO__}
           <section class="storage-panel" aria-labelledby="storage-title">
             <div class="volume-summary">
               <div
@@ -1207,6 +1231,9 @@
             {@const uncertain =
               !eligible.length && group.some((c) => c.coverage_key === null)}
             {@const protectedOnly = group.length > 0 && eligible.length === 0}
+            {@const chosen = eligible.filter((item) =>
+              selected.includes(item.id),
+            )}
             <article class="category-card">
               <div class="category-top">
                 <span class="category-icon"><cat.icon size={22} /></span
@@ -1245,23 +1272,31 @@
               >
               <div class="category-footer">
                 <span
-                  >{formatNumber(group.length)}
-                  {group.length === 1 ? t('item') : t('itens')}
-                  {eligible.length
-                    ? source === 'local'
-                      ? t('analisados')
-                      : t('no exemplo')
-                    : t('em inventário')}</span
+                  >{#if eligible.length}{formatNumber(chosen.length)}
+                    {t('de')}
+                    {countLabel(
+                      group.length,
+                      'item selecionado',
+                      'itens selecionados',
+                    )}<br /><small
+                      >{formatBytes(selectedBytesOf(eligible))}</small
+                    >{:else}{countLabel(group.length, 'item', 'itens')}
+                    {t('em inventário')}{/if}</span
                 >{#if eligible.length}<button
                     class="button"
                     type="button"
-                    disabled={scanBusy || executing || preparingCleanup}
-                    onclick={() =>
-                      askClean(
-                        eligible
-                          .filter((item) => selected.includes(item.id))
-                          .map((item) => item.id),
-                      )}>{t('Limpar')}</button
+                    aria-label={chosen.length
+                      ? `${t('Limpar')} ${countLabel(chosen.length, 'item', 'itens')} ${t('de')} ${t(cat.label)}`
+                      : `${t('Nada selecionado em')} ${t(cat.label)}`}
+                    disabled={!chosen.length ||
+                      scanBusy ||
+                      executing ||
+                      preparingCleanup ||
+                      localScanStale}
+                    onclick={() => askClean(chosen.map((item) => item.id))}
+                    >{chosen.length
+                      ? `${t('Limpar')} ${formatNumber(chosen.length)}`
+                      : t('Limpar')}</button
                   >{:else if group.length}<span class="tiny-label"
                     >{t('Protegido')}</span
                   >{/if}
@@ -1274,7 +1309,11 @@
             <div>
               <h2>{t('Pronto para olhar mais de perto?')}</h2>
               <p>
-                {t('Itens seguros já entram na limpeza. Abra para ajustar.')}
+                {t(
+                  selected.length
+                    ? 'Itens de baixo risco já vêm marcados. Itens para revisar só entram se você marcar.'
+                    : 'Nenhum item marcado. Marque o que deseja limpar.',
+                )}
               </p>
             </div>
             <button class="text-button" onclick={() => go('review')}
@@ -1282,89 +1321,21 @@
             >
           </div>
           {#if candidates.length}<details class="review-drawer">
-              <summary>{t('Revisar itens')}</summary>
-              {#each [...new Set(candidates
-                    .filter((item) => item.risk !== 'protected')
-                    .map((item) => item.category))] as category (category)}
-                {@const cleanable = candidates.filter(
-                  (item) =>
-                    item.category === category && item.risk !== 'protected',
-                )}
-                <section>
-                  <h3>
-                    {t(category)} · {formatNumber(cleanable.length)} · {formatBytes(
-                      cleanable
-                        .filter((item) => selected.includes(item.id))
-                        .reduce((n, item) => n + item.logical_bytes, 0),
-                    )}
-                  </h3>
-                  <ul>
-                    {#each cleanable as item (item.id)}<li>
-                        <label>
-                          <input
-                            type="checkbox"
-                            checked={selected.includes(item.id)}
-                            onchange={() => toggle(item)}
-                          />
-                          <span>{item.title}</span>
-                          <span>{formatBytes(item.logical_bytes)}</span>
-                          {#if isCarefulItem(item)}<span class="badge neutral"
-                              >{t('Exige cuidado')}</span
-                            >{/if}
-                        </label>
-                      </li>{/each}
-                  </ul>
-                </section>
-              {/each}
-              {#if candidates.some((item) => item.risk === 'protected')}<section
-                >
-                  <h3>
-                    {t('Protegidos')} · {formatNumber(
-                      candidates.filter((item) => item.risk === 'protected')
-                        .length,
-                    )} · {formatBytes(
-                      candidates
-                        .filter((item) => item.risk === 'protected')
-                        .reduce((n, item) => n + item.logical_bytes, 0),
-                    )}
-                  </h3>
-                  <ul>
-                    {#each candidates.filter((item) => item.risk === 'protected') as item (item.id)}<li
-                      >
-                        <label>
-                          <input type="checkbox" disabled />
-                          <span>{item.title}</span>
-                          <span>{formatBytes(item.logical_bytes)}</span>
-                          <span class="badge neutral">{t('Protegido')}</span>
-                          <span>{item.reason}</span>
-                        </label>
-                      </li>{/each}
-                  </ul>
-                </section>{/if}
+              <summary
+                >{`${t('Revisar itens')} · ${formatNumber(selected.length)} ${t('de')} ${countLabel(available.length, 'item selecionado', 'itens selecionados')}`}</summary
+              >
+              <OverviewReview
+                {candidates}
+                {selected}
+                {isSelectable}
+                disabled={scanBusy ||
+                  executing ||
+                  preparingCleanup ||
+                  localScanStale}
+                onsetmany={setMany}
+                ondetail={(item) => (detail = item)}
+              />
             </details>{/if}
-          {#if homeConfirm}<div
-              bind:this={homeConfirmation}
-              tabindex="-1"
-              style="max-height: 70vh; overflow-y: auto"
-              role="dialog"
-              aria-label={t('Confirmar limpeza')}
-            >
-              <h2>{t('Confirmar limpeza')}</h2>
-              <p>
-                {formatNumber(selected.length)}
-                {t('itens')} · {formatBytes(budget.logicalBytes)}. {t(
-                  'Os itens vão para a Lixeira, salvo se a ação permanente estiver marcada.',
-                )}
-              </p>
-              <button
-                class="button primary"
-                onclick={() => void confirmOverviewClean()}
-                >{t('Confirmar limpeza')}</button
-              >
-              <button class="button" onclick={() => (homeConfirm = false)}
-                >{t('Cancelar')}</button
-              >
-            </div>{/if}
           {#if scanState === 'idle'}<div class="empty-state">
               <Folder size={30} />
               <h3>{t('Seu primeiro passo é uma análise.')}</h3>
@@ -1501,8 +1472,15 @@
               </h2>
               <p>
                 {formatNumber(filtered.length)}
-                {t('itens exibidos')} · {formatNumber(selected.length)}
-                {t('selecionados')}
+                {t('de')}
+                {countLabel(
+                  candidates.filter(
+                    (c) => page !== 'protected' || c.risk === 'protected',
+                  ).length,
+                  'item exibido',
+                  'itens exibidos',
+                )}
+                · {countLabel(selected.length, 'selecionado', 'selecionados')}
                 {t('no total')}
               </p>
             </div>
@@ -1573,11 +1551,14 @@
         {#if page !== 'protected'}<div class="selection-bar">
             <div>
               <strong
-                >{formatNumber(selected.length)}
-                {t('itens selecionados')}</strong
+                >{countLabel(
+                  selected.length,
+                  'item selecionado',
+                  'itens selecionados',
+                )}</strong
               ><span
                 >{formatBytes(budget.logicalBytes)} · {t(
-                  'estimativa lógica, sem recuperação medida',
+                  'estimativa, sem recuperação medida',
                 )}</span
               >
             </div>
@@ -1627,8 +1608,9 @@
             <span class="eyebrow">{t('SUA SELEÇÃO')}</span>
             <h2 class="impact-number">{formatBytes(budget.logicalBytes)}</h2>
             <p>
-              {formatNumber(selected.length)}
-              {t('itens')} · {t('tamanho lógico estimado')}
+              {countLabel(selected.length, 'item', 'itens')} · {t(
+                'tamanho estimado',
+              )}
             </p>
             <div class="compare-grid">
               <div>
@@ -1678,8 +1660,8 @@
           <section class="panel padded">
             <h2>
               {source === 'local'
-                ? 'Preparar limpeza'
-                : 'Como seria o descarte?'}
+                ? t('Preparar limpeza')
+                : t('Como seria o descarte?')}
             </h2>
             <p>
               {t(
@@ -1860,26 +1842,29 @@
               {#if cleanupReport}
                 <div class="report-metrics">
                   <div>
-                    <span>{t('Bytes lógicos processados')}</span><strong
+                    <span>{t('Tamanho processado')}</span><strong
                       >{formatBytes(
                         cleanupReport.logical_bytes_processed,
                       )}</strong
                     >
                   </div>
                   <div>
-                    <span>{t('Bytes liberados atribuídos')}</span><strong
+                    <span>{t('Espaço liberado atribuído à limpeza')}</span
+                    ><strong
                       >{cleanupReport.attributed_freed_bytes === null
-                        ? t('Não atribuídos')
+                        ? t('Não atribuído')
                         : formatBytes(
                             cleanupReport.attributed_freed_bytes,
                           )}</strong
                     >
                   </div>
                   <div>
-                    <span>{t('Arquivos relatados')}</span><strong
-                      >{cleanupReport.items.reduce(
-                        (n, item) => n + item.files.length,
-                        0,
+                    <span>{t('Arquivos no relatório')}</span><strong
+                      >{formatNumber(
+                        cleanupReport.items.reduce(
+                          (n, item) => n + item.files.length,
+                          0,
+                        ),
                       )}</strong
                     >
                   </div>
@@ -1911,12 +1896,15 @@
                         'Variações observadas não são atribuídas à limpeza. Arquivos enviados à Lixeira não são contabilizados como espaço liberado.',
                       )}
                     </p>
-                    {#each cleanupReport.volumes as volume (volume.device)}<div
-                        class="outcome-row"
-                      >
+                    {#each cleanupReport.volumes as volume (volume.device)}
+                      {@const known = nativeResult?.volumes.find(
+                        (v) => v.device === volume.device,
+                      )}
+                      <div class="outcome-row">
                         <span
-                          >{t('Dispositivo')}
-                          {formatNumber(volume.device)}</span
+                          >{known
+                            ? `${t('Volume')} ${displayPath(known.scope_path)}`
+                            : t('Volume analisado')}</span
                         ><span
                           >{t('Antes')}
                           {formatBytes(volume.available_before)} · {t('depois')}
@@ -1940,15 +1928,15 @@
                   >
                     <h3>{t('Avisos e limites')}</h3>
                     <ul>
-                      {#each cleanupReport.warnings as warning, index (`${index}-${warning}`)}<li
+                      {#each [...new Set(cleanupReport.warnings.map(warningText))] as warning (warning)}<li
                         >
-                          {t(warning)}
+                          {warning}
                         </li>{/each}
                     </ul>
                   </section>{/if}
                 {#if cleanupReport.history_path}<p class="inline-note">
                     {t('Relatório salvo em')}
-                    <code>{cleanupReport.history_path}</code>
+                    <code>{displayPath(cleanupReport.history_path)}</code>
                   </p>{/if}
               {/if}
               <button
@@ -2096,17 +2084,27 @@
           />
           <div class="section-divider"></div>
           <h2>{t('Pastas e origem dos dados')}</h2>
-          <label class="setting-row"
-            ><span>{t('Fonte de dados')}</span><select
-              aria-label={t('Fonte de dados')}
-              bind:value={source}
-              onchange={changeSource}
-              disabled={!isDesktop || scanBusy || executing || preparingCleanup}
-              ><option value="local">{t('Meu computador')}</option
-              >{#if !isDesktop}<option value="demo">{t('Demonstração')}</option
-                >{/if}</select
-            ></label
-          >
+          {#if demoAvailable}<label class="setting-row"
+              ><span
+                ><strong>{t('Fonte de dados')}</strong><small
+                  >{t(
+                    'A demonstração só existe em builds de desenvolvimento.',
+                  )}</small
+                ></span
+              ><select
+                aria-label={t('Fonte de dados')}
+                bind:value={source}
+                onchange={changeSource}
+                disabled={!isDesktop ||
+                  scanBusy ||
+                  executing ||
+                  preparingCleanup}
+                ><option value="local">{t('Meu computador')}</option
+                >{#if !isDesktop}<option value="demo"
+                    >{t('Demonstração')}</option
+                  >{/if}</select
+              ></label
+            >{/if}
           <p>
             {t(
               source === 'local'
@@ -2185,7 +2183,7 @@
                   'Conclua ou pause a operação atual antes de alterar os escopos aprovados.',
                 )}
               </p>
-            {:else}
+            {:else if scanMode === 'manual' || nativeScopes.length}
               <ScopeControls
                 scopes={nativeScopes}
                 onchanged={handleScopesChanged}
@@ -2446,9 +2444,9 @@
   >
     <RiskBadge risk={detail.risk} />
     <h3 class="detail-title">{t(detail.title)}</h3>
-    <code class="detail-path">{detail.display_path}</code><button
+    <code class="detail-path">{displayPath(detail.display_path)}</code><button
       class="text-button"
-      onclick={() => copyPath(detail!.display_path)}
+      onclick={() => copyPath(displayPath(detail!.display_path))}
       ><Copy size={15} />
       {t(
         source === 'local' ? 'Copiar caminho' : 'Copiar caminho de exemplo',
@@ -2463,7 +2461,7 @@
             : 'Por que apareceu',
         )}
       </dt>
-      <dd>{t(detail.reason)}</dd>
+      <dd>{t(tidyReason(detail.reason))}</dd>
       <dt>{t('O que pode mudar')}</dt>
       <dd>{t(detail.impact)}</dd>
       <dt>{t('Como recriar')}</dt>
@@ -2472,11 +2470,14 @@
       <dd>{t(detail.preserved)}</dd>
       <dt>{t('Última atividade')}</dt>
       <dd>{t(detail.activity)}</dd>
-      <dt>{t('Tamanho lógico / alocado')}</dt>
+      <dt>{t('Tamanho')}</dt>
       <dd>
         {detail.coverage_key
           ? formatBytes(detail.logical_bytes)
-          : t('Não contabilizado separadamente')} / {t('não medido')}
+          : t(
+              'Não contabilizado separadamente',
+            )}{#if detail.coverage_key && detail.allocated_bytes_estimate !== null && detail.allocated_bytes_estimate !== detail.logical_bytes}
+          · {formatBytes(detail.allocated_bytes_estimate)} {t('no disco')}{/if}
       </dd>
     </dl>
     <details>
@@ -2506,6 +2507,72 @@
     </div>
   </Modal>
 {/if}
+{#if homeConfirm}
+  <Modal
+    title={t(
+      policy === 'trash'
+        ? 'Enviar itens para a Lixeira?'
+        : 'Excluir itens permanentemente?',
+    )}
+    onclose={() => (homeConfirm = false)}
+  >
+    <div class="home-confirm">
+      <p class="home-confirm-total">
+        <strong>{countLabel(homeItems.length, 'item', 'itens')}</strong>
+        <span>{formatBytes(homeBytes)} {t('estimados')}</span>
+      </p>
+      <ul class="home-confirm-groups">
+        {#each [...new Set(homeItems.map((item) => item.category))] as category (category)}
+          {@const items = homeItems.filter(
+            (item) => item.category === category,
+          )}
+          <li>
+            <span>{t(category)}</span><span
+              >{countLabel(items.length, 'item', 'itens')} · {formatBytes(
+                items.reduce((n, item) => n + item.logical_bytes, 0),
+              )}</span
+            >
+          </li>
+        {/each}
+      </ul>
+      {#if homeItems.some((item) => item.risk === 'review')}<div
+          class="notice"
+          role="note"
+        >
+          <CircleAlert size={20} />
+          <p>
+            {t(
+              'Inclui itens marcados por você que exigem revisão: podem pedir novo download ou recompilação.',
+            )}
+          </p>
+        </div>{/if}
+      <div class="notice" class:error={policy === 'permanent'} role="note">
+        <CircleAlert size={20} />
+        <p>
+          {t(
+            policy === 'trash'
+              ? 'Os arquivos vão para a Lixeira e podem ser restaurados. Na mesma unidade, o espaço só é liberado quando você esvaziar a Lixeira.'
+              : 'A exclusão permanente é irreversível.',
+          )}
+          {#if source === 'local'}{t(
+              'O sistema ainda mostra uma confirmação final antes de alterar arquivos.',
+            )}{/if}
+        </p>
+      </div>
+    </div>
+    <div class="dialog-actions">
+      <button class="button" onclick={() => (homeConfirm = false)}
+        >{t('Voltar')}</button
+      ><button
+        class="button primary"
+        onclick={() => void confirmOverviewClean()}
+        >{policy === 'trash'
+          ? `${t('Enviar')} ${countLabel(homeItems.length, 'item', 'itens')} ${t('para a Lixeira')}`
+          : `${t('Excluir')} ${countLabel(homeItems.length, 'item', 'itens')}`}</button
+      >
+    </div>
+  </Modal>
+{/if}
 {#if confirmation}
   <Modal
     title={t(
@@ -2528,12 +2595,15 @@
         ><ShieldCheck size={14} />
         {t('Plano local preparado pelo executor')}</span
       >
-      {#if cleanupPlan}<p>
-          {formatNumber(cleanupPlan.items.length)}
-          {t('itens')} · {formatBytes(cleanupPlan.logical_bytes_estimate)}
-          {t('lógicos estimados')} · {t('válido por')}
-          {formatNumber(cleanupPlan.expires_in_seconds)}
-          {t('segundos')}.
+      {#if cleanupPlan}<p class="plan-summary">
+          <strong
+            >{countLabel(cleanupPlan.items.length, 'item', 'itens')}</strong
+          >
+          · {formatBytes(cleanupPlan.logical_bytes_estimate)}
+          {t('estimados')} · {t('plano válido por')}
+          {cleanupPlan.expires_in_seconds >= 120
+            ? `${formatNumber(Math.floor(cleanupPlan.expires_in_seconds / 60))} min`
+            : `${formatNumber(cleanupPlan.expires_in_seconds)} s`}
         </p>
         {#if cleanupPlan.inventory_complete === false}<div
             class="notice"
@@ -2556,20 +2626,16 @@
               )}
             </p>
           </div>{/if}
-        <div class="plan-identity">
-          <span>{t('Plano')} <code>{cleanupPlan.id}</code></span><span
-            >{t('Snapshot')} <code>{cleanupPlan.snapshot_id}</code></span
-          ><span>{t('Hash')} <code>{cleanupPlan.hash}</code></span>
-        </div>
       {:else}<p>{t('Preparando o plano validado pelo executor.')}</p>{/if}
     {:else}<span class="badge neutral"
         ><FlaskConical size={14} />
         {t('Demonstração, sem operações reais')}</span
       >
       <p>
-        {formatNumber(selected.length)}
-        {t('itens')} · {formatBytes(budget.logicalBytes)}
-        {t('lógicos estimados')}.
+        {countLabel(selected.length, 'item', 'itens')} · {formatBytes(
+          budget.logicalBytes,
+        )}
+        {t('estimados')}.
       </p>
     {/if}
     <ul class="confirmation-list">
@@ -2577,12 +2643,14 @@
         {#each cleanupPlan.items as item (item.candidate_id)}{@const candidate =
             candidates.find((candidate) => candidate.id === item.candidate_id)}
           <li>
-            <strong>{candidate ? t(candidate.title) : item.candidate_id}</strong
-            ><code>{item.display_path}</code><span
-              >{formatBytes(item.logical_bytes)}
-              {t('lógicos')} · {item.allocated_bytes_estimate === null
-                ? t('alocado não estimado')
-                : `${formatBytes(item.allocated_bytes_estimate)} ${t('alocados estimados')}`}</span
+            <strong
+              >{candidate ? t(candidate.title) : t('Item do plano')}</strong
+            ><code>{displayPath(item.display_path)}</code><span
+              >{formatBytes(
+                item.logical_bytes,
+              )}{#if item.allocated_bytes_estimate !== null && item.allocated_bytes_estimate !== item.logical_bytes}
+                · {formatBytes(item.allocated_bytes_estimate)}
+                {t('no disco')}{/if}</span
             >
             {#if (item.risk ?? candidate?.risk) === 'review'}<RiskBadge
                 risk="review"
@@ -2599,7 +2667,8 @@
           </li>{/each}
       {:else}
         {#each budget.picked as item (item.id)}<li>
-            <strong>{t(item.title)}</strong><code>{item.display_path}</code
+            <strong>{t(item.title)}</strong><code
+              >{displayPath(item.display_path)}</code
             ><RiskBadge risk={item.risk} />
           </li>{/each}
       {/if}

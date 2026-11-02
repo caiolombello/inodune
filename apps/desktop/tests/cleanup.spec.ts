@@ -212,7 +212,8 @@ test('local cleanup reports every fixture file and never attributes volume delta
   ).toBeDisabled();
   await page.getByRole('button', { name: 'Revisar impacto' }).click();
   await page.getByRole('button', { name: 'Preparar limpeza segura' }).click();
-  await expect(page.getByRole('dialog')).toContainText('fixture-snapshot');
+  // The plan hash and snapshot id are internal; the dialog lists paths.
+  await expect(page.getByRole('dialog')).not.toContainText('fixture-snapshot');
   await expect(page.getByRole('dialog')).toContainText('__pycache__');
   await page.getByRole('checkbox').check();
   await page
@@ -244,7 +245,7 @@ test('local cleanup reports every fixture file and never attributes volume delta
   await expect(page.getByText('Movido para a Lixeira')).toBeVisible();
   await expect(page.getByText('Quarentena; preservado')).toBeVisible();
   await expect(page.getByText('/fixture/quarantine/changed.pyc')).toBeVisible();
-  await expect(page.getByText('Não atribuídos')).toBeVisible();
+  await expect(page.getByText('Não atribuído', { exact: true })).toBeVisible();
   await expect(
     page.getByText('Variações observadas não são atribuídas à limpeza.'),
   ).toBeVisible();

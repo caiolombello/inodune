@@ -213,7 +213,10 @@ test('overview clean flow and uninstall button', async ({ page }) => {
   await expect(page.getByText('Cache npm')).toBeHidden();
   await expect(page.getByText('Item / origem')).toHaveCount(0);
   await page.screenshot({ path: shot('overview'), fullPage: true });
-  await page.getByText('Revisar itens', { exact: true }).click();
+  await page.locator('.review-drawer > summary').click();
+  await expect(page.locator('.review-drawer > summary')).toContainText(
+    /Revisar itens · 2 de 4 itens selecionados/,
+  );
   await expect(page.getByRole('heading', { name: /Protegidos/ })).toBeVisible();
   await expect(page.getByText('Credencial')).toBeVisible();
   await expect(page.getByText('Exige cuidado').first()).toBeVisible();
@@ -242,30 +245,42 @@ test('overview clean flow and uninstall button', async ({ page }) => {
   const thumbs = review.getByRole('checkbox', { name: /Miniaturas/ });
   await expect(thumbs).toBeChecked();
   await thumbs.uncheck();
-  await page
-    .getByRole('button', { name: /Limpar/ })
-    .first()
-    .click();
-  await expect(page.getByRole('alert')).toContainText(
-    'Selecione ao menos um item',
-  );
+  // Nothing selected: the button is disabled and the hint replaces the old
+  // alert in place, without shifting the layout.
+  const cleanButton = page.getByRole('button', { name: /^Limpar/ }).first();
+  const docTop = () =>
+    cleanButton.evaluate(
+      (el) => el.getBoundingClientRect().top + window.scrollY,
+    );
+  const before = await docTop();
+  await expect(cleanButton).toBeDisabled();
   await expect(
-    page.getByRole('dialog', { name: 'Confirmar limpeza' }),
-  ).toHaveCount(0);
-  await thumbs.check();
-  await page
-    .getByRole('button', { name: /Limpar/ })
-    .first()
-    .click();
-  await expect(
-    page.getByRole('dialog', { name: 'Confirmar limpeza' }),
+    page.getByText('Nenhum item marcado. Marque itens na lista abaixo.'),
   ).toBeVisible();
-  const confirmation = page.getByRole('dialog', { name: 'Confirmar limpeza' });
-  await expect(confirmation).toBeInViewport();
-  await expect(confirmation).toBeFocused();
-  await page.screenshot({ path: shot('confirm'), fullPage: true });
+  await expect(page.getByRole('alert')).toHaveCount(0);
+  await thumbs.check();
+  await expect(cleanButton).toHaveText(/Limpar 1 item · 95,4 MiB/);
+  expect(await docTop()).toBe(before);
   await page
-    .getByRole('button', { name: 'Confirmar limpeza', exact: true })
+    .getByRole('button', { name: /Limpar/ })
+    .first()
+    .click();
+  const confirmation = page.getByRole('dialog', {
+    name: 'Enviar itens para a Lixeira?',
+  });
+  await expect(confirmation).toBeVisible();
+  await expect(confirmation).toBeInViewport();
+  await expect(confirmation).toContainText('1 item');
+  await expect(confirmation).toContainText('Sistema');
+  // Focus moves into the modal (native showModal).
+  expect(
+    await page.evaluate(() =>
+      Boolean(document.activeElement?.closest('dialog[open]')),
+    ),
+  ).toBe(true);
+  await page.screenshot({ path: shot('confirm'), fullPage: true });
+  await confirmation
+    .getByRole('button', { name: 'Enviar 1 item para a Lixeira' })
     .click();
   await expect(
     page.getByText(/Variação observada|Execução|relatório|Concluído/i).first(),
@@ -278,7 +293,7 @@ test('overview clean flow and uninstall button', async ({ page }) => {
     .getByRole('button', { name: 'Listar programas e jogos', exact: true })
     .click();
   await expect(
-    page.getByRole('button', { name: 'Desinstalar', exact: true }),
+    page.getByRole('button', { name: 'Desinstalar hello', exact: true }),
   ).toBeVisible();
   await page.screenshot({ path: shot('apps-uninstall'), fullPage: true });
 });

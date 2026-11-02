@@ -1,3 +1,4 @@
+import { catalog as demoCatalog } from 'virtual:inodune-demo';
 export type Locale = 'pt-BR' | 'en-US';
 
 const catalog: Record<string, string> = {
@@ -139,9 +140,6 @@ const catalog: Record<string, string> = {
   'A análise tem áreas não examinadas. Este plano contém somente os itens selecionados com manifesto completo; nada fora dele será alterado.':
     'Some areas were not examined. This plan contains only the selected items with complete manifests; nothing outside it will be changed.',
   'Análise local': 'Local analysis',
-  'Protótipo navegável': 'Interactive demo',
-  'Pastas e valores fictícios. Seus arquivos não são acessados.':
-    'Sample folders and values. Your files are not accessed.',
   'Conhecer o fluxo': 'See how it works',
   'Meu computador': 'My computer',
   'Ambiente de demonstração': 'Demo environment',
@@ -221,8 +219,6 @@ const catalog: Record<string, string> = {
     'No percentage without a known total.',
   Nome: 'Name',
   'Não medido': 'Not measured',
-  'O primeiro passo é entender o que ocupa espaço.':
-    'The first step is understanding what uses space.',
   'O que pode mudar': 'What may change',
   'O que será preservado': 'What will be preserved',
   'Operações reais': 'Real operations',
@@ -262,9 +258,6 @@ const catalog: Record<string, string> = {
   'Tamanho lógico selecionado': 'Selected logical size',
   'Tentar consultar novamente': 'Try checking again',
   'Todos os riscos': 'All risks',
-  'Um pouco mais de respiro.': 'A little more breathing room.',
-  'Valores do corpus sintético, sem medição do disco.':
-    'Synthetic corpus values; disk usage was not measured.',
   'Variação observada por volume': 'Observed change by volume',
   'Ver motivos e caminhos': 'View reasons and paths',
   'Ver todos os itens': 'View all items',
@@ -273,7 +266,6 @@ const catalog: Record<string, string> = {
   Voltar: 'Back',
   'Voltar à revisão': 'Back to review',
   'Voltar à seleção': 'Back to selection',
-  'volume de exemplo': 'sample volume',
   'Análise pausada': 'Analysis paused',
   'Analisando pastas aprovadas': 'Analyzing approved folders',
   'Analisando exemplos locais': 'Analyzing local samples',
@@ -288,8 +280,6 @@ const catalog: Record<string, string> = {
     'Result from this session only. No files were changed.',
   'Adicionar pasta de projetos': 'Add project folder',
   'Inventário protegido de IA': 'Protected AI inventory',
-  'Limpeza real indisponível na demonstração.':
-    'Real cleanup is unavailable in the demo.',
   Livre: 'Free',
   Ocupado: 'Used',
   'Plano local preparado pelo executor': 'Local plan prepared by executor',
@@ -396,8 +386,6 @@ const catalog: Record<string, string> = {
   'Buscar item ou caminho': 'Search items or paths',
   'Buscar item ou caminho…': 'Search items or paths…',
   'Avisos do executor': 'Executor warnings',
-  'Volume fictício: 512 GiB totais, 382 GiB ocupados e 130 GiB livres':
-    'Sample volume: 512 GiB total, 382 GiB used, and 130 GiB free',
   'Cenário inicial': 'Starting scenario',
   'Onde você quer olhar?': 'Where would you like to look?',
   'Tudo começa pela leitura.': 'It all starts with a scan.',
@@ -594,7 +582,8 @@ const catalog: Record<string, string> = {
   'Confirmar envio para a Lixeira': 'Confirm sending to Trash',
   'Confirmar exclusão permanente': 'Confirm permanent deletion',
   'Enviar para a Lixeira neste exemplo?': 'Send to Trash in this example?',
-  'Excluir permanentemente neste exemplo?': 'Delete permanently in this example?',
+  'Excluir permanentemente neste exemplo?':
+    'Delete permanently in this example?',
   'Confirmar exemplo': 'Confirm example',
   'Enviar arquivos à Lixeira normalmente preserva a possibilidade de restauração e não libera espaço na mesma unidade. A confirmação nativa do backend ainda será necessária.':
     'Sending files to Trash usually preserves the option to restore them and does not free space on the same volume. Native backend confirmation will still be required.',
@@ -651,12 +640,211 @@ const catalog: Record<string, string> = {
   Etapa: 'Step',
   variação: 'change',
   disponíveis: 'available',
+  // 0.1.9 UX review
+  Limpar: 'Clean',
+  'Revisar itens': 'Review items',
+  Protegidos: 'Protected',
+  'Detalhes técnicos': 'Technical details',
+  'Espaço liberado atribuído à limpeza': 'Freed space attributed to cleanup',
+  'Não atribuído': 'Not attributed',
+  'Programas & Jogos': 'Apps & Games',
+  'Programas e jogos': 'Apps and games',
+  'Encontre, filtre e remova programas com um plano revisável.':
+    'Find, filter and remove apps with a reviewable plan.',
+  'Idioma, aparência e como a análise funciona.':
+    'Language, appearance and how analysis works.',
+  'item parcial disponível.': 'partial item available.',
+  'itens parciais disponíveis.': 'partial items available.',
+  'Nenhuma seleção automática foi mantida.': 'No automatic selection was kept.',
+  'item selecionado': 'item selected',
+  'item exibido': 'item shown',
+  'Nada selecionado em': 'Nothing selected in',
+  'Itens de baixo risco já vêm marcados. Itens para revisar só entram se você marcar.':
+    'Low-risk items come pre-selected. Items that need review are only included if you select them.',
+  'Nenhum item marcado. Marque o que deseja limpar.':
+    'Nothing selected. Select what you want to clean.',
+  'estimativa, sem recuperação medida': 'estimate, no measured recovery',
+  'tamanho estimado': 'estimated size',
+  'Tamanho processado': 'Processed size',
+  'Espaço liberado confirmado': 'Confirmed freed space',
+  'Arquivos no relatório': 'Files in report',
+  'Volume analisado': 'Analyzed volume',
+  'A demonstração só existe em builds de desenvolvimento.':
+    'The demo only exists in development builds.',
+  'no disco': 'on disk',
+  'Enviar itens para a Lixeira?': 'Move items to Trash?',
+  'Excluir itens permanentemente?': 'Delete items permanently?',
+  'Inclui itens marcados por você que exigem revisão: podem pedir novo download ou recompilação.':
+    'Includes items you selected that need review: they may require a new download or rebuild.',
+  'Os arquivos vão para a Lixeira e podem ser restaurados. Na mesma unidade, o espaço só é liberado quando você esvaziar a Lixeira.':
+    'Files go to Trash and can be restored. On the same volume, space is only freed when you empty the Trash.',
+  'A exclusão permanente é irreversível.':
+    'Permanent deletion is irreversible.',
+  'O sistema ainda mostra uma confirmação final antes de alterar arquivos.':
+    'The system still shows a final confirmation before changing files.',
+  Enviar: 'Move',
+  'para a Lixeira': 'to Trash',
+  Excluir: 'Delete',
+  'plano válido por': 'plan valid for',
+  'Item do plano': 'Plan item',
+  estimados: 'estimated',
+  'Algumas áreas ficaram fora da análise': 'Some areas were not analyzed',
+  'entrada não foi examinada.': 'entry was not examined.',
+  'entradas não foram examinadas.': 'entries were not examined.',
+  'Itens incertos continuam protegidos, e a limpeza só altera o que estiver no plano que você confirmar.':
+    'Uncertain items stay protected, and cleanup only changes what is in the plan you confirm.',
+  'Ver caminhos afetados': 'Show affected paths',
+  'e mais': 'and',
+  caminho: 'more path',
+  caminhos: 'more paths',
+  'Protegido pela política de segurança do sistema.':
+    'Protected by the system safety policy.',
+  'Inventário de programas e jogos': 'Apps and games inventory',
+  'Escolha os programas e confirme uma vez. O plano mostra o que sai, inclusive dependências. Indícios de atividade não comprovam desuso.':
+    'Choose apps and confirm once. The plan shows what is removed, including dependencies. Activity hints do not prove an app is unused.',
+  'Consultando fontes…': 'Querying sources…',
+  'Atualizar lista': 'Refresh list',
+  'Listar programas e jogos': 'List apps and games',
+  'Disponível no aplicativo desktop. Nenhum inventário real é carregado nesta visualização web.':
+    'Available in the desktop app. No real inventory is loaded in this web preview.',
+  'Não foi possível listar os programas': 'Could not list apps',
+  'Aguardando o gerenciador de pacotes. Responda à janela do sistema, se aparecer; não repita a operação.':
+    'Waiting for the package manager. Answer the system window if it appears; do not repeat the operation.',
+  'Consultando inventário local…': 'Querying local inventory…',
+  'Fontes consultadas': 'Queried sources',
+  'Buscar programa': 'Search apps',
+  'Buscar por nome, pacote ou versão…': 'Search by name, package or version…',
+  'Filtrar por fonte': 'Filter by source',
+  'Todas as fontes': 'All sources',
+  'Filtrar por proteção': 'Filter by protection',
+  'Qualquer estado': 'Any state',
+  'Somente removíveis': 'Removable only',
+  'Somente protegidos': 'Protected only',
+  'Filtrar por tamanho': 'Filter by size',
+  'Qualquer tamanho': 'Any size',
+  '100 MiB ou mais': '100 MiB or more',
+  '1 GiB ou mais': '1 GiB or more',
+  'Tamanho desconhecido': 'Unknown size',
+  'Ordenar programas': 'Sort apps',
+  'Limpar filtros': 'Clear filters',
+  'Versão desconhecida': 'Unknown version',
+  'Último uso registrado pelo Steam': 'Last use recorded by Steam',
+  'Alteração da pasta de dados Flatpak': 'Flatpak data folder change',
+  confiança: 'confidence',
+  baixa: 'low',
+  média: 'medium',
+  'Abrir no Steam': 'Open in Steam',
+  Desinstalar: 'Uninstall',
+  'Nenhum programa com esses filtros': 'No apps match these filters',
+  'Nenhum programa encontrado': 'No apps found',
+  'Ajuste a busca ou limpe os filtros.':
+    'Adjust the search or clear the filters.',
+  'As fontes consultadas não retornaram programas.':
+    'The queried sources returned no apps.',
+  'Veja o que está instalado': 'See what is installed',
+  'A consulta é somente leitura: APT/RPM, Flatpak, Snap e Steam. Nada é removido sem um plano confirmado.':
+    'The query is read-only: APT/RPM, Flatpak, Snap and Steam. Nothing is removed without a confirmed plan.',
+  programa: 'app',
+  programas: 'apps',
+  'programa selecionado': 'app selected',
+  'programas selecionados': 'apps selected',
+  instalados: 'installed',
+  'Simulando remoção…': 'Simulating removal…',
+  'Abrir desinstalação no Steam?': 'Open uninstall in Steam?',
+  'Confirmar desinstalação': 'Confirm uninstall',
+  'O Steam mostra a própria confirmação e faz a remoção. O Inodune não confirma o resultado.':
+    'Steam shows its own confirmation and performs the removal. Inodune does not confirm the result.',
+  dependência: 'dependency',
+  dependências: 'dependencies',
+  pacote: 'package',
+  pacotes: 'packages',
+  'sem tamanho conhecido': 'without known size',
+  Selecionados: 'Selected',
+  'Dependências que também serão removidas':
+    'Dependencies that will also be removed',
+  'Sem autoremove nem purge. O plano vale por 2 minutos e é conferido de novo antes de executar. O sistema pode pedir sua senha; o Inodune não a recebe.':
+    'No autoremove or purge. The plan is valid for 2 minutes and is checked again before running. The system may ask for your password; Inodune never receives it.',
+  'Identificadores técnicos': 'Technical identifiers',
+  Notas: 'Notes',
+  'medido nesta análise': 'measured in this analysis',
+  capacidade: 'capacity',
+  totais: 'total',
+  'item protegido': 'protected item',
+  candidato: 'candidate',
+  'Nenhum item marcado. Marque itens na lista abaixo.':
+    'Nothing selected. Select items in the list below.',
+  'e outras': 'and others',
+  'nunca entram na limpeza': 'never included in cleanup',
+  pasta: 'folder',
+  pastas: 'folders',
+  'Pastas do sistema sem permissão de leitura':
+    'System folders without read permission',
+  'Pastas do sistema indisponíveis': 'System folders unavailable',
+  'Áreas do sistema protegidas': 'Protected system areas',
+  'Arquivos com hardlinks, preservados': 'Hard-linked files, preserved',
+  'Links simbólicos, não seguidos': 'Symbolic links, not followed',
+  'Entradas que não puderam ser lidas': 'Entries that could not be read',
+  'Pastas sem permissão de acesso': 'Folders without access permission',
+  'Exclusões definidas por você': 'Exclusions you defined',
+  'Credenciais preservadas': 'Credentials preserved',
+  'Arquivos especiais (sockets, dispositivos)':
+    'Special files (sockets, devices)',
+  'Itens de outros usuários': 'Items owned by other users',
+  'Outros volumes ou montagens protegidas': 'Other volumes or protected mounts',
+  'Volumes sem medição': 'Volumes without measurement',
+  'Áreas protegidas da pasta pessoal': 'Protected home areas',
+  'Tabela de montagens ilegível': 'Unreadable mount table',
+  'Limite de áreas analisadas atingido': 'Analyzed area limit reached',
+  'Montagens internas não puderam ser isoladas':
+    'Nested mounts could not be isolated',
+  'Outros motivos de segurança': 'Other safety reasons',
+  'Operação não permitida': 'Operation not permitted',
+  'O arquivo ou a pasta não existe mais': 'The file or folder no longer exists',
+  'Erro de leitura no disco': 'Disk read error',
+  'Permissão negada': 'Permission denied',
+  'Um arquivo está onde se esperava uma pasta':
+    'A file is where a folder was expected',
+  'Uma pasta está onde se esperava um arquivo':
+    'A folder is where a file was expected',
+  'Nome de arquivo longo demais': 'File name too long',
+  'Links simbólicos em excesso': 'Too many symbolic links',
+  'Arquivo de rede desatualizado': 'Stale network file',
+  'Cobertura incompleta': 'Incomplete coverage',
+  'Flatpak (usuário)': 'Flatpak (user)',
+  'Flatpak (sistema)': 'Flatpak (system)',
+  'Autorização não concedida': 'Authorization not granted',
+  'Desinstalação cancelada': 'Uninstall cancelled',
+  'Outros programas dependem desta seleção':
+    'Other apps depend on this selection',
+  'PackageKit indisponível': 'PackageKit unavailable',
+  'Gerenciador de pacotes ocupado': 'Package manager busy',
+  'Pacote protegido': 'Protected package',
+  'O plano expirou ou mudou': 'The plan expired or changed',
+  'Resultado desconhecido': 'Unknown result',
+  'Não foi possível desinstalar': 'Could not uninstall',
+  'SIMULADOR DE ESPAÇO': 'SPACE BUDGET SIMULATOR',
+  'LENTE DE PROJETOS': 'PROJECT LENS',
+  'REGISTRO DE PROTEÇÕES': 'PROTECTION LEDGER',
+  'PROGRAMAS INSTALADOS': 'INSTALLED APPS',
+  PREFERÊNCIAS: 'PREFERENCES',
+  HISTÓRICO: 'HISTORY',
+  RELATÓRIO: 'REPORT',
+  'REVISÃO DE ITENS': 'ITEM REVIEW',
+  'Transação concluída pelo gerenciador de pacotes.':
+    'Transaction completed by the package manager.',
+  'Confirmação aberta no Steam. O inodune não confirma a remoção.':
+    'Confirmation opened in Steam. Inodune does not confirm the removal.',
+  arquivo: 'file',
+  processados: 'processed',
+  selecionado: 'selected',
 };
 
 export const language = $state<{ value: Locale }>({ value: 'pt-BR' });
 
 export function t(text: string): string {
-  return language.value === 'en-US' ? (catalog[text] ?? text) : text;
+  return language.value === 'en-US'
+    ? (catalog[text] ?? demoCatalog[text] ?? text)
+    : text;
 }
 
 export function formatNumber(

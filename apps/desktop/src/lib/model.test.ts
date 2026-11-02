@@ -156,3 +156,39 @@ it('overview preselects only low risk eligible items', () => {
   };
   expect(selectOverviewDefaults([low, review])).toEqual([low.id]);
 });
+
+it('local overview preselection only takes eligible low-risk items', () => {
+  const base = demo.candidates[0];
+  const eligible = {
+    ...base,
+    id: 'a',
+    risk: 'low' as const,
+    supported_action: 'cache_contents' as const,
+  };
+  const unsupported = {
+    ...base,
+    id: 'b',
+    risk: 'low' as const,
+    selected_by_default: true,
+    supported_action: 'none' as const,
+  };
+  const reviewed = {
+    ...base,
+    id: 'c',
+    risk: 'review' as const,
+    supported_action: 'reviewed_cache_contents' as const,
+  };
+  const locked = {
+    ...base,
+    id: 'd',
+    risk: 'protected' as const,
+    supported_action: 'none' as const,
+  };
+  const careful = { ...eligible, id: 'e', detector_id: 'node.modules' };
+  expect(
+    selectOverviewDefaults(
+      [eligible, unsupported, reviewed, locked, careful],
+      true,
+    ),
+  ).toEqual(['a']);
+});

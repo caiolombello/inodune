@@ -57,12 +57,22 @@ test('simula antes de confirmar e envia somente o ID do plano na execução', as
     .getByRole('button', { name: 'Listar programas e jogos', exact: true })
     .click();
   await page
-    .getByRole('button', { name: 'Desinstalar', exact: true })
+    .getByRole('button', {
+      name: 'Desinstalar Ferramenta de teste',
+      exact: true,
+    })
     .click();
   const dialog = page.getByRole('heading', { name: 'Confirmar desinstalação' });
   await expect(dialog).toBeVisible();
+  // G2: friendly name and version are the main text; the raw id is folded away.
+  const plan = page.getByRole('dialog', { name: 'Confirmar desinstalação' });
+  await expect(plan.getByText('vendor-tool', { exact: true })).toBeVisible();
   await expect(
-    page.getByText('vendor-tool;1;amd64;installed · 1', { exact: true }),
+    plan.getByText('vendor-tool;1;amd64;installed', { exact: true }),
+  ).toBeHidden();
+  await plan.getByText('Identificadores técnicos').click();
+  await expect(
+    plan.getByText('vendor-tool;1;amd64;installed', { exact: true }),
   ).toBeVisible();
   const before = await page.evaluate(
     () =>
@@ -73,9 +83,7 @@ test('simula antes de confirmar e envia somente o ID do plano na execução', as
       ).__uninstallCalls,
   );
   expect(before.some((call) => call.cmd === 'uninstall_execute')).toBe(false);
-  await page
-    .getByRole('button', { name: 'Confirmar desinstalação', exact: true })
-    .click();
+  await plan.getByRole('button', { name: 'Desinstalar 1 pacote' }).click();
   await expect(
     page.getByText('Transação concluída pelo gerenciador de pacotes.'),
   ).toBeVisible();

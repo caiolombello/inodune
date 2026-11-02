@@ -1,6 +1,7 @@
 <script lang="ts">
   import { language, t } from './i18n.svelte';
   import type { CleanupFileResult } from './backend';
+  import { displayPath } from './present';
 
   type Action = 'trash' | 'permanent';
   let {
@@ -19,7 +20,9 @@
 
   let copyState = $state<'idle' | 'copied' | 'failed'>('idle');
   const en = $derived(language.value === 'en-US');
-  const recoveryPath = $derived(file?.preserved_at ?? file?.display_path ?? '');
+  const recoveryPath = $derived(
+    displayPath(file?.preserved_at ?? file?.display_path ?? ''),
+  );
   const needsAttention = $derived(
     cancelled ||
       complete === false ||

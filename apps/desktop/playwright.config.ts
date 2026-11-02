@@ -8,7 +8,8 @@ export default defineConfig({
     trace: 'retain-on-failure',
   },
   webServer: {
-    command: 'npm run preview',
+    // Demo-enabled build in a separate folder; release `dist` stays demo-free.
+    command: 'npm run build:e2e && npm run preview:e2e',
     url: 'http://127.0.0.1:1420',
     reuseExistingServer: false,
   },

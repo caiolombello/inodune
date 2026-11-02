@@ -137,6 +137,7 @@ test('history presents persisted reports and exports only after explicit selecti
   await expect(page.locator('.entries button')).toHaveCount(2);
 
   await page.getByRole('button', { name: /Lixeira · Concluído/ }).click();
+  await page.getByText('Detalhes técnicos').click();
   await expect(page.getByText('plan-fixture-a')).toBeVisible();
   await expect(
     page.getByText('/tmp/inodune-test/projects/app/__pycache__/module.pyc'),

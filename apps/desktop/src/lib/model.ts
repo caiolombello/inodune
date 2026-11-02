@@ -1,4 +1,4 @@
-import corpus from '../../../../tests/fixtures/demo.json';
+import demoCorpus from 'virtual:inodune-demo';
 import { language } from './i18n.svelte';
 export type Risk = 'low' | 'review' | 'protected';
 export type Policy = 'trash' | 'permanent';
@@ -42,18 +42,11 @@ export interface Inventory {
   volume: { label: string; total_bytes: number; used_bytes: number };
   candidates: Candidate[];
 }
-// One checked fixture for both Rust and TS. Not an external-input parser or real detector.
-if (
-  corpus.mode !== 'simulation' ||
-  corpus.candidates.some(
-    (c) =>
-      !['low', 'review', 'protected'].includes(c.risk) ||
-      c.supported_action !== 'none' ||
-      !c.display_path.startsWith('/demo/'),
-  )
-)
-  throw new Error('Invalid demo corpus');
-export const demo = corpus as Inventory;
+// Dev/test builds resolve the demo corpus (validated there); release builds get an empty one.
+const corpus = demoCorpus as Inventory;
+export const demo = corpus;
+/** Demonstração só existe em builds de desenvolvimento/teste. */
+export const demoAvailable = demo.candidates.length > 0;
 export const riskLabel: Record<Risk, string> = {
   low: 'Baixo risco',
   review: 'Revisar',
@@ -167,12 +160,17 @@ export function isCarefulItem(item: Candidate): boolean {
     (reason.includes('referenciad') || reason.includes('terraform init'))
   );
 }
-export function selectOverviewDefaults(items: Candidate[]): string[] {
+/** Pré-seleção da Visão geral: somente risco baixo, nunca review/protegido. */
+export function selectOverviewDefaults(
+  items: Candidate[],
+  local = false,
+): string[] {
   return items
     .filter((item) => {
       if (item.risk !== 'low' || isCarefulItem(item)) return false;
       if (isLocallyEligible(item)) return true;
-      return item.risk === 'low' && item.selected_by_default;
+      // Local plans only accept supported actions; demo keeps the fixture flag.
+      return !local && item.selected_by_default;
     })
     .map((item) => item.id);
 }

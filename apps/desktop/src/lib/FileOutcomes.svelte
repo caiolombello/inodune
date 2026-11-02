@@ -2,6 +2,8 @@
   import { t, formatNumber } from './i18n.svelte';
   import type { CleanupFileResult } from './backend';
   import RecoveryGuide from './RecoveryGuide.svelte';
+  import { formatBytes } from './model';
+  import { displayPath, systemMessage } from './present';
 
   let { files }: { files: CleanupFileResult[] } = $props();
   let page = $state(0);
@@ -27,14 +29,15 @@
         <article class="row">
           <div class="row-top">
             <strong>{t(statusLabel[file.status] ?? file.status)}</strong><span
-              >{formatNumber(file.logical_bytes)} {t('bytes lógicos')}</span
+              >{formatBytes(file.logical_bytes)}</span
             >
           </div>
-          <code class="path">{file.display_path}</code>
-          <p>{t(file.message ?? 'Sem mensagem registrada.')}</p>
+          <code class="path">{displayPath(file.display_path)}</code>
+          {#if file.message}<p>{systemMessage(file.message)}</p>{/if}
           <RecoveryGuide action={null} {file} />
           {#if file.preserved_at && file.status !== 'quarantined'}<p>
-              {t('Preservado em')}: <code>{file.preserved_at}</code>
+              {t('Preservado em')}:
+              <code>{displayPath(file.preserved_at)}</code>
             </p>{/if}
           <small
             >{t('Durabilidade confirmada')}: {'durability_confirmed' in file &&

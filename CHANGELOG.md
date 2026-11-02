@@ -2,6 +2,50 @@
 
 ## 0.1.9
 
+### UX
+
+- Overview: low-risk, supported items come pre-selected after every non-cancelled
+  automatic scan (review and protected items never are). The clean button shows the
+  selected count and size ("Limpar 41 itens · 183,7 MiB") and is disabled with an
+  in-place hint when nothing is selected; no more alert that shifts the layout.
+- Cleanup confirmation is a focused modal with per-category totals instead of a block
+  pushed below the list. Plan hash and snapshot id are no longer shown.
+- Coverage notice: internal keys (`structural_denied`, `system_protected`, `hardlink`…)
+  become Portuguese phrases, equivalent keys are merged, OS errors such as
+  "Not a directory (os error 20)" are translated and grouped with sample paths. The
+  notice appears only on the Overview (not on Settings or every page).
+- Displayed paths drop redundant `/./` segments (lists, dialogs, report, History).
+- Review list groups repeated detections (e.g. 40 × "Bytecode Python" in one row with a
+  tri-state checkbox) and shows path and reason for protected rows.
+- Report and History: sizes in KiB/MiB/GiB, correct singular/plural, volumes named by
+  mount point instead of "Dispositivo 42", deduplicated and translated warnings, plan id
+  moved to "Detalhes técnicos".
+- Apps & Games: search, source/protection/size filters, sort and an "N de M" counter;
+  protected rows show their reason inline. Uninstall confirmation is a focused modal with
+  friendly name, version, dependencies removed with it, package count and installed size;
+  raw PackageKit ids sit in a collapsed "Identificadores técnicos". Errors use alert
+  styling with specific titles (polkit denied/cancelled, dependents, PackageKit
+  unavailable or busy, protected package).
+- PackageKit `ErrorCode` is mapped to specific messages (codes checked against
+  PackageKitGlib) and is no longer overwritten by the generic `Finished` failure. The
+  native dialog shows the same readable plan.
+- Review items that can be cleaned after explicit selection no longer say "Inventário não
+  autoriza remoção"; the duplicated "Cobertura incompleta (cobertura incompleta)" is gone.
+  No protection was relaxed.
+- Portuguese labels replace "SPACE BUDGET SIMULATOR", "PROJECT LENS" and
+  "PROTECTION LEDGER" (English names remain in en-US).
+- The demo corpus and demo-only UI ("Protótipo navegável", fictitious volume) are only in
+  development/test builds; `vite build` resolves an empty corpus. Playwright builds a
+  separate `dist-e2e` with `INODUNE_DEMO=1`.
+- CLI: help cites `inodune-cli`, `clean --demo` works without `--dry-run`, volume changes
+  print as `−32 KiB` instead of `Some(-32768)`, `apps list` prints readable sizes, and
+  `apps uninstall` shows packages, dependencies and size before asking for
+  `UNINSTALL N`.
+- Debian package: Maintainer with a public contact, `Section: utils`, `Homepage`,
+  `Depends: libc6 (>= 2.34), libgcc-s1`, a Debian changelog and a DEP-5 copyright file
+  (lintian: malformed-contact, missing-dependency-on-libc, no-changelog,
+  no-copyright-file).
+
 ### Backend
 
 - Deduplicate identical PackageKit Resolve IDs; distinct identities remain ambiguous.

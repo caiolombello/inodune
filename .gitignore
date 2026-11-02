@@ -1,6 +1,7 @@
 node_modules/
 target/
 **/dist/
+**/dist-e2e/
 .tools/
 .ui-qa/
 playwright-report/
