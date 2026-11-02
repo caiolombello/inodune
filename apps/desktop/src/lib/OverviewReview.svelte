@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { ChevronRight, LockKeyhole } from '@lucide/svelte';
+  import { ChevronDown, ChevronRight, LockKeyhole } from '@lucide/svelte';
   import { formatBytes, isCarefulItem, type Candidate } from './model';
   import { formatNumber, t } from './i18n.svelte';
   import { countLabel, displayPath, tidyReason } from './present';
@@ -21,6 +21,13 @@
   } = $props();
 
   const picked = $derived(new Set(selected));
+  // Grouped rows (e.g. several node_modules) expand to list each folder.
+  let expanded = $state<string[]>([]);
+  function toggleGroup(key: string) {
+    expanded = expanded.includes(key)
+      ? expanded.filter((k) => k !== key)
+      : [...expanded, key];
+  }
   type Group = { key: string; title: string; items: Candidate[] };
   // Repeated detections (40 × "Bytecode Python") collapse into one row.
   function groupsOf(items: Candidate[]): Group[] {
@@ -52,7 +59,7 @@
   const protectedItems = $derived(
     candidates.filter((c) => c.risk === 'protected'),
   );
-  function state(items: Candidate[]) {
+  function groupState(items: Candidate[]) {
     const eligible = items.filter(isSelectable);
     const on = eligible.filter((item) => picked.has(item.id)).length;
     return {
@@ -74,7 +81,7 @@
 
 <div class="overview-review">
   {#each categories as cat (cat.category)}
-    {@const catState = state(cat.items)}
+    {@const catState = groupState(cat.items)}
     <section class="review-category">
       <header>
         <h3>{t(cat.category)}</h3>
@@ -95,7 +102,7 @@
       </header>
       <ul>
         {#each cat.groups as group (group.key)}
-          {@const g = state(group.items)}
+          {@const g = groupState(group.items)}
           {@const first = group.items[0]}
           <li class="review-row" class:selected={g.on > 0}>
             <label>
@@ -136,7 +143,33 @@
                 aria-label={t('Por que apareceu:') + ' ' + t(first.title)}
                 onclick={() => ondetail(first)}
                 ><ChevronRight size={16} /></button
-              >{:else}<span></span>{/if}
+              >{:else}<button
+                class="icon-button"
+                aria-expanded={expanded.includes(group.key)}
+                aria-label={`${t(expanded.includes(group.key) ? 'Ocultar pastas de' : 'Mostrar pastas de')} ${t(group.title)}`}
+                onclick={() => toggleGroup(group.key)}
+                ><ChevronDown
+                  size={16}
+                  class={expanded.includes(group.key) ? 'flipped' : ''}
+                /></button
+              >{/if}
+            {#if group.items.length > 1 && expanded.includes(group.key)}<ul
+                class="group-paths"
+                aria-label={`${t('Pastas de')} ${t(group.title)}`}
+              >
+                {#each group.items as item (item.id)}<li>
+                    <code>{displayPath(item.display_path)}</code>
+                    <span>{formatBytes(item.logical_bytes)}</span>
+                    <button
+                      class="icon-button"
+                      aria-label={t('Por que apareceu:') +
+                        ' ' +
+                        displayPath(item.display_path)}
+                      onclick={() => ondetail(item)}
+                      ><ChevronRight size={14} /></button
+                    >
+                  </li>{/each}
+              </ul>{/if}
           </li>
         {/each}
       </ul>
@@ -250,6 +283,30 @@
     text-overflow: ellipsis;
     white-space: nowrap;
     min-width: 0;
+  }
+  .group-paths {
+    grid-column: 1 / -1;
+    list-style: none;
+    margin: 0 0 4px 28px;
+    padding: 0;
+    font-size: 12px;
+  }
+  .group-paths li {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 6.5rem 28px;
+    gap: 12px;
+    align-items: center;
+  }
+  .group-paths code {
+    overflow-wrap: anywhere;
+    color: var(--secondary-text);
+  }
+  .group-paths span {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+  }
+  .review-row :global(.flipped) {
+    transform: rotate(180deg);
   }
   .row-size {
     text-align: right;

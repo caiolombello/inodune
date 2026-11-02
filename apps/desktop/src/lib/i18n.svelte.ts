@@ -641,6 +641,9 @@ const catalog: Record<string, string> = {
   variação: 'change',
   disponíveis: 'available',
   // 0.1.9 UX review
+  'Mostrar pastas de': 'Show folders of',
+  'Ocultar pastas de': 'Hide folders of',
+  'Pastas de': 'Folders of',
   'Entrada em outro sistema de arquivos (ponto de montagem); não examinada':
     'Entry on another file system (mount point); not examined',
   'Recurso ocupado': 'Resource busy',
