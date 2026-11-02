@@ -239,12 +239,9 @@ pub fn credential_bytes(path: &Path, bytes: &[u8]) -> bool {
     let typescript = typescript_file(path);
     if text.lines().any(|line| {
         assignment(line).is_some_and(|(key, value)| {
-            let raw = value;
+            let declared_type = typescript && type_annotation(line, value);
             let value = clean_value(value);
-            strict_key(key)
-                && !placeholder(value)
-                && !code_expression(value)
-                && !(typescript && type_annotation(line, raw))
+            strict_key(key) && !placeholder(value) && !code_expression(value) && !declared_type
         })
     }) {
         return true;
