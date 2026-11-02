@@ -558,6 +558,9 @@ fn uninstall_apps(args: &[&str]) -> Result<(String, bool), String> {
     if ids.is_empty() {
         return Err("Informe ao menos um ID. Uso: inodune apps uninstall ID... [--yes]".into());
     }
+    if std::env::var("INODUNE_CONTAINER_DPKG").ok().as_deref() == Some("1") {
+        return dpkg_direct(&ids);
+    }
     let inventory = inodune_apps::inventory()?;
     let mut grouped: std::collections::BTreeMap<inodune_apps::Source, Vec<String>> =
         std::collections::BTreeMap::new();
@@ -572,9 +575,6 @@ fn uninstall_apps(args: &[&str]) -> Result<(String, bool), String> {
             return Err(format!("Pacote bloqueado: {id}"));
         }
         grouped.entry(item.source).or_default().push(id.clone());
-    }
-    if std::env::var("INODUNE_CONTAINER_DPKG").ok().as_deref() == Some("1") {
-        return dpkg_direct(&ids);
     }
     if !yes {
         let stdin = std::io::stdin();
