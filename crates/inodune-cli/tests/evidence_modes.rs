@@ -65,4 +65,11 @@ fn world_writable_cargo_toml_is_still_refused() {
     let output = clean(temp.path());
     assert_ne!(output.status.code(), Some(0));
     assert!(artifact.exists());
+    // The refusal names a file (not "Pasta") and its path.
+    let text = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        text.contains("Arquivo gravável por qualquer usuário"),
+        "{text}"
+    );
+    assert!(text.contains("projects/rsproj/Cargo.toml"), "{text}");
 }

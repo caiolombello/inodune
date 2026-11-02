@@ -72,6 +72,31 @@ pub fn describe_write_refusal(refusal: WriteRefusal) -> &'static str {
     }
 }
 
+/// Same refusal, naming whether it is a file or a folder and where it is.
+pub fn describe_write_refusal_at(
+    refusal: WriteRefusal,
+    directory: bool,
+    path: &std::path::Path,
+) -> String {
+    let (kind, of_kind) = if directory {
+        ("Pasta", "da pasta")
+    } else {
+        ("Arquivo", "do arquivo")
+    };
+    let what = match refusal {
+        WriteRefusal::OtherWrite => format!("{kind} gravável por qualquer usuário no sistema"),
+        WriteRefusal::SharedGroupWrite => format!("{kind} gravável por outros membros do grupo"),
+        WriteRefusal::GroupLookupFailed => {
+            format!("Grupo {of_kind} não pôde ser confirmado como exclusivo do usuário")
+        }
+        WriteRefusal::UnexpectedOwner => format!("{kind} pertence a outro usuário"),
+    };
+    format!(
+        "{what}: {}; limpeza recusada sem alterar permissões.",
+        crate::scan::tidy_display_path(&path.to_string_lossy())
+    )
+}
+
 pub fn stat_write_allowed(
     role: WriteRole,
     owner_uid: u32,
@@ -275,6 +300,28 @@ unsafe fn lookup_census(gid: u32) -> Result<GroupCensus, GroupLookupError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn refusal_text_names_file_or_folder_and_the_path() {
+        let file = describe_write_refusal_at(
+            WriteRefusal::OtherWrite,
+            false,
+            std::path::Path::new("/p/./rs/Cargo.toml"),
+        );
+        assert_eq!(
+            file,
+            "Arquivo gravável por qualquer usuário no sistema: /p/rs/Cargo.toml; limpeza recusada sem alterar permissões."
+        );
+        let dir = describe_write_refusal_at(
+            WriteRefusal::GroupLookupFailed,
+            true,
+            std::path::Path::new("/p/cache"),
+        );
+        assert!(
+            dir.starts_with("Grupo da pasta não pôde") && dir.contains("/p/cache"),
+            "{dir}"
+        );
+    }
 
     #[test]
     fn evidence_accepts_group_write_only_for_the_users_private_group() {

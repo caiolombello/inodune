@@ -48,7 +48,11 @@ pub fn cleanup_ancestors_allowed(root: &ApprovedRoot, relative: &Path) -> Result
             st.st_mode,
             &groups,
         ) {
-            return Err(crate::access::describe_write_refusal(refusal).into());
+            return Err(crate::access::describe_write_refusal_at(
+                refusal,
+                true,
+                &root.path.join(rel),
+            ));
         }
         current = rel.parent().filter(|p| !p.as_os_str().is_empty());
     }
@@ -60,7 +64,9 @@ pub fn cleanup_ancestors_allowed(root: &ApprovedRoot, relative: &Path) -> Result
         st.st_mode,
         &groups,
     ) {
-        return Err(crate::access::describe_write_refusal(refusal).into());
+        return Err(crate::access::describe_write_refusal_at(
+            refusal, true, &root.path,
+        ));
     }
     Ok(())
 }

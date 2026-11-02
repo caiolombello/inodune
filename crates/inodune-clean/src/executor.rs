@@ -627,8 +627,12 @@ fn validate_witnesses(target: &ScannedTarget) -> Result<(), String> {
             &inodune_core::access::SystemGroups,
         ) {
             return Err(format!(
-                "Evidência gravável por terceiros; limpeza recusada sem alterar permissões. {}",
-                inodune_core::access::describe_write_refusal(refusal)
+                "Evidência recusada. {}",
+                inodune_core::access::describe_write_refusal_at(
+                    refusal,
+                    FileType::from_raw_mode(stat.st_mode) == FileType::Directory,
+                    &target.root.path().join(path),
+                )
             ));
         }
         if Fingerprint::from_stat(&stat) != *expected {
@@ -1017,7 +1021,7 @@ fn process_file(
     ) {
         return fail(&format!(
             "Formato, fonte ou permissões do cache mudaram; preservado. {}",
-            inodune_core::access::describe_write_refusal(refusal)
+            inodune_core::access::describe_write_refusal_at(refusal, false, &original)
         ));
     }
     if !valid {
