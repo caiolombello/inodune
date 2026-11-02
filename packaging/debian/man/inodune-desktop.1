@@ -1,13 +1,31 @@
-.TH INODUNE\-DESKTOP 1 "2026-11-02" "inodune 0.1.11" "User Commands"
-.SH NAME
-inodune\-desktop \- Inodune desktop app: review and clean local caches
-.SH SYNOPSIS
+.TH INODUNE\-DESKTOP 1 "2026-11-02" "inodune 0.1.12" "Comandos do usuário"
+.SH NOME
+inodune\-desktop \- revisar e limpar caches locais com segurança
+.SH SINOPSE
 .B inodune\-desktop
-
-.SH DESCRIPTION
-Opens the Inodune desktop application. It analyzes local caches read-only,
-explains each item, keeps credentials, sessions, Git and Terraform state
-protected, and only cleans after explicit confirmation. Files go to the Trash
-by default. No account, telemetry or administrative permission is used.
-.SH SEE ALSO
+.SH DESCRIÇÃO
+Abre o aplicativo gráfico do Inodune. A análise é somente leitura e explica cada
+item. Credenciais, sessões de agentes, repositórios Git e estado do Terraform
+ficam protegidos. Nada é limpo sem confirmação; por padrão os arquivos vão para a
+Lixeira. Não há conta, telemetria nem permissão administrativa.
+.SH AMBIENTE
+.TP
+.B WEBKIT_DISABLE_DMABUF_RENDERER
+Se não estiver definida, o aplicativo usa 1 (evita falhas sem DRI3).
+Defina 0 para voltar ao renderizador DMA\-BUF do WebKit.
+.SH ARQUIVOS
+.TP
+.I ~/.local/share/Trash/
+Lixeira do usuário (padrão XDG), destino padrão da limpeza.
+.TP
+.I ~/.local/state/inodune/reports/
+Relatórios e journals locais de cada limpeza (modo 0600).
+.TP
+.I ~/.config/inodune/
+Escopos aprovados e exclusões da interface gráfica.
+.SH VEJA TAMBÉM
+.BR inodune\-desktop (1),
+.BR inodune\-cli (1),
+.BR inodune\-uninstall\-helper (1)
+.PP
 https://github.com/caiolombello/inodune

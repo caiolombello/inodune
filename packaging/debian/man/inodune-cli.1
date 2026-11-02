@@ -1,14 +1,81 @@
-.TH INODUNE\-CLI 1 "2026-11-02" "inodune 0.1.11" "User Commands"
-.SH NAME
-inodune\-cli \- Inodune command line: scan and clean local caches
-.SH SYNOPSIS
-.B inodune\-cli
-[\fIoptions\fR]
-.SH DESCRIPTION
-Read-only scan with \fBscan\fR, cleanup plans with \fBclean\fR
-(\fB\-\-dry\-run\fR, \fB\-\-safe\fR, \fB\-\-review\fR \fIdetector\fR,
-\fB\-\-permanent\fR, \fB\-\-yes\fR) and the installed software inventory with
-\fBapps list\fR. Run \fBinodune\-cli \-\-help\fR for every option. Exit 2 means
-error; exit 3 means partial coverage or partial execution.
-.SH SEE ALSO
+.TH INODUNE\-CLI 1 "2026-11-02" "inodune 0.1.12" "Comandos do usuário"
+.SH NOME
+inodune\-cli \- analisar e limpar caches locais pela linha de comando
+.SH SINOPSE
+.B inodune\-cli scan
+.RB [ \-\-auto | \-\-root
+.IR CAMINHO ...]
+.RB [ \-\-json ]
+.br
+.B inodune\-cli clean \-\-root
+.IR CAMINHO ...
+.RB [ \-\-dry\-run ]
+.RB [ \-\-safe | \-\-review
+.IR DETECTOR ]
+.RB [ \-\-permanent ]
+.RB [ \-\-yes ]
+.RB [ \-\-json ]
+.br
+.B inodune\-cli apps list
+.RB [ \-\-json ]
+.br
+.B inodune\-cli apps uninstall
+.IR ID ...
+.RB [ \-\-yes ]
+.SH DESCRIÇÃO
+.B scan
+faz uma análise somente leitura.
+.B clean
+monta um plano, mostra o que será alterado e só executa após confirmação;
+qualquer análise incompleta ou cancelada recusa o plano e lista os motivos.
+.B apps
+lista programas instalados e desinstala com um plano revisável.
+.SH OPÇÕES
+.TP
+.BI \-\-root " CAMINHO"
+Raiz absoluta a analisar (até 32).
+.TP
+.B \-\-auto
+Descobre automaticamente a pasta pessoal e os volumes locais.
+.TP
+.BI \-\-exclude " RELATIVO"
+Exclui um caminho relativo literal da raiz.
+.TP
+.B \-\-dry\-run
+Só mostra o plano; nada é alterado.
+.TP
+.B \-\-safe
+Seleciona apenas caches de baixo risco.
+.TP
+.BI \-\-review " DETECTOR"
+Seleciona todos os candidatos revisáveis de um detector (por exemplo
+.BR node.modules ,
+.BR python.pip\-cache ,
+.BR rust.target ).
+.TP
+.B \-\-permanent
+Exclui sem passar pela Lixeira (irreversível).
+.TP
+.B \-\-yes
+Não pergunta antes de executar.
+.TP
+.B \-\-json
+Saída em JSON.
+.SH STATUS DE SAÍDA
+0 em sucesso; 2 em erro; 3 com cobertura ou execução parcial.
+.SH ARQUIVOS
+.TP
+.I ~/.local/share/Trash/
+Lixeira do usuário (padrão XDG), destino padrão da limpeza.
+.TP
+.I ~/.local/state/inodune/reports/
+Relatórios e journals locais de cada limpeza (modo 0600).
+.TP
+.I ~/.config/inodune/
+Escopos aprovados e exclusões da interface gráfica.
+.SH VEJA TAMBÉM
+.BR inodune\-desktop (1),
+.BR inodune\-cli (1),
+.BR inodune\-uninstall\-helper (1)
+.PP
 https://github.com/caiolombello/inodune
