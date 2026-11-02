@@ -418,7 +418,7 @@ fn execute_inner(
                             let path = target.root.path().join(relative);
                             if journal_error.is_none() {
                                 if let Ok(j) = &mut journal {
-                                    if let Err(e)=j.record(&serde_json::json!({"phase":"intent","path":path,"candidate_id":item.candidate_id})){journal_error=Some(e);}
+                                    if let Err(e)=j.record(&serde_json::json!({"phase":"intent","path":inodune_core::scan::tidy_path(&path),"candidate_id":item.candidate_id})){journal_error=Some(e);}
                                 }
                             }
                             let result = if let Some(e) = &journal_error {
@@ -1164,7 +1164,7 @@ fn process_file(
         Ok(s) => s,
         Err(e) => return fail(&e),
     };
-    if let Err(e)=journal.record(&serde_json::json!({"phase":"capture_intent","original":original,"recovery_path":stage.path.join(&captured),"fingerprint":expected})) {return fail(&format!("Journal não sincronizado: {e}"));}
+    if let Err(e)=journal.record(&serde_json::json!({"phase":"capture_intent","original":inodune_core::scan::tidy_path(&original),"recovery_path":inodune_core::scan::tidy_path(&stage.path.join(&captured)),"fingerprint":expected})) {return fail(&format!("Journal não sincronizado: {e}"));}
     if let Err(e) = fs::renameat_with(&parent, name, &stage.fd, &captured, RenameFlags::NOREPLACE) {
         return fail(&format!("Captura recusada: {e}"));
     }
