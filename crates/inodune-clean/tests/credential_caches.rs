@@ -216,6 +216,15 @@ fn credential_written_after_scan_is_skipped_in_both_modes() {
             |_| {},
         );
         assert_eq!(fs::read(&late).unwrap(), bait, "{action:?}");
+        // Refused and processed lines and warnings are shown without "/./".
+        for file in report.items.iter().flat_map(|item| &item.files) {
+            assert!(!file.display_path.contains("/./"), "{}", file.display_path);
+        }
+        assert!(
+            report.warnings.iter().all(|w| !w.contains("/./")),
+            "{:?}",
+            report.warnings
+        );
         let files = &report.items[0].files;
         let late_outcome = files
             .iter()

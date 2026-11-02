@@ -443,7 +443,7 @@ fn execute_inner(
                         match remaining_cache_entries(target) {
                             Ok(true) => {
                                 item.complete = false;
-                                report.warnings.push(format!("Conteúdo novo ou remanescente preservado em {}. Refaça a análise.",target.root.path().join(&target.relative).display()));
+                                report.warnings.push(format!("Conteúdo novo ou remanescente preservado em {}. Refaça a análise.",inodune_core::scan::tidy_display_path(&target.root.path().join(&target.relative).to_string_lossy())));
                             }
                             Err(e) => {
                                 item.complete = false;
@@ -1189,7 +1189,8 @@ fn outcome(
     preserved_at: Option<String>,
 ) -> FileOutcome {
     FileOutcome {
-        display_path: path.to_string_lossy().into(),
+        // Display only: no `.` components ("/a/./b" -> "/a/b").
+        display_path: inodune_core::scan::tidy_display_path(&path.to_string_lossy()),
         status,
         logical_bytes,
         message: inodune_core::scan::os_error_pt(message),
