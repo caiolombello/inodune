@@ -89,10 +89,10 @@ test('inventory is opt-in, read-only and exposes partial sources and signal conf
   await expect(
     inventory.getByText('Fonte de sistema indisponível'),
   ).toBeVisible();
-  await expect(inventory.getByRole('checkbox')).toHaveCount(0);
+  await expect(inventory.getByRole('checkbox')).toHaveCount(1);
   await expect(
-    inventory.getByRole('button', { name: /remover|desinstalar|limpar/i }),
-  ).toHaveCount(0);
+    inventory.getByRole('button', { name: 'Desinstalar', exact: true }),
+  ).toHaveCount(2);
   expect(
     await page.evaluate(
       () => (window as unknown as { __appsCalls: string[] }).__appsCalls,

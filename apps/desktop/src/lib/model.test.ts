@@ -109,10 +109,10 @@ describe('conservative simulation policy', () => {
   });
   it('labels a protected-only card as occupied space that cannot be reclaimed', () => {
     expect(protectedOnlyLabel(2, '12 KiB')).toBe(
-      '2 itens protegidos · 12 KiB ocupados (não recuperável)',
+      '2 itens protegidos · 12 KiB ocupados',
     );
     expect(protectedOnlyLabel(1, '0 B')).toBe(
-      '1 item protegido · 0 B ocupados (não recuperável)',
+      '1 item protegido · 0 B ocupados',
     );
   });
   it('splits a selection above the plan limit into ordered batches and warns', () => {

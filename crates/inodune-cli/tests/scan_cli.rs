@@ -33,7 +33,7 @@ fn json_scan_is_real_read_only_and_partial_exit_is_not_hidden() {
 }
 
 #[test]
-fn clean_defaults_to_dry_run_and_never_touches_the_fixture() {
+fn clean_dry_run_is_explicit_and_noninteractive_apply_does_not_touch_the_fixture() {
     let root = tempfile::tempdir().unwrap();
     let project = root.path().join("project");
     fs::create_dir(&project).unwrap();
@@ -57,7 +57,7 @@ fn clean_defaults_to_dry_run_and_never_touches_the_fixture() {
     assert_eq!(scan["candidates"][0]["risk"], "low", "{scan}");
 
     let output = Command::new(env!("CARGO_BIN_EXE_inodune-cli"))
-        .args(["clean", "--json", "--root"])
+        .args(["clean", "--dry-run", "--json", "--root"])
         .arg(root.path())
         .output()
         .unwrap();

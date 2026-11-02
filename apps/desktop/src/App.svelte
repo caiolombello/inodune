@@ -56,8 +56,8 @@
     demo,
     formatBytes,
     formatSignedBytes,
-    selectDefaults,
-    selectLocalDefaults,
+    selectOverviewDefaults,
+    isCarefulItem,
     isLocallyEligible,
     toggleSelection,
     simulateBudget,
@@ -160,6 +160,7 @@
   let sort = $state('size');
   let detail = $state<Candidate | null>(null);
   let confirmation = $state(false);
+  let homeConfirm = $state(false);
   let consent = $state(false);
   let policy = $state<Policy>('trash');
   let theme = $state('system');
@@ -427,7 +428,7 @@
       scanTimer = setTimeout(emitScan, 220);
     } else {
       scanState = 'complete';
-      selected = selectDefaults(candidates);
+      selected = selectOverviewDefaults(candidates);
       sound.play('ready');
     }
   }
@@ -501,9 +502,7 @@
         if (!result.result.cancelled)
           sound.play(result.result.complete ? 'ready' : 'attention');
         selected = result.result.complete
-          ? source === 'local'
-            ? selectLocalDefaults(candidates)
-            : selectDefaults(candidates)
+          ? selectOverviewDefaults(candidates)
           : [];
         return;
       }
@@ -559,6 +558,37 @@
     clearTimeout(scanTimer);
     scanState = 'cancelled';
     selected = [];
+  }
+  function askClean(ids: string[]) {
+    if (
+      !ids.length ||
+      scanBusy ||
+      executing ||
+      preparingCleanup ||
+      localScanStale
+    )
+      return;
+    selected = ids;
+    homeConfirm = true;
+  }
+  async function confirmOverviewClean() {
+    homeConfirm = false;
+    if (source === 'local') {
+      await prepareLocalCleanup();
+      if (!cleanupPlan) return;
+      consent = true;
+      await beginLocalCleanup();
+      return;
+    }
+    outcomes = selected.map((id) => {
+      const item = candidates.find((candidate) => candidate.id === id);
+      return { id, title: item?.title ?? id, outcome: 'pending' as Outcome };
+    });
+    page = 'report';
+    executing = true;
+    executionIndex = 0;
+    reportAvailable = true;
+    processItem();
   }
   function toggle(item: Candidate) {
     if (source === 'local' && !isLocallyEligible(item)) return;
@@ -869,7 +899,7 @@
         <strong
           >{t(
             page === 'apps'
-              ? 'Inventário somente leitura'
+              ? 'Programas e jogos'
               : source === 'local'
                 ? scanMode === 'automatic'
                   ? 'Análise automática · limpeza com confirmação'
@@ -962,8 +992,8 @@
             · {t(
               source === 'local'
                 ? scanMode === 'automatic'
-                  ? 'Descoberta local automática. Nenhuma remoção automática.'
-                  : 'Pastas aprovadas. Nenhuma remoção automática.'
+                  ? 'Descoberta local automática. A limpeza pede confirmação.'
+                  : 'Pastas aprovadas. A limpeza pede confirmação.'
                 : 'Pastas e valores fictícios. Seus arquivos não são acessados.',
             )}</span
           ><button
@@ -1095,7 +1125,10 @@
             protectedCount={protectedItems.length}
             busy={scanBusy}
             scanStatus={scanState}
-            onreview={() => go('review')}
+            onclean={() => askClean(selected)}
+            cleanLabel={selected.length
+              ? `${t('Limpar')} ${formatBytes(budget.logicalBytes)}`
+              : t('Limpar')}
           />{:else}
           <section class="storage-panel" aria-labelledby="storage-title">
             <div class="volume-summary">
@@ -1164,8 +1197,8 @@
             {@const uncertain =
               !eligible.length && group.some((c) => c.coverage_key === null)}
             {@const protectedOnly = group.length > 0 && eligible.length === 0}
-            <button class="category-card" onclick={() => go(cat.page)}
-              ><div class="category-top">
+            <article class="category-card">
+              <div class="category-top">
                 <span class="category-icon"><cat.icon size={22} /></span
                 ><ArrowUpRight size={17} />
               </div>
@@ -1197,7 +1230,7 @@
                 >{t(
                   eligible.length
                     ? 'Potencial lógico estimado'
-                    : 'Inventário · não recuperável',
+                    : 'Somente consulta',
                 )}</span
               >
               <div class="category-footer">
@@ -1209,23 +1242,96 @@
                       ? t('analisados')
                       : t('no exemplo')
                     : t('em inventário')}</span
-                >{#if group.length}<span class="tiny-label"
-                    >{t(eligible.length ? 'Revisar' : 'Protegido')}</span
+                >{#if eligible.length}<button
+                    class="button"
+                    type="button"
+                    disabled={scanBusy || executing || preparingCleanup}
+                    onclick={() =>
+                      askClean(
+                        eligible
+                          .filter((item) => selected.includes(item.id))
+                          .map((item) => item.id),
+                      )}>{t('Limpar')}</button
+                  >{:else if group.length}<span class="tiny-label"
+                    >{t('Protegido')}</span
                   >{/if}
-              </div></button
-            >
+              </div>
+            </article>
           {/each}
         </section>
         <section class="panel">
           <div class="section-head">
             <div>
               <h2>{t('Pronto para olhar mais de perto?')}</h2>
-              <p>{t('Você escolhe o que entra na simulação.')}</p>
+              <p>
+                {t('Itens seguros já entram na limpeza. Abra para ajustar.')}
+              </p>
             </div>
             <button class="text-button" onclick={() => go('review')}
-              >{t('Ver todos os itens')} <ArrowRight size={16} /></button
+              >{t('Abrir a lista completa')} <ArrowRight size={16} /></button
             >
           </div>
+          {#if candidates.length}<details class="review-drawer">
+              <summary>{t('Revisar itens')}</summary>
+              {#each [...new Set(candidates.map((item) => item.category))] as category (category)}
+                {@const group = candidates.filter(
+                  (item) => item.category === category,
+                )}
+                {@const cleanable = group.filter(
+                  (item) => item.risk !== 'protected',
+                )}
+                {@const locked = group.filter(
+                  (item) => item.risk === 'protected',
+                )}
+                <section>
+                  <h3>
+                    {t(category)} · {formatNumber(cleanable.length)} · {formatBytes(
+                      cleanable
+                        .filter((item) => selected.includes(item.id))
+                        .reduce((n, item) => n + item.logical_bytes, 0),
+                    )}
+                  </h3>
+                  {#each cleanable as item (item.id)}<label>
+                      <input
+                        type="checkbox"
+                        checked={selected.includes(item.id)}
+                        onchange={() => toggle(item)}
+                      />
+                      {item.title} · {formatBytes(item.logical_bytes)}
+                      {#if isCarefulItem(item)}<span class="badge neutral"
+                          >{t('Exige cuidado')}</span
+                        >{/if}
+                    </label>{/each}
+                  {#if locked.length}<p>
+                      {formatNumber(locked.length)}
+                      {t('protegidos, só para consulta')}
+                    </p>
+                    {#each locked as item (item.id)}<p>
+                        {item.title} · {item.reason}
+                      </p>{/each}{/if}
+                </section>
+              {/each}
+            </details>{/if}
+          {#if homeConfirm}<div
+              role="dialog"
+              aria-label={t('Confirmar limpeza')}
+            >
+              <h2>{t('Confirmar limpeza')}</h2>
+              <p>
+                {formatNumber(selected.length)}
+                {t('itens')} · {formatBytes(budget.logicalBytes)}. {t(
+                  'Caches recriáveis e a Lixeira são apagados. O restante vai para a Lixeira, salvo se a ação permanente estiver marcada.',
+                )}
+              </p>
+              <button
+                class="button primary"
+                onclick={() => void confirmOverviewClean()}
+                >{t('Confirmar limpeza')}</button
+              >
+              <button class="button" onclick={() => (homeConfirm = false)}
+                >{t('Cancelar')}</button
+              >
+            </div>{/if}
           {#if scanState === 'idle'}<div class="empty-state">
               <Folder size={30} />
               <h3>{t('Seu primeiro passo é uma análise.')}</h3>
@@ -1478,7 +1584,7 @@
                   executing ||
                   preparingCleanup ||
                   localScanStale}
-                >{t(source === 'local' ? 'Revisar impacto' : 'Simular impacto')}
+                >{t('Revisar impacto')}
                 <ArrowRight size={16} /></button
               >
             </div>

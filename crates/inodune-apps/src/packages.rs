@@ -44,12 +44,6 @@ impl PackageSource for RpmDnf {
         let mut result = report(self.name(), "ok", items);
         result.warnings = warnings;
         if let Err(e) = protected {
-            for item in &mut result.items {
-                item.protect();
-                item.notes
-                    .push("Proteção DNF desconhecida; proteção conservadora".into());
-            }
-            result.status = "partial".into();
             result.warnings.push(e);
         }
         Ok(result)
@@ -83,7 +77,7 @@ fn protected_names(dir: &Path) -> Result<BTreeSet<String>, String> {
 }
 fn parse_rpm(
     text: &str,
-    protected: Option<&BTreeSet<String>>,
+    _protected: Option<&BTreeSet<String>>,
 ) -> Result<(Vec<InstalledItem>, Vec<String>), String> {
     let mut items = vec![];
     let mut warnings = vec![];
@@ -103,7 +97,7 @@ fn parse_rpm(
             }
         }
         item.install_date = timestamp(f[3]);
-        if protected.is_none_or(|p| p.contains(f[0])) {
+        if crate::uninstall::package_blocked(f[0]) {
             item.protect();
         }
         item.notes
@@ -264,7 +258,7 @@ pub(crate) fn parse_dpkg(
                     .push("Installed-Size inválido; tamanho desconhecido".into());
             }
         }
-        if f[4] == "yes" || matches!(f[5], "required" | "important") {
+        if f[4] == "yes" || f[5] == "required" || crate::uninstall::package_blocked(f[0]) {
             item.protect();
         }
         items.push(item);
@@ -367,16 +361,32 @@ fn parse_snap(text: &str) -> Result<Vec<InstalledItem>, String> {
     if !header.starts_with("Name ") {
         return Err("Cabeçalho Snap inválido".into());
     }
-    lines.map(|line| {
-        let f: Vec<_> = line.split_whitespace().collect();
-        if f.len()!=6 || !valid_id(f[0]) || !f[2].bytes().all(|b| b.is_ascii_alphanumeric()) { return Err("Registro Snap inválido".into()); }
-        let mut item = InstalledItem::new(Source::Snap, &format!("{}@{}", f[0], f[2]), f[0]); item.version=Some(f[1].into());
-        let notes: Vec<_> = f[5].split(',').collect();
-        if f[0]=="snapd" || f[0]=="core" || f[0].strip_prefix("core").is_some_and(|s| !s.is_empty() && s.bytes().all(|b| b.is_ascii_digit())) || notes.iter().any(|s| matches!(*s,"base"|"snapd")) { item.protect(); }
-        if notes.contains(&"disabled") { item.notes.push("Revisão desabilitada".into()); }
-        item.protect(); // CLI lacks authoritative type: conservatively protect all snaps.
-        item.notes.push("Snap CLI não informa tamanho/data; tipo base inferido de nome/notas, outras bases podem ser desconhecidas".into()); Ok(item)
-    }).collect()
+    lines
+        .map(|line| {
+            let f: Vec<_> = line.split_whitespace().collect();
+            if f.len() != 6 || !valid_id(f[0]) || !f[2].bytes().all(|b| b.is_ascii_alphanumeric()) {
+                return Err("Registro Snap inválido".into());
+            }
+            let mut item = InstalledItem::new(Source::Snap, &format!("{}@{}", f[0], f[2]), f[0]);
+            item.version = Some(f[1].into());
+            let notes: Vec<_> = f[5].split(',').collect();
+            if f[0] == "snapd"
+                || f[0] == "core"
+                || f[0]
+                    .strip_prefix("core")
+                    .is_some_and(|s| !s.is_empty() && s.bytes().all(|b| b.is_ascii_digit()))
+                || notes.iter().any(|s| matches!(*s, "base" | "snapd"))
+            {
+                item.protect();
+            }
+            if notes.contains(&"disabled") {
+                item.notes.push("Revisão desabilitada".into());
+            }
+            item.notes
+                .push("Snap não informa tamanho nem data de instalação.".into());
+            Ok(item)
+        })
+        .collect()
 }
 #[cfg(test)]
 mod tests {
@@ -393,7 +403,7 @@ mod tests {
         .unwrap();
         assert!(warnings.is_empty());
         let item = parsed.remove(0);
-        assert!(item.protected);
+        assert!(!item.protected);
         assert_eq!(item.install_date, Some(1700000000));
         assert!(parse_rpm("bad data", None).is_err());
         for user in [true, false] {
@@ -421,7 +431,7 @@ mod tests {
         assert!(warnings.is_empty());
         assert_eq!(items.len(), 3);
         assert_eq!(items[0].size_bytes, Some(12 * 1024));
-        assert!(items[1].protected && items[2].protected);
+        assert!(items[1].protected && !items[2].protected);
         assert!(parse_dpkg("bad", &manual).is_err());
     }
     #[test]
@@ -548,6 +558,7 @@ vendor-blank:amd64\t\t   \tinstall ok installed\tno\toptional\n";
         let items=parse_snap("Name Version Rev Tracking Publisher Notes\ncore22 1 123 latest/stable canonical base,disabled\neditor 2 456 latest/stable example -\n").unwrap();
         assert_eq!(items.len(), 2);
         assert!(items[0].protected);
+        assert!(!items[1].protected);
         assert!(items[0].notes.iter().any(|n| n.contains("desabilitada")));
         assert!(parse_snap("Name Version Rev Tracking Publisher Notes\n-bad 1 2 x x -\n").is_err());
     }

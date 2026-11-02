@@ -14,11 +14,11 @@ test('protected-only cards show occupied space and the block reason', async ({
   ).toBeEnabled();
   const git = page.locator('.category-card', { hasText: 'Git Worktrees' });
   await expect(git).toContainText('itens protegidos');
-  await expect(git).toContainText('ocupados (não recuperável)');
+  await expect(git).toContainText('ocupados');
   await expect(git).not.toContainText('Potencial lógico estimado');
   const agents = page.locator('.category-card', { hasText: 'IA & Agentes' });
   await expect(agents).toContainText('itens protegidos');
-  await expect(agents).toContainText('ocupados (não recuperável)');
+  await expect(agents).toContainText('ocupados');
   await page.getByRole('button', { name: 'Revisar candidatos' }).click();
   await page
     .getByRole('button', { name: 'Por que apareceu: Sessões de agentes' })

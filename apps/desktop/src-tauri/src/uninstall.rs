@@ -38,11 +38,17 @@ pub async fn uninstall_prepare(
     state: tauri::State<'_, UninstallState>,
     source: inodune_apps::Source,
     id: String,
+    ids: Option<Vec<String>>,
 ) -> Result<View, String> {
     let _active = state.reserve()?;
     uninstall::refuse_root()?;
     uninstall::validate_id(source, &id)?;
-    let request = Request { source, id };
+    let ids = ids.unwrap_or_default();
+    let request = Request {
+        source,
+        id: if ids.is_empty() { id } else { ids[0].clone() },
+        ids,
+    };
     let prepared = tauri::async_runtime::spawn_blocking(move || {
         let exe = std::env::current_exe().map_err(|e| e.to_string())?;
         let helper = exe
@@ -112,7 +118,7 @@ pub async fn uninstall_execute(
     }
     tauri::async_runtime::spawn_blocking(move|| {
         let list=prepared.view.items.iter().map(|i|format!("{} · {}",i.id,i.version)).collect::<Vec<_>>().join("\n");
-        let message=if prepared.view.steam_handoff {format!("Abrir a confirmação de desinstalação no Steam?\n\n{list}")}else{format!("Remover os pacotes abaixo? A lista inteira foi simulada. Não será executado autoremove. A autorização do sistema pode ser solicitada pelo polkit.\n\n{list}")};
+        let message=if prepared.view.steam_handoff {format!("Abrir a confirmação de desinstalação no Steam?\n\n{list}")}else{format!("Desinstalar os pacotes abaixo, inclusive dependências que saem junto? Não há autoremove nem purge. O sistema pode pedir autorização.\n\n{list}")};
         let accepted=app.dialog().message(message).title("Confirmar desinstalação").kind(MessageDialogKind::Warning).buttons(MessageDialogButtons::OkCancel).blocking_show();
         if !accepted {return Err("Desinstalação cancelada; plano consumido".into());}
         prepared.child.mark_execution_sent();

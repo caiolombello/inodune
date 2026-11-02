@@ -66,6 +66,7 @@ fn run_with_control(args: Vec<String>, control: &ScanControl) -> Result<(String,
                 values.last() == Some(&"--json"),
             );
         }
+        ["apps", "uninstall", ..] => return uninstall_apps(&values[2..]),
 
         ["scan", "--demo", "--json"] => {
             return inodune_core::demo_inventory()
@@ -232,14 +233,14 @@ fn run_clean(args: &[String], control: &ScanControl) -> Result<(String, bool), S
         }
         index += 1;
     }
-    if safe && !dry_run {
+    if !dry_run {
         apply = true;
     }
     if apply && dry_run {
         return Err("--apply e --dry-run são opções incompatíveis.".into());
     }
     if yes && !apply {
-        return Err("--yes só vale junto de uma limpeza real (--safe ou --apply).".into());
+        return Err("--yes não combina com --dry-run.".into());
     }
     validate_root_count(paths.len())?;
     let roots = paths
@@ -515,6 +516,104 @@ fn validate_root_count(count: usize) -> Result<(), String> {
     }
 }
 
+fn dpkg_direct(ids: &[String]) -> Result<(String, bool), String> {
+    let uid = std::fs::read_to_string("/proc/self/status").unwrap_or_default();
+    let root = uid
+        .lines()
+        .find_map(|line| line.strip_prefix("Uid:"))
+        .is_some_and(|rest| rest.split_whitespace().next() == Some("0"));
+    if !root {
+        return Err("dpkg direto no container exige root".into());
+    }
+    for id in ids {
+        inodune_apps::uninstall::validate_id(inodune_apps::Source::Apt, id)?;
+        if inodune_apps::uninstall::package_blocked(id) {
+            return Err(format!("Pacote bloqueado: {id}"));
+        }
+    }
+    let status = std::process::Command::new("/usr/bin/dpkg")
+        .arg("--remove")
+        .args(ids)
+        .stdin(std::process::Stdio::null())
+        .status()
+        .map_err(|e| format!("dpkg indisponível: {e}"))?;
+    if status.success() {
+        Ok((format!("dpkg remove concluído: {}", ids.join(" ")), false))
+    } else {
+        Err(format!("dpkg recusou a remoção: {status}"))
+    }
+}
+fn uninstall_apps(args: &[&str]) -> Result<(String, bool), String> {
+    let mut yes = false;
+    let mut ids = Vec::new();
+    for arg in args {
+        if *arg == "--yes" {
+            yes = true;
+        } else if arg.starts_with('-') {
+            return Err(usage());
+        } else {
+            ids.push((*arg).to_owned());
+        }
+    }
+    if ids.is_empty() {
+        return Err("Informe ao menos um ID. Uso: inodune apps uninstall ID... [--yes]".into());
+    }
+    let inventory = inodune_apps::inventory()?;
+    let mut grouped: std::collections::BTreeMap<inodune_apps::Source, Vec<String>> =
+        std::collections::BTreeMap::new();
+    for id in &ids {
+        let item = inventory
+            .sources
+            .iter()
+            .flat_map(|source| source.items.iter())
+            .find(|item| item.id == *id)
+            .ok_or_else(|| format!("ID não está no inventário: {id}"))?;
+        if item.protected {
+            return Err(format!("Pacote bloqueado: {id}"));
+        }
+        grouped.entry(item.source).or_default().push(id.clone());
+    }
+    if std::env::var("INODUNE_CONTAINER_DPKG").ok().as_deref() == Some("1") {
+        return dpkg_direct(&ids);
+    }
+    if !yes {
+        let stdin = std::io::stdin();
+        if !stdin.is_terminal() {
+            return Err(
+                "Desinstalação exige --yes ou um terminal para confirmar. Nada foi removido."
+                    .into(),
+            );
+        }
+        eprintln!(
+            "Desinstalar {} item(ns). Digite UNINSTALL {} para confirmar.",
+            ids.len(),
+            ids.len()
+        );
+        let mut line = String::new();
+        stdin
+            .lock()
+            .read_line(&mut line)
+            .map_err(|e| e.to_string())?;
+        if line.trim() != format!("UNINSTALL {}", ids.len()) {
+            return Err("Confirmação não corresponde; nada foi removido.".into());
+        }
+    }
+    for (source, group) in grouped {
+        let request = inodune_apps::uninstall::Request {
+            source,
+            id: group[0].clone(),
+            ids: group,
+        };
+        let mut transport = inodune_apps::uninstall::SystemTransport;
+        let session = inodune_apps::uninstall::Session::prepare(request, &mut transport)?;
+        let view = session.view();
+        session.execute(&view.id, &mut transport)?;
+    }
+    Ok((
+        format!("Desinstalação concluída: {} item(ns).", ids.len()),
+        false,
+    ))
+}
 fn present_apps(inventory: &inodune_apps::Inventory, json: bool) -> Result<(String, bool), String> {
     let partial = inventory
         .sources
@@ -549,7 +648,7 @@ fn present_apps(inventory: &inodune_apps::Inventory, json: bool) -> Result<(Stri
 }
 
 fn usage() -> String {
-    "Uso: inodune apps list [--json]\n     inodune-cli [--help|-h] [--version|-V]\n     inodune-cli scan --auto [--json]\n     inodune-cli scan --root ABS [--root ABS] [--exclude REL]... [--scope projects|thumbnails|protected] [--json]\n     inodune-cli clean --root ABS [--root ABS] [--exclude REL]... [--scope projects|thumbnails|protected] [--dry-run|--apply] [--safe] [--yes] [--review DETECTOR] [--permanent] [--json]\nDemonstração: scan --demo --json | clean --demo --dry-run. --exclude aceita caminhos relativos literais; '.' exclui a root inteira. --safe escolhe caches recriáveis, a Lixeira, providers e builds e executa de verdade. --yes não pergunta. --apply executa a seleção normal. --dry-run só mostra o plano. --permanent apaga direto. Exit 2: erro; exit 3: cobertura ou execução parcial.".into()
+    "Uso: inodune apps list [--json]\n     inodune apps uninstall ID... [--yes]\n     inodune-cli [--help|-h] [--version|-V]\n     inodune-cli scan --auto [--json]\n     inodune-cli scan --root ABS [--root ABS] [--exclude REL]... [--scope projects|thumbnails|protected] [--json]\n     inodune-cli clean --root ABS [--root ABS] [--exclude REL]... [--scope projects|thumbnails|protected] [--dry-run|--apply] [--safe] [--yes] [--review DETECTOR] [--permanent] [--json]\nDemonstração: scan --demo --json | clean --demo --dry-run. --exclude aceita caminhos relativos literais; '.' exclui a root inteira. clean executa depois de uma confirmação; --dry-run é explícito e não é o padrão. --safe escolhe o conjunto de um clique. --yes não pergunta. --permanent apaga direto. apps uninstall remove os IDs informados. Exit 2: erro; exit 3: cobertura ou execução parcial.".into()
 }
 
 #[cfg(test)]

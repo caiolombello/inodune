@@ -114,9 +114,7 @@ export function protectedOnlyLabel(
         ? 'item protegido'
         : 'itens protegidos';
   const occupied =
-    language.value === 'en-US'
-      ? 'occupied (not recoverable)'
-      : 'ocupados (não recuperável)';
+    language.value === 'en-US' ? 'occupied (not recoverable)' : 'ocupados';
   return `${new Intl.NumberFormat(language.value).format(count)} ${noun} · ${occupiedLabel} ${occupied}`;
 }
 
@@ -159,6 +157,23 @@ export function selectLocalDefaults(items: Candidate[]): string[] {
         item.risk === 'low' &&
         isLocallyEligible(item),
     )
+    .map((item) => item.id);
+}
+export function isCarefulItem(item: Candidate): boolean {
+  if (item.detector_id === 'node.modules') return true;
+  const reason = item.reason.toLocaleLowerCase('pt-BR');
+  return (
+    item.detector_id === 'terraform.provider-package' &&
+    (reason.includes('referenciad') || reason.includes('terraform init'))
+  );
+}
+export function selectOverviewDefaults(items: Candidate[]): string[] {
+  return items
+    .filter((item) => {
+      if (item.risk === 'protected' || isCarefulItem(item)) return false;
+      if (isLocallyEligible(item)) return true;
+      return item.risk === 'low' && item.selected_by_default;
+    })
     .map((item) => item.id);
 }
 export function toggleSelection(ids: string[], item: Candidate): string[] {

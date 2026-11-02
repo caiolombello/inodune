@@ -1,4 +1,4 @@
-//! Read-only installed software inventory. No cleanup candidate or mutation API.
+//! Installed software inventory and uninstall. No shell and no arbitrary root command.
 mod command;
 mod files;
 mod packages;
@@ -14,7 +14,7 @@ use serde::Serialize;
 use std::path::Path;
 pub use steam::Steam;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, serde::Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Source {
     Rpm,

@@ -33,7 +33,7 @@ test('complete journey: protect, explain, review, simulate and report with no re
   await expect(
     page.getByRole('button', { name: 'Por que apareceu: Sessões de agentes' }),
   ).toBeFocused();
-  await page.getByRole('button', { name: 'Simular impacto' }).click();
+  await page.getByRole('button', { name: 'Revisar impacto' }).click();
   await expect(page.getByText('0 B na mesma unidade')).toBeVisible();
   await page.getByRole('button', { name: 'Revisar confirmação' }).click();
   await expect(
@@ -91,7 +91,7 @@ test('partial execution preserves failures and changed items', async ({
   ).toBeEnabled();
   await page.getByRole('button', { name: 'Revisar candidatos' }).click();
   await page.getByRole('checkbox', { name: 'Selecionar Build Rust' }).check();
-  await page.getByRole('button', { name: 'Simular impacto' }).click();
+  await page.getByRole('button', { name: 'Revisar impacto' }).click();
   await page
     .getByRole('radio', { name: 'Exclusão permanente', exact: false })
     .check();
@@ -217,7 +217,7 @@ test('cancellation between items keeps completed outcomes and report estimate fr
 }) => {
   await scan(page);
   await page.getByRole('button', { name: 'Revisar candidatos' }).click();
-  await page.getByRole('button', { name: 'Simular impacto' }).click();
+  await page.getByRole('button', { name: 'Revisar impacto' }).click();
   await page.getByRole('button', { name: 'Revisar confirmação' }).click();
   await page.getByRole('checkbox').check();
   await page.getByRole('button', { name: 'Confirmar simulação' }).click();

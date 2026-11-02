@@ -10,7 +10,8 @@
     protectedCount,
     busy,
     scanStatus,
-    onreview,
+    onclean,
+    cleanLabel,
     automatic = false,
   }: {
     volumes: NativeVolume[];
@@ -19,7 +20,8 @@
     protectedCount: number;
     busy: boolean;
     scanStatus: ScanState;
-    onreview: () => void;
+    onclean: () => void;
+    cleanLabel: string;
     automatic?: boolean;
   } = $props();
   let device = $state(0);
@@ -102,11 +104,11 @@
         : formatBytes(potential)}
     </div>
     <p>{count} {t('candidatos')} · {protectedCount} {t('itens protegidos')}</p>
-    <button class="button primary" onclick={onreview} disabled={!count || busy}
-      >{t('Revisar candidatos')} <ArrowRight size={17} /></button
+    <button class="button primary" onclick={onclean} disabled={!count || busy}
+      >{cleanLabel} <ArrowRight size={17} /></button
     ><small
       ><ShieldCheck size={14} />
-      {t('Nenhum arquivo removido pelo scan.')}</small
+      {t('A limpeza só começa depois da confirmação.')}</small
     >
   </div>
 </section>

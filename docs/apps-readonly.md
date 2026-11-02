@@ -1,6 +1,6 @@
-# Programas & Jogos — inventário v0.1.6
+# Programas e jogos — v0.1.7
 
-O inventário é somente leitura e independente de `inodune-core::Candidate` e do executor de caches. Não há score de desuso ou persistência automática do inventário. A desinstalação possui fluxo separado de simulação, plano e confirmação nativa descrito abaixo.
+A listagem continua separada do executor de caches. Desinstalar é uma ação real: uma confirmação mostra os pacotes e as dependências, e o PackageKit executa a remoção com a autorização do sistema. Não há autoremove nem purge. O Steam só abre `steam://uninstall/<appid>`.
 
 ## Exceção restrita de processos
 
@@ -51,7 +51,7 @@ Base: `a80e5ee`, branch `feat/inodune-apps-readonly`, Rust 1.93.0; fontes novas 
 
 Estes são resultados locais, não aprovação humana, CI, validação Ubuntu nativa ou publicação.
 
-## Desinstalação na 0.1.6
+## Desinstalação na 0.1.7
 
 A listagem continua somente leitura. A nova ACL `allow-installed-apps-uninstall` concede somente `uninstall_prepare` e `uninstall_execute` à janela local main. O primeiro recebe fonte e ID estritamente validados; o segundo recebe apenas o ID opaco do plano. Não há plugin de shell ou comando arbitrário. A permissão de inventário continua separada.
 
@@ -69,7 +69,7 @@ Testes usam mocks de transporte e fixtures; não chamam PackageKit/polkit nem re
 
 APIs consultadas: [PackageKit RemovePackages/Resolve](https://www.freedesktop.org/software/PackageKit/doc/dbus-org.freedesktop.packagekit1.Transaction.html), [flags de transação](https://www.freedesktop.org/software/PackageKit/doc/enum.TransactionFlagEnum.html), [snapd REST](https://snapcraft.io/docs/reference/development/snapd-rest-api/). GIO 0.18.4 e GLib 0.18.5 (MIT), e libloading 0.7.4 (ISC), já constavam no Cargo.lock; suas bibliotecas de sistema já integram as dependências do Tauri.
 
-### Revisão de segurança antes dos pacotes 0.1.6
+### Revisão de segurança antes dos pacotes 0.1.7
 
 Depois de tentar enviar o ID para execução, o processo Tauri nunca mata o helper, nem em Drop, erro de canal ou timeout. Um reaper aguarda apenas esse filho. Planos não enviados continuam canceláveis. A espera Tauri é de 900 s. O helper anuncia resultado desconhecido após 600 s de execução (180 s para Flatpak), mas continua aguardando a chamada original: esses prazos notificam, não cancelam nem matam uma mutação. O usuário deve consultar o inventário e não repetir automaticamente.
 

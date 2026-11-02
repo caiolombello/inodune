@@ -57,11 +57,10 @@ test('simula antes de confirmar e envia somente o ID do plano na execução', as
     .getByRole('button', { name: 'Listar programas e jogos', exact: true })
     .click();
   await page
-    .getByRole('button', { name: 'Simular desinstalação', exact: true })
+    .getByRole('button', { name: 'Desinstalar', exact: true })
     .click();
-  await expect(
-    page.getByRole('heading', { name: 'Lista completa simulada' }),
-  ).toBeVisible();
+  const dialog = page.getByRole('heading', { name: 'Confirmar desinstalação' });
+  await expect(dialog).toBeVisible();
   await expect(
     page.getByText('vendor-tool;1;amd64;installed · 1', { exact: true }),
   ).toBeVisible();
@@ -75,7 +74,7 @@ test('simula antes de confirmar e envia somente o ID do plano na execução', as
   );
   expect(before.some((call) => call.cmd === 'uninstall_execute')).toBe(false);
   await page
-    .getByRole('button', { name: 'Revisar e confirmar na janela nativa' })
+    .getByRole('button', { name: 'Confirmar desinstalação', exact: true })
     .click();
   await expect(
     page.getByText('Transação concluída pelo gerenciador de pacotes.'),
@@ -92,6 +91,6 @@ test('simula antes de confirmar e envia somente o ID do plano na execução', as
     planId: 'opaque-plan',
   });
   await expect(
-    page.getByRole('heading', { name: 'Lista completa simulada' }),
+    page.getByRole('heading', { name: 'Confirmar desinstalação' }),
   ).toHaveCount(0);
 });

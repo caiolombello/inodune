@@ -10,7 +10,10 @@ use std::{
 #[serde(deny_unknown_fields)]
 pub struct Request {
     pub source: Source,
+    #[serde(default)]
     pub id: String,
+    #[serde(default)]
+    pub ids: Vec<String>,
 }
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, Ord, PartialOrd)]
 #[serde(deny_unknown_fields)]
@@ -89,7 +92,10 @@ pub(crate) fn canonical(mut items: Vec<Removal>) -> Result<Vec<Removal>, String>
     }
     for item in &items {
         if fixed_block(item.id.split(';').next().unwrap_or(&item.id)) {
-            return Err("Plano inteiro recusado: pacote essencial, kernel ou sessão".into());
+            return Err(format!(
+                "Plano inteiro recusado: {} é essencial, kernel, sessão ou o próprio Inodune",
+                item.id.split(';').next().unwrap_or(&item.id)
+            ));
         }
     }
     items.sort();
@@ -140,64 +146,67 @@ pub fn validate_id(source: Source, id: &str) -> Result<(), String> {
         Err("ID de pacote inválido para a fonte".into())
     }
 }
+pub fn package_blocked(name: &str) -> bool {
+    fixed_block(name)
+}
 fn fixed_block(name: &str) -> bool {
     let n = name.split(':').next().unwrap_or(name).to_ascii_lowercase();
-    [
-        "kernel",
-        "linux-image",
-        "linux-modules",
-        "linux-headers",
-        "plasma",
+    if [
         "systemd",
-        "polkit",
-        "gdm",
-        "gnome-shell",
-        "network-manager",
-        "networkmanager",
-        "dnf",
-        "libdnf",
-        "rpm",
         "apt",
         "dpkg",
-        "packagekit",
-        "flatpak",
-        "snapd",
-        "gnome-session",
-        "sddm",
-        "kwin",
-        "mutter",
-        "dbus",
-        "pam",
-        "shadow-utils",
-        "bash",
-        "coreutils",
-        "util-linux",
-        "glibc",
-        "libc6",
-        "xorg-x11-server",
-        "xwayland",
+        "rpm",
+        "dnf",
+        "sudo",
+        "polkit",
+        "polkitd",
+        "policykit-1",
+        "inodune",
     ]
-    .iter()
-    .any(|p| n.starts_with(p))
-        || [
-            "sudo",
-            "apt",
-            "dpkg",
-            "rpm",
-            "dnf",
-            "packagekit",
-            "glibc",
-            "libc6",
+    .contains(&n.as_str())
+        || n.starts_with("linux-image")
+        || n.starts_with("linux-modules")
+        || n.starts_with("gnome-shell")
+        || n.starts_with("mutter")
+        || n.starts_with("plasma")
+        || n.starts_with("kwin")
+        || n.starts_with("sddm")
+        || n == "gdm"
+        || n.starts_with("gdm3")
+    {
+        return true;
+    }
+    let release = std::fs::read_to_string("/proc/sys/kernel/osrelease")
+        .unwrap_or_default()
+        .trim()
+        .to_ascii_lowercase();
+    if !release.is_empty()
+        && [
+            format!("linux-image-{release}"),
+            format!("linux-modules-{release}"),
+            format!("kernel-core-{release}"),
+            format!("kernel-{release}"),
         ]
-        .contains(&n.as_str())
+        .into_iter()
+        .any(|package| package == n)
+    {
+        return true;
+    }
+    let session = std::env::var("XDG_CURRENT_DESKTOP")
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    (session.contains("sway") && n == "sway") || (session.contains("hyprland") && n == "hyprland")
 }
 pub struct SystemTransport;
 impl Transport for SystemTransport {
     fn simulate(&mut self, request: &Request) -> Result<Vec<Removal>, String> {
+        if request.ids.len() > 1 {
+            return simulate_group(self, request);
+        }
         refuse_root()?;
         validate_id(request.source, &request.id)?;
         if fixed_block(&request.id) {
-            return Err("Pacote essencial, kernel ou sessão protegido".into());
+            return Err(format!("Pacote bloqueado: {}", request.id));
         }
         match request.source {
             Source::Apt | Source::Rpm => {
@@ -231,7 +240,19 @@ impl Transport for SystemTransport {
             Source::Snap => crate::uninstall_snap::simulate(request),
         }
     }
+
     fn execute(&mut self, request: &Request, items: &[Removal]) -> Result<(), String> {
+        if request.ids.len() > 1 && !matches!(request.source, Source::Apt | Source::Rpm) {
+            for id in &request.ids {
+                let one = Request {
+                    source: request.source,
+                    id: id.clone(),
+                    ids: vec![],
+                };
+                self.execute(&one, items)?;
+            }
+            return Ok(());
+        }
         refuse_root()?;
         match request.source {
             Source::Apt | Source::Rpm => {
@@ -260,6 +281,48 @@ impl Transport for SystemTransport {
             Source::Snap => crate::uninstall_snap::execute(request),
         }
     }
+}
+fn simulate_group(
+    transport: &mut SystemTransport,
+    request: &Request,
+) -> Result<Vec<Removal>, String> {
+    refuse_root()?;
+    if request.ids.len() > 100 {
+        return Err("Seleção acima de 100 pacotes".into());
+    }
+    let mut seen = BTreeSet::new();
+    for id in &request.ids {
+        validate_id(request.source, id)?;
+        if !seen.insert(id.clone()) {
+            return Err("ID repetido na seleção".into());
+        }
+        if fixed_block(id) {
+            return Err(format!("Pacote bloqueado: {id}"));
+        }
+    }
+    if matches!(request.source, Source::Apt | Source::Rpm) {
+        let mut resolved = Vec::new();
+        for id in &request.ids {
+            let found = packagekit::resolve(id)?;
+            if found.len() != 1 {
+                return Err("Resolve ambíguo; escolha uma identidade instalada exata".into());
+            }
+            resolved.push(found.into_iter().next().unwrap());
+        }
+        let items = packagekit::remove(&resolved, true)?;
+        protect_native(request.source, &items)?;
+        return Ok(items);
+    }
+    let mut items = Vec::new();
+    for id in &request.ids {
+        let one = Request {
+            source: request.source,
+            id: id.clone(),
+            ids: vec![],
+        };
+        items.extend(transport.simulate(&one)?);
+    }
+    Ok(items)
 }
 pub fn refuse_root() -> Result<(), String> {
     if rustix::process::geteuid().is_root() || rustix::process::getuid().is_root() {
@@ -715,6 +778,7 @@ mod tests {
         Request {
             source: Source::Apt,
             id: "vendor-tool".into(),
+            ids: vec![],
         }
     }
 
@@ -776,26 +840,25 @@ mod tests {
         assert_eq!(operation.join().unwrap(), "completed");
         drop(notice);
         for name in [
-            "dnf5",
-            "libdnf5",
-            "rpm-libs",
-            "apt-utils",
-            "gnome-session-wayland",
             "sddm",
             "kwin-wayland",
             "mutter",
-            "dbus-broker",
-            "pam",
-            "shadow-utils",
-            "bash",
-            "coreutils",
-            "util-linux",
-            "glibc-common",
-            "libc6",
-            "xorg-x11-server-Xorg",
-            "xwayland",
+            "gnome-shell",
+            "apt",
+            "dpkg",
+            "inodune",
         ] {
             assert!(fixed_block(name), "{name}");
+        }
+        for name in [
+            "bash",
+            "coreutils",
+            "aptitude",
+            "linux-firmware",
+            "network-manager",
+            "hello",
+        ] {
+            assert!(!fixed_block(name), "{name}");
         }
     }
     #[test]
@@ -851,18 +914,19 @@ mod tests {
     #[test]
     fn fixed_session_and_kernel_packages_are_always_blocked() {
         for n in [
-            "kernel-core",
             "linux-image-6.1",
             "linux-modules-extra",
             "plasma-desktop",
             "gdm",
             "gnome-shell",
-            "systemd-libs",
             "sudo",
             "polkit",
-            "NetworkManager",
+            "inodune",
         ] {
             assert!(fixed_block(n), "{n}");
+        }
+        for n in ["systemd-libs", "NetworkManager", "kernel-core", "bash"] {
+            assert!(!fixed_block(n), "{n}");
         }
     }
 }
