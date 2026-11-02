@@ -100,6 +100,29 @@ thread_local! {
     static TRASH_DIR_OVERRIDE: std::cell::RefCell<Option<PathBuf>> = const { std::cell::RefCell::new(None) };
 }
 /// `Not a directory (os error 20)` -> Portuguese, keeping unknown text as is.
+/// Plain wording for a folder that cannot be approved (CLI and desktop).
+pub fn approval_error(path: &Path, error: rustix::io::Errno) -> String {
+    use rustix::io::Errno;
+    // O_NOFOLLOW on a final link reports ENOTDIR too.
+    let is_link = std::fs::symlink_metadata(path).is_ok_and(|m| m.file_type().is_symlink());
+    match error {
+        Errno::NOTDIR | Errno::LOOP if is_link => {
+            "O caminho passa por um link; escolha a pasta real, sem links.".into()
+        }
+        Errno::PERM | Errno::ACCESS => {
+            "Pasta do sistema ou de outro usuário; escolha uma pasta sua.".into()
+        }
+        Errno::NOENT => "A pasta não existe.".into(),
+        Errno::NOTDIR => "É um arquivo, não uma pasta.".into(),
+        Errno::LOOP | Errno::XDEV => {
+            "O caminho passa por um link; escolha a pasta real, sem links.".into()
+        }
+        other => format!(
+            "Não foi possível aprovar a pasta: {}.",
+            os_error_pt(&std::io::Error::from(other).to_string())
+        ),
+    }
+}
 pub fn os_error_pt(message: &str) -> String {
     let Some(start) = message.find("(os error ") else {
         return message.to_owned();
@@ -214,7 +237,7 @@ impl ApprovedRoot {
             .any(|p| path.starts_with(p))
             || (path.starts_with("/run") && !path.starts_with("/run/media"))
         {
-            return Err("Raiz de sistema não permitida.".into());
+            return Err("Pasta do sistema ou de outro usuário; escolha uma pasta sua.".into());
         }
         let fd = fs::openat2(
             fs::CWD,
@@ -227,10 +250,10 @@ impl ApprovedRoot {
             Mode::empty(),
             ResolveFlags::NO_SYMLINKS | ResolveFlags::NO_MAGICLINKS,
         )
-        .map_err(|e| format!("Não foi possível aprovar a pasta (sem seguir links): {e}"))?;
+        .map_err(|e| approval_error(path, e))?;
         let st = fs::fstat(&fd).map_err(|e| e.to_string())?;
         if st.st_uid != rustix::process::getuid().as_raw() {
-            return Err("A pasta não pertence ao usuário atual.".into());
+            return Err("Pasta do sistema ou de outro usuário; escolha uma pasta sua.".into());
         }
         let fstype = fs::fstatfs(&fd).map_err(|e| e.to_string())?.f_type;
         if [0x9fa0, 0x62656572, 0x63677270, 0x1cd1, 0x27e0eb].contains(&fstype) {

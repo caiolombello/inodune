@@ -195,6 +195,12 @@ const catalog: Record<string, string> = {
   'Escolher thumbnails': 'Choose thumbnails',
   'Espaço efetivamente recuperado': 'Space actually recovered',
   'Exclusão permanente': 'Permanent deletion',
+  'Pasta do sistema ou de outro usuário; escolha uma pasta sua.':
+    'System folder or another user’s folder; choose a folder of your own.',
+  'A pasta não existe.': 'The folder does not exist.',
+  'É um arquivo, não uma pasta.': 'It is a file, not a folder.',
+  'O caminho passa por um link; escolha a pasta real, sem links.':
+    'The path goes through a link; choose the real folder, without links.',
   'Itens da Lixeira só saem com exclusão permanente; escolha “Exclusão permanente”.':
     'Trash items only leave with permanent deletion; choose “Permanent deletion”.',
   'Execução parcial': 'Partial execution',

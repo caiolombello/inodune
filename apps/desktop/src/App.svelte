@@ -139,6 +139,8 @@
     stage: '',
   });
   let nativeError = $state('');
+  // Folder approval refusals are guidance, not failures: amber, not red.
+  let scopeNotice = $state('');
   let cleanupError = $state('');
   let cleanupBatchIds = $state<string[]>([]);
   let cleanupPlan = $state<CleanupPlan | null>(null);
@@ -447,6 +449,7 @@
   async function addNativeScope(kind: ScopeKind) {
     choosingScope = true;
     nativeError = '';
+    scopeNotice = '';
     try {
       const scope = await native.chooseScope(kind, language.value);
       if (scope) {
@@ -454,7 +457,7 @@
         if (!scopes.includes(scope.id)) scopes = [...scopes, scope.id];
       }
     } catch (e) {
-      nativeError = String(e);
+      scopeNotice = String(e);
     } finally {
       choosingScope = false;
     }
@@ -2161,6 +2164,10 @@
                 ><Shield size={16} /> {t('Inventário protegido de IA')}</button
               >
             </div>{/if}
+          {#if scopeNotice}<div class="notice scope-notice" role="status">
+              <CircleAlert size={18} />
+              <p>{t(scopeNotice)}</p>
+            </div>{/if}
           {#if source !== 'local' || scanMode === 'manual'}{#each scopeOptions as scope (scope.id)}<label
                 class="scope-option"
                 ><input
@@ -2368,6 +2375,10 @@
             onclick={() => addNativeScope('protected')}
             ><Shield size={16} /> {t('Inventário protegido de IA')}</button
           >
+        </div>{/if}
+      {#if scopeNotice}<div class="notice scope-notice" role="status">
+          <CircleAlert size={18} />
+          <p>{t(scopeNotice)}</p>
         </div>{/if}
       {#each scopeOptions as scope (scope.id)}<label class="scope-option"
           ><input
