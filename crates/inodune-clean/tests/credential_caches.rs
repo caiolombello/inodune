@@ -164,3 +164,73 @@ fn partial_cache_plan_excludes_key_directory_and_hashes_its_exclusions() {
         }
     }
 }
+
+/// TOCTOU: a file that becomes a credential after the scan, with the same size
+/// and the original mtime, is skipped by the executor's content revalidation.
+#[test]
+fn credential_written_after_scan_is_skipped_in_both_modes() {
+    let bait = b"-----BEGIN RSA PRIVATE KEY-----\nMIIFAKEQA\n-----END RSA PRIVATE KEY-----";
+    for action in [Action::Trash, Action::Permanent] {
+        let temp = tempfile::tempdir().unwrap();
+        let project = temp.path().join("project");
+        let cache = project.join(".npm/_cacache/content-v2");
+        fs::create_dir_all(&cache).unwrap();
+        let late = cache.join("late");
+        fs::write(&late, vec![b'a'; bait.len()]).unwrap();
+        fs::write(cache.join("ordinary"), b"recreatable fixture").unwrap();
+        let snapshot = Arc::new(
+            scan(
+                &[ApprovedRoot::open(&project, ScopeKind::Projects).unwrap()],
+                &ScanControl::default(),
+                &ScanLimits::default(),
+                |_| {},
+            )
+            .unwrap(),
+        );
+        let id = snapshot
+            .candidates
+            .iter()
+            .find(|c| c.detector_id == "npm.cache")
+            .unwrap()
+            .id
+            .clone();
+        let plan = PlanSession::prepare(snapshot, &[id], action).unwrap();
+        let hash = plan.view().hash;
+        // Same size, same mtime: only the content check can notice.
+        let modified = fs::metadata(&late).unwrap().modified().unwrap();
+        fs::write(&late, bait).unwrap();
+        fs::File::options()
+            .write(true)
+            .open(&late)
+            .unwrap()
+            .set_times(fs::FileTimes::new().set_modified(modified))
+            .unwrap();
+        let trash = temp.path().join("data/Trash");
+        let report = execute(
+            plan.consume(&hash).unwrap(),
+            &ExecutionOptions {
+                trash_directory: Some(trash),
+                history_directory: Some(temp.path().join("state/reports")),
+            },
+            &ScanControl::default(),
+            |_| {},
+        );
+        assert_eq!(fs::read(&late).unwrap(), bait, "{action:?}");
+        let files = &report.items[0].files;
+        let late_outcome = files
+            .iter()
+            .find(|f| f.display_path.ends_with("late"))
+            .unwrap();
+        assert_eq!(
+            late_outcome.status,
+            FileStatus::SkippedChanged,
+            "{action:?}"
+        );
+        assert!(
+            late_outcome.message.contains("Credencial"),
+            "skipped for another reason: {}",
+            late_outcome.message
+        );
+        assert!(!cache.join("ordinary").exists(), "{action:?}");
+    }
+}
