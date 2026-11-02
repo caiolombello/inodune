@@ -113,8 +113,8 @@ class ChecksumListingTests(unittest.TestCase):
         module = load('generate-sbom')
         with tempfile.TemporaryDirectory() as directory:
             out = Path(directory)
-            for name in ('Inodune_0.1.9_amd64.deb', 'Inodune-0.1.9-1.x86_64.rpm',
-                         'Inodune_0.1.9_linux_x86_64.tar.gz', *module.REQUIRED_OUTPUTS):
+            for name in ('Inodune_0.1.10_amd64.deb', 'Inodune-0.1.10-1.x86_64.rpm',
+                         'Inodune_0.1.10_linux_x86_64.tar.gz', *module.REQUIRED_OUTPUTS):
                 (out / name).write_bytes(name.encode())
             (out / 'SHA256SUMS').write_text('stale  removed-artifact.deb\n')
             (out / 'subdir').mkdir()

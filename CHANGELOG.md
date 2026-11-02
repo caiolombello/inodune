@@ -1,5 +1,33 @@
 # Changelog
 
+## 0.1.10
+
+### Corrigido
+
+- **Segurança (regressão da 0.1.9):** credenciais detectadas pelo conteúdo voltaram a
+  ficar protegidas em todos os alvos de limpeza (cache pip, `_cacache` do npm, `target`
+  do Cargo, `node_modules`, Next.js, caches Python e demais), na Lixeira e na exclusão
+  permanente, na CLI e na GUI. A 0.1.9 exigia um bloco PEM completo com DER/OpenSSH
+  coerente, tratava como placeholder qualquer valor que *contivesse* `FAKE`, `EXAMPLE`,
+  `XXX` ou `<`, exigia 20+ caracteres, não reconhecia linhas netrc e lia só 4 KiB.
+  Agora uma política única (`inodune-core/src/credentials.rs`), usada pelo scan e pelo
+  executor imediatamente antes de mover ou apagar cada arquivo, protege:
+  - linha que começa com `-----BEGIN … PRIVATE KEY-----` (sem exigir corpo válido);
+  - `_authToken` e `aws_secret_access_key` com valor que não seja placeholder;
+  - entradas netrc (`machine`/`default`) com `password` preenchido.
+  Placeholder é só o valor inteiro óbvio (vazio, `YOUR_…`, `<…>`, `${…}`/`$VAR`,
+  `xxx`/`***`, `changeme`, `example`, `placeholder`, `dummy`, `redacted`). Leitura de
+  64 KiB por arquivo e até 1 MiB em arquivos de texto; arquivo ilegível ou instável
+  continua protegido. Exceções estreitas: METADATA/PKG-INFO/RECORD de wheels,
+  README/CHANGELOG e docs dentro de pacotes, PEM dentro de string literal e
+  `_authToken` usado como identificador. Só o arquivo e seu diretório imediato ficam
+  preservados; o restante do cache é limpo. Nenhuma outra proteção foi afrouxada.
+- CLI: `--review` aceita `node.modules` (e `node_modules`/`node-modules`) e lista os ids
+  aceitos no erro; saída com "1 item", tamanhos legíveis, volume pelo ponto de montagem,
+  erros do sistema em português e caminhos sem `/./` (também no `Path=` da Lixeira).
+- Pacote `.deb`: changelog e copyright no mesmo `/usr/share/doc/inodune/`; `SHA256SUMS`
+  lista só os arquivos presentes na pasta de saída.
+
 ## 0.1.9
 
 ### UX

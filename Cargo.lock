@@ -1501,7 +1501,7 @@ dependencies = [
 
 [[package]]
 name = "inodune-apps"
-version = "0.1.9"
+version = "0.1.10"
 dependencies = [
  "chrono",
  "flate2",
@@ -1517,7 +1517,7 @@ dependencies = [
 
 [[package]]
 name = "inodune-clean"
-version = "0.1.9"
+version = "0.1.10"
 dependencies = [
  "chrono",
  "getrandom 0.3.4",
@@ -1531,7 +1531,7 @@ dependencies = [
 
 [[package]]
 name = "inodune-cli"
-version = "0.1.9"
+version = "0.1.10"
 dependencies = [
  "ctrlc",
  "inodune-apps",
@@ -1544,7 +1544,7 @@ dependencies = [
 
 [[package]]
 name = "inodune-core"
-version = "0.1.9"
+version = "0.1.10"
 dependencies = [
  "base64 0.22.1",
  "libc",
@@ -1557,7 +1557,7 @@ dependencies = [
 
 [[package]]
 name = "inodune-desktop"
-version = "0.1.9"
+version = "0.1.10"
 dependencies = [
  "getrandom 0.3.4",
  "inodune-apps",

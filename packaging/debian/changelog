@@ -1,3 +1,14 @@
+inodune (0.1.10) stable; urgency=high
+
+  * Security: credentials detected by content (private-key headers, npm
+    _authToken, AWS secret keys, netrc passwords) stay protected in every
+    cleanup target, for Trash and permanent cleanup; files are re-checked
+    right before they are moved or removed.
+  * CLI: --review accepts node.modules; readable output without "/./".
+  * Package: changelog next to copyright; SHA256SUMS lists present files.
+
+ -- Caio Barbieri <70986039+caiolombello@users.noreply.github.com>  Mon, 02 Nov 2026 12:00:00 +0000
+
 inodune (0.1.9) stable; urgency=medium
 
   * UX review: low-risk items come pre-selected, cleanup button shows count
@@ -8,8 +19,5 @@ inodune (0.1.9) stable; urgency=medium
     counter.
   * Backend: deduplicated PackageKit Resolve IDs, shared inventory policy,
     credential-aware cache manifests.
-  * Security: credentials detected by content (private-key headers, npm
-    _authToken, AWS secret keys, netrc passwords) stay protected in every
-    cleanup target, for Trash and permanent cleanup.
 
  -- Caio Barbieri <70986039+caiolombello@users.noreply.github.com>  Mon, 02 Nov 2026 03:00:00 +0000
