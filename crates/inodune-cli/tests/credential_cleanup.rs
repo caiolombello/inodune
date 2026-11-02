@@ -112,6 +112,16 @@ fn content_credentials_survive_review_cleanup_in_every_target_and_mode() {
                 let trashed: Vec<_> = fs::read_dir(root.join(".local/share/Trash/files"))
                     .map(|dir| dir.map(|e| fs::read(e.unwrap().path()).unwrap()).collect())
                     .unwrap_or_default();
+                for info in fs::read_dir(root.join(".local/share/Trash/info"))
+                    .into_iter()
+                    .flatten()
+                {
+                    let text = fs::read_to_string(info.unwrap().path()).unwrap();
+                    assert!(!text.contains("/./"), "trashinfo Path has /./: {text}");
+                }
+                let stdout = String::from_utf8_lossy(&output.stdout);
+                assert!(!stdout.contains("/./"), "CLI shows /./: {context}");
+                assert!(!stdout.contains("1 itens"), "plural: {context}");
                 if permanent {
                     assert!(trashed.is_empty(), "permanent used the Trash: {context}");
                 } else {

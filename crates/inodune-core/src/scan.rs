@@ -93,6 +93,17 @@ thread_local! {
     static CACHE_HOME_OVERRIDE: std::cell::RefCell<Option<PathBuf>> = const { std::cell::RefCell::new(None) };
     static TRASH_DIR_OVERRIDE: std::cell::RefCell<Option<PathBuf>> = const { std::cell::RefCell::new(None) };
 }
+/// Display form of a path: drops `.` components (`/home/u/./x` -> `/home/u/x`).
+/// Presentation only; `..` and symlinks are never resolved here.
+pub fn tidy_display_path(path: &str) -> String {
+    tidy_path(Path::new(path)).to_string_lossy().into_owned()
+}
+/// Same path without `.` components, byte-exact for non-UTF-8 names.
+pub fn tidy_path(path: &Path) -> PathBuf {
+    path.components()
+        .filter(|c| !matches!(c, std::path::Component::CurDir))
+        .collect()
+}
 pub fn xdg_thumbnail_root() -> Option<PathBuf> {
     xdg_cache_home().map(|p| p.join("thumbnails"))
 }
@@ -2203,6 +2214,17 @@ mod pytest_budget_tests {
     }
 }
 
+#[cfg(test)]
+mod display_path_tests {
+    #[test]
+    fn dot_components_are_dropped_for_display_only() {
+        assert_eq!(
+            super::tidy_display_path("/home/u/./.cache/./pip"),
+            "/home/u/.cache/pip"
+        );
+        assert_eq!(super::tidy_display_path("/home/u/../x"), "/home/u/../x");
+    }
+}
 #[cfg(test)]
 mod uv_cache_tests {
     use super::*;

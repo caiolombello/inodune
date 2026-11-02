@@ -763,7 +763,8 @@ fn process_file(
         expected,
         kind,
     } = leaf;
-    let original = target.root.path().join(relative);
+    // Same file without `.` components: used in reports and Trash `Path=`.
+    let original = inodune_core::scan::tidy_path(&target.root.path().join(relative));
     let fail = |e: &str| outcome(&original, FileStatus::SkippedChanged, 0, e, None);
     let parent_rel = relative.parent().unwrap_or(Path::new("."));
     let Some(name) = relative.file_name() else {

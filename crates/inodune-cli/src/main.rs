@@ -286,7 +286,9 @@ fn run_clean(args: &[String], control: &ScanControl) -> Result<(String, bool), S
             many => {
                 let paths = many
                     .iter()
-                    .map(|candidate| format!("  {}", candidate.display_path))
+                    .map(|candidate| {
+                        format!("  {}", scan::tidy_display_path(&candidate.display_path))
+                    })
                     .collect::<Vec<_>>()
                     .join("\n");
                 return Err(format!("Há {} candidatos elegíveis para '{detector}'; restrinja o root para selecionar um único candidato:\n{paths}", many.len()));
@@ -322,13 +324,18 @@ fn run_clean(args: &[String], control: &ScanControl) -> Result<(String, bool), S
             serde_json::to_string_pretty(&view).map_err(|e| e.to_string())?
         } else {
             format!(
-                "Plano somente leitura: nenhum item elegível; {} itens protegidos ou para revisão. Nenhuma limpeza executada.",
-                protected_or_review_items
+                "Plano somente leitura: nenhum item elegível; {} protegidos ou para revisão. Nenhuma limpeza executada.",
+                count(protected_or_review_items, "item", "itens")
             )
         };
         return Ok((output, false));
     }
 
+    let mounts: Vec<(u64, String)> = snapshot
+        .volumes
+        .iter()
+        .map(|v| (v.device, scan::tidy_display_path(&v.scope_path)))
+        .collect();
     let session = inodune_clean::plan::PlanSession::prepare(Arc::new(snapshot), &selected, action)?;
     let plan_view = session.view();
     if !apply {
@@ -360,20 +367,25 @@ fn run_clean(args: &[String], control: &ScanControl) -> Result<(String, bool), S
         serde_json::to_string_pretty(&report).map_err(|e| e.to_string())?
     } else {
         let mut text = format!(
-            "Execução {}: {} itens, {} bytes lógicos processados.\n{}",
+            "Execução {}: {}, {} processados.\n{}",
             if partial { "parcial" } else { "completa" },
-            report.items.len(),
-            report.logical_bytes_processed,
+            count(report.items.len(), "item", "itens"),
+            inodune_apps::presentation::human_bytes(report.logical_bytes_processed),
             report.measurement_note
         );
         for item in &report.items {
             for file in &item.files {
                 text.push_str(&format!(
-                    "\n{:?}: {} — {}",
-                    file.status, file.display_path, file.message
+                    "\n{}: {} — {}",
+                    status_label(&file.status),
+                    scan::tidy_display_path(&file.display_path),
+                    os_error_text(&file.message)
                 ));
                 if let Some(path) = &file.preserved_at {
-                    text.push_str(&format!("\n  Preservado em: {path}"));
+                    text.push_str(&format!(
+                        "\n  Preservado em: {}",
+                        scan::tidy_display_path(path)
+                    ));
                 }
             }
         }
@@ -393,13 +405,16 @@ fn run_clean(args: &[String], control: &ScanControl) -> Result<(String, bool), S
                 ),
                 None => "não medida".to_owned(),
             };
+            let name = mounts
+                .iter()
+                .find(|(device, _)| *device == volume.device)
+                .map_or("analisado", |(_, path)| path.as_str());
             text.push_str(&format!(
-                "\nVolume (dispositivo {}): variação observada de espaço disponível {delta} (não atribuída à limpeza).",
-                volume.device
+                "\nVolume {name}: variação observada de espaço disponível {delta} (não atribuída à limpeza)."
             ));
         }
         for warning in &report.warnings {
-            text.push_str(&format!("\nAviso: {warning}"));
+            text.push_str(&format!("\nAviso: {}", os_error_text(warning)));
         }
         if let Some(path) = &report.history_path {
             text.push_str(&format!("\nRelatório: {path}"));
@@ -439,19 +454,23 @@ fn confirm_plan(plan: &inodune_clean::plan::PlanView) -> Result<(), String> {
         inodune_clean::plan::Action::Permanent => format!("DELETE {}", plan.items.len()),
     };
     eprintln!(
-        "Plano {} | hash {} | ação {:?} | {} itens | risco {} | impacto estimado {} bytes lógicos / {} bytes alocados",
+        "Plano {} | hash {} | ação {:?} | {} | risco {} | impacto estimado {} bytes lógicos / {} bytes alocados",
         plan.id,
         plan.hash,
         plan.action,
-        plan.items.len(),
+        count(plan.items.len(), "item", "itens"),
         if plan.review_required { "revisão" } else { "baixo" },
         plan.logical_bytes_estimate,
         plan.allocated_bytes_estimate.map(|n| n.to_string()).unwrap_or_else(|| "desconhecido".into())
     );
     for item in &plan.items {
         eprintln!(
-            "{} | {:?} | {} bytes lógicos | impacto: {} | reconstrução: {}",
-            item.display_path, item.risk, item.logical_bytes, item.impact, item.rebuild_hint
+            "{} | {:?} | {} | impacto: {} | reconstrução: {}",
+            scan::tidy_display_path(&item.display_path),
+            item.risk,
+            inodune_apps::presentation::human_bytes(item.logical_bytes),
+            item.impact,
+            item.rebuild_hint
         );
     }
     eprint!("Digite exatamente '{expected}' para confirmar: ");
@@ -479,8 +498,8 @@ fn confirmation_matches(input: &str, expected: &str) -> bool {
 fn format_plan(view: &CleanView) -> String {
     let Some(plan) = &view.plan else {
         return format!(
-            "Plano somente leitura: nenhum item elegível; {} itens protegidos ou para revisão. Nenhuma limpeza executada.",
-            view.protected_or_review_items
+            "Plano somente leitura: nenhum item elegível; {} protegidos ou para revisão. Nenhuma limpeza executada.",
+            count(view.protected_or_review_items, "item", "itens")
         );
     };
     let details = plan
@@ -488,15 +507,19 @@ fn format_plan(view: &CleanView) -> String {
         .iter()
         .map(|item| {
             format!(
-                "  {} | {:?} | {} bytes lógicos | impacto: {} | reconstrução: {}",
-                item.display_path, item.risk, item.logical_bytes, item.impact, item.rebuild_hint
+                "  {} | {:?} | {} | impacto: {} | reconstrução: {}",
+                scan::tidy_display_path(&item.display_path),
+                item.risk,
+                inodune_apps::presentation::human_bytes(item.logical_bytes),
+                item.impact,
+                item.rebuild_hint
             )
         })
         .collect::<Vec<_>>()
         .join("\n");
     format!(
-        "Plano somente leitura: {} itens, hash {}. Ação {:?}; risco {}; impacto estimado {} bytes lógicos / {} bytes alocados.\n{}\nNenhuma limpeza executada.",
-        plan.items.len(),
+        "Plano somente leitura: {}, hash {}. Ação {:?}; risco {}; impacto estimado {} bytes lógicos / {} bytes alocados.\n{}\nNenhuma limpeza executada.",
+        count(plan.items.len(), "item", "itens"),
         plan.hash,
         plan.action,
         if plan.review_required { "revisão" } else { "baixo" },
@@ -695,10 +718,10 @@ fn present_apps(inventory: &inodune_apps::Inventory, json: bool) -> Result<(Stri
         let mut lines = vec!["Programas & Jogos · somente leitura".to_string()];
         for source in &inventory.sources {
             lines.push(format!(
-                "{}: {} ({} itens)",
+                "{}: {} ({})",
                 source.source,
                 source.status,
-                source.items.len()
+                count(source.items.len(), "item", "itens")
             ));
             for item in &source.items {
                 let size = match item.size_bytes {
@@ -715,6 +738,55 @@ fn present_apps(inventory: &inodune_apps::Inventory, json: bool) -> Result<(Stri
         lines.join("\n")
     };
     Ok((output, partial))
+}
+
+fn count(n: usize, one: &str, many: &str) -> String {
+    format!("{n} {}", if n == 1 { one } else { many })
+}
+
+fn status_label(status: &inodune_clean::executor::FileStatus) -> &'static str {
+    use inodune_clean::executor::FileStatus as S;
+    match status {
+        S::Trashed => "Movido à Lixeira",
+        S::Removed => "Removido",
+        S::SkippedChanged => "Alterado; preservado",
+        S::Failed => "Falhou; preservado",
+        S::Cancelled => "Cancelado; preservado",
+        S::Quarantined => "Quarentena; preservado",
+    }
+}
+
+/// `Not a directory (os error 20)` -> Portuguese, keeping unknown text as is.
+fn os_error_text(message: &str) -> String {
+    let Some(start) = message.find("(os error ") else {
+        return message.to_owned();
+    };
+    let code = message[start + 10..]
+        .split(')')
+        .next()
+        .and_then(|n| n.parse::<i32>().ok());
+    let text = match code {
+        Some(1) => "operação não permitida",
+        Some(2) => "arquivo ou pasta não existe mais",
+        Some(5) => "erro de leitura no disco",
+        Some(13) => "permissão negada",
+        Some(17) => "o destino já existe",
+        Some(18) => "o destino está em outro volume",
+        Some(20) => "um arquivo está onde se esperava uma pasta",
+        Some(21) => "uma pasta está onde se esperava um arquivo",
+        Some(28) => "sem espaço no dispositivo",
+        Some(30) => "sistema de arquivos somente leitura",
+        Some(39) => "a pasta não está vazia",
+        Some(40) => "links simbólicos em excesso",
+        _ => return message.to_owned(),
+    };
+    let prefix = message[..start].trim_end();
+    let english = prefix.rsplit_once(": ").map_or(prefix, |(_, tail)| tail);
+    if english.is_empty() || english == prefix {
+        text.to_owned()
+    } else {
+        format!("{}: {text}", &prefix[..prefix.len() - english.len() - 2])
+    }
 }
 
 /// Reviewable cache detectors, exactly as `scan` reports them.
@@ -1001,6 +1073,25 @@ mod tests {
     }
 
     #[test]
+    fn readable_texts_for_errors_and_plurals() {
+        use super::{count, os_error_text};
+        assert_eq!(count(1, "item", "itens"), "1 item");
+        assert_eq!(count(2, "item", "itens"), "2 itens");
+        assert_eq!(
+            os_error_text("Not a directory (os error 20)"),
+            "um arquivo está onde se esperava uma pasta"
+        );
+        assert_eq!(
+            os_error_text("Captura recusada: Not a directory (os error 20)"),
+            "Captura recusada: um arquivo está onde se esperava uma pasta"
+        );
+        assert_eq!(
+            os_error_text("Weird (os error 9999)"),
+            "Weird (os error 9999)"
+        );
+    }
+
+    #[test]
     fn rejects_unknown_review_detector_and_help_is_available() {
         assert!(run(
             vec!["clean", "--root", "/tmp", "--review", "arbitrary.path"]
@@ -1041,7 +1132,7 @@ mod tests {
         };
         let (text, partial) = present_apps(&inventory, false).unwrap();
         assert!(!partial);
-        assert!(text.contains("apt: ok (1 itens)"));
+        assert!(text.contains("apt: ok (1 item)"));
         assert!(text.contains("desconhecido"));
         assert!(!text.contains("None"));
         assert!(text.contains("vendor-badsize:amd64"));
