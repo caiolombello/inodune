@@ -1,6 +1,6 @@
 {
   "baseHead": "33a0cf003a0e19320a9990357d7ccf7f09822c25",
-  "version": "0.1.12",
+  "version": "0.1.13",
   "state": "verified working tree before delivery commits; hashes distinguish inputs including bundled font",
   "sha256": {
     "apps/desktop/src-tauri/src/protection_store.rs": "cd556de225a793c92a9e94908303c7532670a1335de8ac0f9753d50e4714c352",

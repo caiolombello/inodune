@@ -1,3 +1,17 @@
+inodune (0.1.13) stable; urgency=high
+
+  * Security: Trash entries without a valid .trashinfo, or whose original
+    path is inside a sensitive folder, are analysis only (scan and executor).
+  * Trash entries leave only with permanent deletion: files, empty folders
+    and the entry folder first, the .trashinfo last; nothing is left half.
+  * Plain folder-approval errors; PackageKit dependents refusal explained;
+    python3, python3-minimal and python3-libs blocked.
+  * One expandable "Dependências Node" group in every list.
+  * Plural agreement, shorter protection reasons, deduplicated discovery
+    warnings, journal paths without "/./", man pages without self-reference.
+
+ -- Caio Barbieri <70986039+caiolombello@users.noreply.github.com>  Mon, 02 Nov 2026 23:30:00 +0000
+
 inodune (0.1.12) stable; urgency=high
 
   * Security: the Trash and cache classifiers share one credential verdict;

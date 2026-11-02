@@ -1,5 +1,41 @@
 # Changelog
 
+## 0.1.13
+
+### Corrigido
+
+- **Segurança — Lixeira sem origem válida:** uma pasta na Lixeira sem `.trashinfo` válido
+  (ausente, `Path=` relativo, vazio ou com `.`/`..`) virava `trash.entry` de risco baixo,
+  entrava no `--safe` e foi apagada com `--safe --permanent` (era o conteúdo de um `~/.ssh`).
+  Agora fica só para análise ("Sem registro de origem válido na Lixeira; só análise."). Uma
+  entrada cujo `Path=` passa por uma pasta sensível (`.ssh`, `.gnupg`, `.aws`, `.kube`,
+  `.docker`, `.password-store`, `.config/gh`, `.config/gcloud`, `.azure`, `.terraform.d`,
+  `.netrc`, `.git-credentials`, `.local/share/keyrings`, `.mozilla`, `.thunderbird`) também.
+  O executor revalida a origem antes de cada arquivo.
+- **Esvaziar a Lixeira:** no modo Lixeira, itens da Lixeira não voltam para a Lixeira (antes
+  eram só renomeados e o item terminava incompleto). O plano recusa ("Itens da Lixeira só saem
+  com exclusão permanente; use --permanent."); o `--safe` os deixa de fora e avisa quando só
+  restavam eles; o app faz o mesmo. Com `--permanent`, os arquivos saem, depois as pastas
+  vazias e a pasta da entrada (mesma identidade, sem seguir links) e só então o `.trashinfo`.
+  Se algo protegido ou novo ficar, a pasta e o `.trashinfo` ficam juntos.
+- **Aprovar pasta:** erros crus viram frases: "Pasta do sistema ou de outro usuário; escolha
+  uma pasta sua.", "A pasta não existe.", "É um arquivo, não uma pasta." e "O caminho passa
+  por um link; escolha a pasta real, sem links.". No app, aparecem num aviso âmbar junto aos
+  botões de pasta, não na faixa vermelha de erro.
+- **PackageKit:** "would remove dependent package(s)" vira "Outros pacotes do sistema dependem
+  deste; o PackageKit recusou a remoção. Nenhum pacote foi removido.".
+  `python3`, `python3-minimal` e `python3-libs` entram na lista de bloqueio.
+- **Dependências Node agrupadas:** o agrupamento da 0.1.12 só existia no resumo da visão
+  geral; as listas Desenvolvimento e Revisar mostravam uma linha por `node_modules`. Agora
+  todas mostram um grupo que expande e lista cada pasta, com caminho, tamanho, seleção e
+  "Por que…" próprios.
+- **Textos:** "resta 1 item protegido, que fica" / "restam 4 itens protegidos, que ficam";
+  motivo curto para credenciais preservadas ("Contém credencial ou não pôde ser lido; o
+  arquivo e a pasta dele ficam fora da limpeza.").
+- **Avisos repetidos:** um caminho negado e indisponível na descoberta aparece uma vez só.
+- **Journal:** caminhos gravados sem `/./`; a identidade verificada não muda.
+- **Man pages:** "VEJA TAMBÉM" não lista a própria página.
+
 ## 0.1.12
 
 ### Corrigido
