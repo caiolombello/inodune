@@ -127,4 +127,15 @@ describe('present', () => {
     ).toBe(false);
     expect(uninstallError('Pacote bloqueado: coreutils').cancelled).toBe(false);
   });
+
+  it('titles a PackageKit refusal because of dependents, still as an error', () => {
+    language.value = 'pt-BR';
+    const info = uninstallError(
+      'Outros pacotes do sistema dependem deste; o PackageKit recusou a remoção. Nenhum pacote foi removido.',
+    );
+    expect(info.title).toBe('Outros programas dependem desta seleção');
+    // Same styling as the 0.1.12 dependents error: alert, not neutral.
+    expect(info.cancelled).toBe(false);
+    expect(info.detail).not.toMatch(/dependent package/i);
+  });
 });

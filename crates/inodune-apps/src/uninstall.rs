@@ -203,6 +203,10 @@ fn fixed_block(name: &str) -> bool {
         "polkitd",
         "policykit-1",
         "inodune",
+        // The system interpreter: dnf, apt helpers and desktop tools need it.
+        "python3",
+        "python3-minimal",
+        "python3-libs",
     ]
     .contains(&n.as_str())
         || n.starts_with("kernel-core-")
@@ -1527,10 +1531,14 @@ mod tests {
             "sudo",
             "polkit",
             "inodune",
+            "python3",
+            "python3-minimal",
+            "python3-libs",
+            "python3:amd64",
         ] {
             assert!(fixed_block(n), "{n}");
         }
-        for n in ["NetworkManager", "kernel-core"] {
+        for n in ["NetworkManager", "kernel-core", "python3-requests"] {
             assert!(!fixed_block(n), "{n}");
         }
     }

@@ -186,6 +186,14 @@ pub fn packagekit_error(code: u32, details: &str, simulate: bool) -> String {
     };
     let nothing = "Nenhum pacote foi removido.";
     let check = "Confira a lista de programas antes de tentar de novo.";
+    // e.g. dnf5: "... would remove dependent package(s) ..."; translated
+    // instead of shown raw, whatever the error code.
+    let lower = details.to_ascii_lowercase();
+    if lower.contains("dependent package") || lower.contains("would remove dependent") {
+        return format!(
+            "Outros pacotes do sistema dependem deste; o PackageKit recusou a remoção. {nothing}"
+        );
+    }
     match code {
         48 => format!("Autorização negada ou cancelada na janela de senha do sistema (polkit). {nothing}"),
         17 | 65 if simulate => format!("A simulação foi cancelada. {nothing}"),
@@ -301,6 +309,17 @@ mod tests {
     #[test]
     fn packagekit_errors_are_specific() {
         assert!(packagekit_error(48, "", false).contains("polkit"));
+        for code in [13, 16, 999] {
+            let text = packagekit_error(
+                code,
+                "Transaction failed: removing python3 would remove dependent package(s) dnf5",
+                false,
+            );
+            assert_eq!(
+                text,
+                "Outros pacotes do sistema dependem deste; o PackageKit recusou a remoção. Nenhum pacote foi removido."
+            );
+        }
         assert!(packagekit_error(13, "x requires y", true).contains("dependem"));
         assert!(packagekit_error(13, "x requires y", true).contains("x requires y"));
         assert!(packagekit_error(20, "", false).contains("protegido"));
