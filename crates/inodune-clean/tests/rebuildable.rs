@@ -78,3 +78,110 @@ fn recreatable_caches_use_reviewed_plans_and_trash_without_touching_manifests() 
     assert!(project.join("Cargo.toml").is_file());
     assert!(project.join("other/target/personal").is_file());
 }
+
+/// QA (node-gyp): hardlinks whose every link is inside the item are cleaned in
+/// both modes; a link outside the item keeps the file preserved.
+#[test]
+fn internal_hardlinks_are_cleaned_and_external_links_preserved() {
+    use inodune_clean::{
+        executor::{execute, ExecutionOptions, FileStatus},
+        plan::{Action, PlanSession},
+    };
+    use inodune_core::scan::{scan, ApprovedRoot, ScanControl, ScanLimits, ScopeKind};
+    use std::{fs, sync::Arc};
+    for action in [Action::Trash, Action::Permanent] {
+        for external in [false, true] {
+            let temp = tempfile::tempdir().unwrap();
+            let project = temp.path().join("project");
+            let release = project.join("node_modules/cpu-features/build/Release");
+            fs::create_dir_all(release.join("obj.target")).unwrap();
+            fs::write(project.join("package.json"), "{}").unwrap();
+            fs::write(release.join("cpufeatures.node"), b"native addon fixture").unwrap();
+            fs::hard_link(
+                release.join("cpufeatures.node"),
+                release.join("obj.target/cpufeatures.node"),
+            )
+            .unwrap();
+            fs::write(release.join("cpu_features.a"), b"static lib fixture").unwrap();
+            fs::hard_link(
+                release.join("cpu_features.a"),
+                release.join("obj.target/cpu_features.a"),
+            )
+            .unwrap();
+            if external {
+                fs::hard_link(release.join("cpu_features.a"), project.join("outside.a")).unwrap();
+            }
+            let snapshot = Arc::new(
+                scan(
+                    &[ApprovedRoot::open(&project, ScopeKind::Projects).unwrap()],
+                    &ScanControl::default(),
+                    &ScanLimits::default(),
+                    |_| {},
+                )
+                .unwrap(),
+            );
+            let candidate = snapshot
+                .candidates
+                .iter()
+                .find(|c| c.detector_id == "node.modules")
+                .unwrap();
+            let Ok(plan) = PlanSession::prepare(
+                snapshot.clone(),
+                std::slice::from_ref(&candidate.id),
+                action,
+            ) else {
+                // An external link may already make the scan withhold the item.
+                assert!(external, "{action:?}: {}", candidate.reason);
+                assert!(release.join("cpu_features.a").exists());
+                continue;
+            };
+            let hash = plan.view().hash;
+            let report = execute(
+                plan.consume(&hash).unwrap(),
+                &ExecutionOptions {
+                    trash_directory: Some(temp.path().join("data/Trash")),
+                    history_directory: Some(temp.path().join("state/reports")),
+                },
+                &ScanControl::default(),
+                |_| {},
+            );
+            let files = &report.items[0].files;
+            let status = |name: &str| {
+                files
+                    .iter()
+                    .filter(|f| f.display_path.ends_with(name))
+                    .map(|f| f.status.clone())
+                    .collect::<Vec<_>>()
+            };
+            let done = if action == Action::Trash {
+                FileStatus::Trashed
+            } else {
+                FileStatus::Removed
+            };
+            assert_eq!(
+                status("cpufeatures.node"),
+                vec![done.clone(), done.clone()],
+                "{action:?}"
+            );
+            assert!(!release.join("cpufeatures.node").exists());
+            assert!(!release.join("obj.target/cpufeatures.node").exists());
+            if external {
+                assert!(
+                    status("cpu_features.a")
+                        .iter()
+                        .all(|s| *s == FileStatus::SkippedChanged),
+                    "{action:?}: {files:?}"
+                );
+                assert!(project.join("outside.a").exists());
+                assert!(release.join("cpu_features.a").exists());
+            } else {
+                assert_eq!(
+                    status("cpu_features.a"),
+                    vec![done.clone(), done.clone()],
+                    "{action:?}"
+                );
+                assert!(report.complete, "{action:?}: {files:?}");
+            }
+        }
+    }
+}

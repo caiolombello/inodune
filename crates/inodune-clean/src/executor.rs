@@ -285,6 +285,7 @@ fn execute_inner(
                         ));
                     }
                     Ok(stage) => {
+                        let mut moved_links = MovedLinks::new();
                         for (relative, expected) in &target.files {
                             let path = target.root.path().join(relative);
                             if journal_error.is_none() {
@@ -315,6 +316,7 @@ fn execute_inner(
                                         relative,
                                         expected,
                                         kind,
+                                        moved_links: &mut moved_links,
                                     },
                                     &stage,
                                     trash.as_ref().ok().and_then(|t| t.as_ref()),
@@ -661,6 +663,7 @@ struct Leaf<'a> {
     relative: &'a Path,
     expected: &'a Fingerprint,
     kind: CacheKind,
+    moved_links: &'a mut MovedLinks,
 }
 
 fn lstat_child(parent: &OwnedFd, name: &std::ffi::OsStr) -> Result<rustix::fs::Stat, String> {
@@ -674,10 +677,16 @@ fn lstat_child(parent: &OwnedFd, name: &std::ffi::OsStr) -> Result<rustix::fs::S
     .map_err(|e| e.to_string())?;
     fs::fstat(file).map_err(|e| e.to_string())
 }
-fn links_inside(target: &ScannedTarget, dev: u64, ino: u64, nlink: u64) -> bool {
+/// All links of the inode are in this item: the ones still in place plus the
+/// ones this execution already moved to Trash (they keep nlink unchanged).
+/// Links elsewhere, including preserved subtrees, make the sum fall short.
+fn links_inside(target: &ScannedTarget, dev: u64, ino: u64, nlink: u64, moved: u64) -> bool {
     count_inode(&target.root, &target.relative, dev, ino, &target.preserved)
-        .is_ok_and(|count| count == nlink)
+        .is_ok_and(|count| count.saturating_add(moved) == nlink)
 }
+/// Per item and inode: links this execution already moved to Trash (nlink
+/// unchanged) and links it already removed permanently (nlink decreased).
+type MovedLinks = std::collections::HashMap<(u64, u64), (u64, u64)>;
 fn count_inode(
     root: &ApprovedRoot,
     relative: &Path,
@@ -762,6 +771,7 @@ fn process_file(
         relative,
         expected,
         kind,
+        moved_links,
     } = leaf;
     // Same file without `.` components: used in reports and Trash `Path=`.
     let original = inodune_core::scan::tidy_path(&target.root.path().join(relative));
@@ -858,7 +868,17 @@ fn process_file(
     {
         return fail("Credencial, chave privada ou leitura insegura; arquivo protegido.");
     }
-    if fp.nlink > 1 && !links_inside(target, fp.dev, fp.ino, fp.nlink) {
+    let (trashed, removed) = moved_links
+        .get(&(fp.dev, fp.ino))
+        .copied()
+        .unwrap_or((0, 0));
+    // Our own permanent removals of sibling links lowered nlink; nothing else may.
+    let expected_now = Fingerprint {
+        nlink: expected.nlink.saturating_sub(removed),
+        ..expected.clone()
+    };
+    let expected = &expected_now;
+    if fp.nlink > 1 && !links_inside(target, fp.dev, fp.ino, fp.nlink, trashed) {
         return fail("Hardlink com elo fora do item; preservado.");
     }
     let python = matches!(kind, CacheKind::Python);
@@ -974,6 +994,14 @@ fn process_file(
     })();
     match result {
         Ok(destination) => {
+            if after.nlink > 1 {
+                let entry = moved_links.entry((after.dev, after.ino)).or_insert((0, 0));
+                if action == Action::Trash {
+                    entry.0 += 1;
+                } else {
+                    entry.1 += 1;
+                }
+            }
             let sync = fs::fsync(&stage.fd)
                 .and_then(|_| fs::fsync(&parent))
                 .map_err(|e| e.to_string())
