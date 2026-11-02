@@ -689,13 +689,50 @@ pub(crate) fn unexamined_entry_text(e: Errno) -> String {
 
 fn issue(r: &mut DiscoveryResult, limits: &ScanLimits, path: &Path, code: &str, message: &str) {
     r.complete = false;
+    let display_path = crate::scan::tidy_display_path(&path.to_string_lossy());
+    // A path reached twice (e.g. denied from one seed, unavailable from
+    // another) is reported once, with the first reason.
+    if r.issues
+        .iter()
+        .any(|known| known.display_path == display_path)
+    {
+        return;
+    }
     if r.issues.len() < limits.max_issues {
         r.issues.push(ScanIssue {
-            display_path: crate::scan::tidy_display_path(&path.to_string_lossy()),
+            display_path,
             code: code.into(),
             // Every discovery message, not only this call site, is translated.
             message: crate::scan::os_error_pt(message),
         });
+    }
+}
+
+#[cfg(test)]
+mod issue_dedup_tests {
+    #[test]
+    fn a_path_denied_and_unavailable_is_reported_once() {
+        let mut result = super::DiscoveryResult {
+            roots: Vec::new(),
+            issues: Vec::new(),
+            volumes: Vec::new(),
+            complete: true,
+        };
+        let limits = crate::scan::ScanLimits::default();
+        let path = std::path::Path::new("/tmp/./.X11-unix");
+        super::issue(&mut result, &limits, path, "structural_denied", "a");
+        super::issue(&mut result, &limits, path, "structural_unavailable", "b");
+        super::issue(
+            &mut result,
+            &limits,
+            std::path::Path::new("/opt/x"),
+            "structural_denied",
+            "c",
+        );
+        assert_eq!(result.issues.len(), 2);
+        assert_eq!(result.issues[0].display_path, "/tmp/.X11-unix");
+        assert_eq!(result.issues[0].code, "structural_denied");
+        assert!(!result.complete);
     }
 }
 
