@@ -45,26 +45,15 @@ class PackagerMetadataTests(unittest.TestCase):
 
     def test_checksums_cover_both_sboms_and_all_distribution_artifacts(self):
         module = load('generate-sbom')
-        # Mock paths prevent generating even dummy .deb/.rpm files.
-        class File:
-            def __init__(self, name):
-                self.name = name
-            def read_bytes(self):
-                return self.name.encode()
-            def write_text(self, text, **kwargs):
-                self.text = text
-        class Output:
-            def __init__(self):
-                self.files = {}
-            def glob(self, suffix):
-                return [self['artifact' + suffix[1:]]]
-            def __getitem__(self, name):
-                return self.files.setdefault(name, File(name))
-            __truediv__ = __getitem__
-        out = Output()
-        with patch.object(module, 'OUT', out):
-            result = module.write_checksums()
-        lines = result.text.splitlines()
+        # Placeholder files in a tempdir; no real .deb/.rpm is generated.
+        with tempfile.TemporaryDirectory() as directory:
+            out = Path(directory)
+            for name in ('artifact.deb', 'artifact.rpm', 'artifact.tar.gz', 'install-user.py',
+                         'inodune-frontend.spdx.json', 'inodune-rust.spdx.json'):
+                (out / name).write_bytes(name.encode())
+            with patch.object(module, 'OUT', out):
+                result = module.write_checksums()
+            lines = result.read_text().splitlines()
         self.assertEqual(len(lines), 6)
         for line in lines:
             digest, name = line.split('  ')
@@ -95,8 +84,15 @@ class DebianControlMetadataTests(unittest.TestCase):
         self.assertEqual(deb['section'], 'utils')
         self.assertTrue(any(d.startswith('libc6 (>= ') for d in deb['depends']))
         base = ROOT / 'apps/desktop/src-tauri'
-        changelog = (base / deb['changelog']).resolve()
+        # Tauri's `changelog` option writes /usr/share/doc/<productName>/
+        # (Inodune), not the package directory: ship it next to copyright.
+        self.assertNotIn('changelog', deb)
+        changelog = ROOT / 'packaging/debian/changelog'
+        packed = (base / deb['files']['/usr/share/doc/inodune/changelog.gz']).resolve()
         copyright_file = (base / deb['files']['/usr/share/doc/inodune/copyright']).resolve()
+        import gzip
+        self.assertEqual(gzip.decompress(packed.read_bytes()), changelog.read_bytes(),
+                         'regenerate packaging/debian/changelog.gz (gzip -9n)')
         self.assertTrue(changelog.is_file())
         self.assertTrue(copyright_file.is_file())
         first = changelog.read_text().splitlines()[0]
@@ -110,3 +106,26 @@ class DebianControlMetadataTests(unittest.TestCase):
         module = load('package-linux')
         source = inspect.getsource(module.prepare_snapshot)
         self.assertIn('ROOT / "packaging" / "debian"', source)
+
+
+class ChecksumListingTests(unittest.TestCase):
+    def test_sha256sums_lists_only_files_present_in_the_output_folder(self):
+        module = load('generate-sbom')
+        with tempfile.TemporaryDirectory() as directory:
+            out = Path(directory)
+            for name in ('Inodune_0.1.9_amd64.deb', 'Inodune-0.1.9-1.x86_64.rpm',
+                         'Inodune_0.1.9_linux_x86_64.tar.gz', *module.REQUIRED_OUTPUTS):
+                (out / name).write_bytes(name.encode())
+            (out / 'SHA256SUMS').write_text('stale  removed-artifact.deb\n')
+            (out / 'subdir').mkdir()
+            with patch.object(module, 'OUT', out):
+                sums = module.write_checksums()
+            names = [line.split('  ', 1)[1] for line in sums.read_text().splitlines()]
+            present = sorted(p.name for p in out.iterdir() if p.is_file() and p.name != 'SHA256SUMS')
+            self.assertEqual(names, present)
+            for line in sums.read_text().splitlines():
+                digest, name = line.split('  ', 1)
+                self.assertEqual(digest, hashlib.sha256((out / name).read_bytes()).hexdigest())
+            (out / 'inodune-rust.spdx.json').unlink()
+            with patch.object(module, 'OUT', out), self.assertRaises(RuntimeError):
+                module.write_checksums()

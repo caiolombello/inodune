@@ -156,16 +156,25 @@ def generate_rust() -> Path:
     return path
 
 
+REQUIRED_OUTPUTS = ("install-user.py", "inodune-frontend.spdx.json", "inodune-rust.spdx.json")
+
+
 def write_checksums() -> Path:
-    paths = []
+    """Hash exactly the regular files present in OUT (never stale names)."""
     for suffix in ("*.deb", "*.rpm", "*.tar.gz"):
         found = sorted(OUT.glob(suffix))
         if len(found) != 1:
             raise RuntimeError(f"Expected one artifact matching {suffix}, got {len(found)}")
-        paths.extend(found)
-    paths.extend(OUT / name for name in ("install-user.py", "inodune-frontend.spdx.json", "inodune-rust.spdx.json"))
-    entries = [f"{hashlib.sha256(path.read_bytes()).hexdigest()}  {path.name}" for path in paths]
+    missing = [name for name in REQUIRED_OUTPUTS if not (OUT / name).is_file()]
+    if missing:
+        raise RuntimeError(f"Missing release outputs: {', '.join(missing)}")
     sums = OUT / "SHA256SUMS"
+    paths = sorted(
+        path
+        for path in OUT.iterdir()
+        if path.name != sums.name and path.is_file() and not path.is_symlink()
+    )
+    entries = [f"{hashlib.sha256(path.read_bytes()).hexdigest()}  {path.name}" for path in paths]
     sums.write_text("\n".join(entries) + "\n", encoding="utf-8")
     return sums
 

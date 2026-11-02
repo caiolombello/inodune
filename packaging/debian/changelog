@@ -8,5 +8,8 @@ inodune (0.1.9) stable; urgency=medium
     counter.
   * Backend: deduplicated PackageKit Resolve IDs, shared inventory policy,
     credential-aware cache manifests.
+  * Security: credentials detected by content (private-key headers, npm
+    _authToken, AWS secret keys, netrc passwords) stay protected in every
+    cleanup target, for Trash and permanent cleanup.
 
  -- Caio Barbieri <70986039+caiolombello@users.noreply.github.com>  Mon, 02 Nov 2026 03:00:00 +0000
