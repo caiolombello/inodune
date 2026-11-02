@@ -1057,7 +1057,7 @@
                 {source === 'local'
                   ? nativeError
                   : t(
-                      'Permissão negada no cenário simulado. Nenhum arquivo foi alterado. Escolha outro cenário em Configurações.',
+                      'Permissão negada neste exemplo. Nenhum arquivo foi alterado. Escolha outro cenário em Configurações.',
                     )}
               </p>
               <button class="button" onclick={() => go('settings')}
@@ -1273,15 +1273,9 @@
           </div>
           {#if candidates.length}<details class="review-drawer">
               <summary>{t('Revisar itens')}</summary>
-              {#each [...new Set(candidates.map((item) => item.category))] as category (category)}
-                {@const group = candidates.filter(
-                  (item) => item.category === category,
-                )}
-                {@const cleanable = group.filter(
-                  (item) => item.risk !== 'protected',
-                )}
-                {@const locked = group.filter(
-                  (item) => item.risk === 'protected',
+              {#each [...new Set(candidates.filter((item) => item.risk !== 'protected').map((item) => item.category))] as category (category)}
+                {@const cleanable = candidates.filter(
+                  (item) => item.category === category && item.risk !== 'protected',
                 )}
                 <section>
                   <h3>
@@ -1291,26 +1285,46 @@
                         .reduce((n, item) => n + item.logical_bytes, 0),
                     )}
                   </h3>
-                  {#each cleanable as item (item.id)}<label>
-                      <input
-                        type="checkbox"
-                        checked={selected.includes(item.id)}
-                        onchange={() => toggle(item)}
-                      />
-                      {item.title} · {formatBytes(item.logical_bytes)}
-                      {#if isCarefulItem(item)}<span class="badge neutral"
-                          >{t('Exige cuidado')}</span
-                        >{/if}
-                    </label>{/each}
-                  {#if locked.length}<p>
-                      {formatNumber(locked.length)}
-                      {t('protegidos, só para consulta')}
-                    </p>
-                    {#each locked as item (item.id)}<p>
-                        {item.title} · {item.reason}
-                      </p>{/each}{/if}
+                  <ul>
+                    {#each cleanable as item (item.id)}<li>
+                        <label>
+                          <input
+                            type="checkbox"
+                            checked={selected.includes(item.id)}
+                            onchange={() => toggle(item)}
+                          />
+                          <span>{item.title}</span>
+                          <span>{formatBytes(item.logical_bytes)}</span>
+                          {#if isCarefulItem(item)}<span class="badge neutral"
+                              >{t('Exige cuidado')}</span
+                            >{/if}
+                        </label>
+                      </li>{/each}
+                  </ul>
                 </section>
               {/each}
+              {#if candidates.some((item) => item.risk === 'protected')}<section>
+                  <h3>
+                    {t('Protegidos')} · {formatNumber(
+                      candidates.filter((item) => item.risk === 'protected').length,
+                    )} · {formatBytes(
+                      candidates
+                        .filter((item) => item.risk === 'protected')
+                        .reduce((n, item) => n + item.logical_bytes, 0),
+                    )}
+                  </h3>
+                  <ul>
+                    {#each candidates.filter((item) => item.risk === 'protected') as item (item.id)}<li>
+                        <label>
+                          <input type="checkbox" disabled />
+                          <span>{item.title}</span>
+                          <span>{formatBytes(item.logical_bytes)}</span>
+                          <span class="badge neutral">{t('Protegido')}</span>
+                          <span>{item.reason}</span>
+                        </label>
+                      </li>{/each}
+                  </ul>
+                </section>{/if}
             </details>{/if}
           {#if homeConfirm}<div
               role="dialog"
@@ -1365,14 +1379,11 @@
               <div class="skeleton"></div>
               <div class="skeleton"></div>
               <div class="skeleton"></div>
-            </div>{:else}<ItemList
-              disabled={executing || preparingCleanup || localScanStale}
-              localMode={source === 'local'}
-              items={available}
-              {selected}
-              ontoggle={toggle}
-              ondetail={(item) => (detail = item)}
-            />{/if}
+            </div>{:else if candidates.length === 0}<div class="empty-state">
+              <Folder size={28} />
+              <h3>{t('Nenhum item nesta seleção')}</h3>
+              <p>{t('Ajuste os filtros ou escolha outro escopo de exemplo.')}</p>
+            </div>{/if}
         </section>
         <div class="trust-footer">
           <Shield size={17} /><span
@@ -1661,7 +1672,7 @@
                 >{t(
                   source === 'local'
                     ? 'Ação para os arquivos'
-                    : 'Política da simulação',
+                    : 'Política do exemplo',
                 )}</legend
               ><label class:chosen={policy === 'trash'}
                 ><input
@@ -1943,8 +1954,8 @@
                                 'cancelled',
                               ].includes(o.outcome),
                             )
-                          ? 'Simulação com itens não concluídos.'
-                          : 'Simulação concluída.',
+                          ? 'Exemplo com itens não concluídos.'
+                          : 'Exemplo concluído.',
                     )}
                   </h2>
                   <p>
@@ -2006,7 +2017,7 @@
             <h2>{t('Ainda não há relatórios.')}</h2>
             <p>
               {t(
-                'O histórico de demonstração aparece após simular uma seleção e dura somente nesta sessão.',
+                'O histórico de demonstração aparece depois de concluir um exemplo e dura somente nesta sessão.',
               )}
             </p>
             <button class="button" onclick={() => go('review')}
@@ -2297,7 +2308,7 @@
                 'A análise é somente leitura e percorre automaticamente os volumes locais permitidos. Nenhuma pasta precisa ser escolhida e nada é removido ao iniciar.',
               )
             : t(
-                'Você está em um protótipo. Todos os caminhos e valores são exemplos; nenhum acesso aos seus arquivos será solicitado.',
+                'Você está em uma demonstração. Todos os caminhos e valores são exemplos; nenhum acesso aos seus arquivos será solicitado.',
               )}
         </p>
       </div>
@@ -2360,7 +2371,7 @@
                 : 'O scanner Rust percorrerá somente as pastas aprovadas, sem seguir links ou mounts. Você poderá pausar, cancelar e revisar os resultados.',
             )
           : t(
-              'O provedor de demonstração emitirá itens e estados de análise. Você poderá pausar, cancelar e revisar tudo antes de simular uma decisão.',
+              'O provedor de demonstração emitirá itens e estados de análise. Você poderá pausar, cancelar e revisar tudo antes de concluir um exemplo.',
             )}
       </p>
       {#if source === 'demo'}<label class="setting-row"
@@ -2482,8 +2493,8 @@
           ? 'Confirmar envio para a Lixeira'
           : 'Confirmar exclusão permanente'
         : policy === 'trash'
-          ? 'Simular envio para a Lixeira?'
-          : 'Simular exclusão permanente?',
+          ? 'Enviar para a Lixeira neste exemplo?'
+          : 'Excluir permanentemente neste exemplo?',
     )}
     onclose={() => {
       confirmation = false;
@@ -2582,7 +2593,7 @@
               : 'A exclusão permanente é irreversível. A confirmação nativa do backend ainda será necessária antes de executar o plano.'
             : policy === 'trash'
               ? 'Na mesma unidade, mover para a Lixeira não libera espaço. Uma operação real seria em geral reversível.'
-              : 'Uma exclusão permanente real não pode ser desfeita pelo Inodune. Este protótipo não exclui arquivos.',
+              : 'Uma exclusão permanente real não pode ser desfeita. Esta demonstração não exclui arquivos.',
         )}
       </p>
     </div>
@@ -2598,7 +2609,7 @@
         >{t(
           source === 'local'
             ? 'Revisei os caminhos e autorizo o executor a prosseguir para a confirmação nativa do sistema.'
-            : 'Revisei os itens e entendo que esta é uma simulação sem alterações no disco.',
+            : 'Revisei os itens deste exemplo. Nenhum arquivo do computador será alterado.',
         )}</span
       ></label
     >
@@ -2618,7 +2629,7 @@
         >{t(
           source === 'local'
             ? 'Prosseguir para confirmação nativa'
-            : 'Confirmar simulação',
+            : 'Confirmar exemplo',
         )}</button
       >
     </div>

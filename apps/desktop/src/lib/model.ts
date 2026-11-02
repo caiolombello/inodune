@@ -62,8 +62,8 @@ export const riskLabel: Record<Risk, string> = {
 export const outcomeLabel: Record<Outcome, string> = {
   pending: 'Aguardando',
   processing: 'Processando exemplo',
-  simulated: 'Simulado · sem alteração',
-  failed: 'Falhou · permissão simulada',
+  simulated: 'Concluído no exemplo',
+  failed: 'Falhou no exemplo',
   skipped_changed: 'Pulado · item alterado',
   cancelled: 'Cancelado · não processado',
 };

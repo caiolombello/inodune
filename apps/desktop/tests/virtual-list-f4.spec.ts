@@ -95,7 +95,7 @@ for (const count of [100, 1_000, 10_000]) {
     await page
       .getByRole('button', { name: 'Analisar pastas', exact: true })
       .click();
-    await page.getByRole('button', { name: 'Revisar candidatos' }).click();
+    await page.getByRole('button', { name: 'Abrir a lista completa' }).click();
     await expect(
       page.getByRole('heading', { name: 'Revisão de itens', exact: true }),
     ).toBeVisible();

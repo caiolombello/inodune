@@ -109,8 +109,7 @@
 <section aria-label="Inventário de programas e jogos">
   <p>
     Escolha os programas e confirme uma vez. A lista mostra o que sai, inclusive
-    dependências. Tamanhos instalados não são espaço recuperável. Indícios de
-    atividade não comprovam desuso.
+    dependências. Indícios de atividade não comprovam desuso.
   </p>
   <button
     class="button primary"

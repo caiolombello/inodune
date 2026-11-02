@@ -225,7 +225,7 @@ test('allows reviewing a selected complete item from a partial automatic scan', 
   await expect(
     page.getByText('Análise com cobertura parcial / exclusões'),
   ).toBeVisible();
-  await page.getByRole('button', { name: 'Revisar candidatos' }).click();
+  await page.getByRole('button', { name: 'Abrir a lista completa' }).click();
   const candidateBox = page.getByRole('checkbox', {
     name: 'Selecionar Cache parcial de fixture',
   });

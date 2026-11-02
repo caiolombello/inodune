@@ -208,10 +208,24 @@ test('overview clean flow and uninstall button', async ({ page }) => {
     .first()
     .click();
   await expect(page.getByRole('button', { name: /Limpar/ }).first()).toBeVisible();
+  await expect(page.getByText('Cache npm')).toBeHidden();
+  await expect(page.getByText('Item / origem')).toHaveCount(0);
   await page.screenshot({ path: shot('overview'), fullPage: true });
   await page.getByText('Revisar itens', { exact: true }).click();
+  await expect(page.getByRole('heading', { name: /Protegidos/ })).toBeVisible();
+  await expect(page.getByText('Credencial')).toBeVisible();
   await expect(page.getByText('Exige cuidado').first()).toBeVisible();
-  await page.screenshot({ path: shot('review-open'), fullPage: true });
+  const sidebar = await page.locator('.sidebar').boundingBox();
+  const skip = await page.locator('.skip-link').boundingBox();
+  const skipFocused = await page.evaluate(
+    () => document.activeElement?.classList.contains('skip-link') ?? false,
+  );
+  expect(sidebar?.x).toBe(0);
+  expect(sidebar?.y).toBe(0);
+  expect(skipFocused).toBe(false);
+  expect((skip?.y ?? 0) < 0).toBeTruthy();
+  await page.locator('.review-drawer').scrollIntoViewIfNeeded();
+  await page.screenshot({ path: shot('review-open'), fullPage: false });
   const npm = page.getByRole('checkbox').first();
   await npm.uncheck();
   await page

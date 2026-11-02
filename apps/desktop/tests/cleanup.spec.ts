@@ -203,7 +203,7 @@ test('local cleanup reports every fixture file and never attributes volume delta
   await page
     .getByRole('button', { name: 'Analisar pastas', exact: true })
     .click();
-  await page.getByRole('button', { name: 'Revisar candidatos' }).click();
+  await page.getByRole('button', { name: 'Abrir a lista completa' }).click();
   await expect(
     page.getByRole('checkbox', { name: 'Selecionar Cache de fixture' }),
   ).toBeChecked();

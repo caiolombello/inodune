@@ -1863,3 +1863,26 @@ nav .mobile-settings {
   font-size: 12px;
   margin-bottom: 12px;
 }
+
+.review-drawer ul {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.review-drawer li {
+  display: block;
+}
+.review-drawer label,
+.review-drawer li {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 32px;
+}
+.review-drawer label span:first-of-type,
+.review-drawer li > span:first-child {
+  min-width: 12rem;
+}

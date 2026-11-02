@@ -1,6 +1,6 @@
 <script lang="ts">
   import { Folder, ChevronRight, LockKeyhole } from '@lucide/svelte';
-  import { formatBytes, isLocallyEligible, type Candidate } from './model';
+  import { formatBytes, isCarefulItem, isLocallyEligible, type Candidate } from './model';
   import RiskBadge from './RiskBadge.svelte';
   import { protectionReason } from './protection';
   import VirtualList from './VirtualList.svelte';
@@ -58,14 +58,13 @@
               : t('Não somado')}</strong
           >
           <div>
-            <RiskBadge risk={item.risk} />
+            {#if isCarefulItem(item)}<span class="badge neutral">{t('Exige cuidado')}</span>
+            {:else}<RiskBadge risk={item.risk} />{/if}
             {#if item.risk === 'protected'}<small
                 class="item-policy-note"
                 title={item.reason}>{t(protectionReason(item.reason))}</small
               >{/if}
-            {#if localMode && item.risk === 'review' && isSelectable(item)}<small
-                class="item-policy-note">{t('Revisão individual')}</small
-              >{:else if !isSelectable(item)}<small class="item-policy-note"
+            {#if !isCarefulItem(item) && !isSelectable(item)}<small class="item-policy-note"
                 >{t('Somente análise')}</small
               >{/if}
           </div>

@@ -93,7 +93,7 @@ test('English keyboard journey translates the interface and preserves visual pre
   await expect(
     page.getByRole('heading', { level: 1, name: 'Review with confidence.' }),
   ).toBeFocused();
-  await page.getByRole('button', { name: 'Simulate impact' }).focus();
+  await page.getByRole('button', { name: 'Review impact' }).focus();
   await page.keyboard.press('Enter');
   await expect(
     page.getByRole('heading', {
@@ -104,14 +104,14 @@ test('English keyboard journey translates the interface and preserves visual pre
   await page.getByRole('button', { name: 'Review confirmation' }).focus();
   await page.keyboard.press('Enter');
   const consent = page.getByRole('checkbox', {
-    name: 'I reviewed the items and understand this is a simulation with no disk changes.',
+    name: 'I reviewed the items in this example. No files on the computer will be changed.',
   });
   await consent.focus();
   await page.keyboard.press('Space');
-  await page.getByRole('button', { name: 'Confirm simulation' }).focus();
+  await page.getByRole('button', { name: 'Confirm example' }).focus();
   await page.keyboard.press('Enter');
   await expect(
-    page.getByRole('heading', { name: 'Simulation completed.' }),
+    page.getByRole('heading', { name: 'Example completed.' }),
   ).toBeVisible();
   await expect(page.getByRole('heading', { level: 1 })).toBeFocused();
 });

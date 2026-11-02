@@ -140,8 +140,6 @@ const catalog: Record<string, string> = {
     'Some areas were not examined. This plan contains only the selected items with complete manifests; nothing outside it will be changed.',
   'Análise local': 'Local analysis',
   'Protótipo navegável': 'Interactive demo',
-  'Somente pastas aprovadas. Nenhuma remoção automática.':
-    'Approved folders only. No automatic removal.',
   'Pastas e valores fictícios. Seus arquivos não são acessados.':
     'Sample folders and values. Your files are not accessed.',
   'Conhecer o fluxo': 'See how it works',
@@ -358,8 +356,8 @@ const catalog: Record<string, string> = {
     'Observed changes are not attributed to cleanup. Files sent to Trash are not counted as freed space.',
   'Lixeira e exclusão permanente não foram executadas. Não existe desfazer para este exemplo, pois nada foi modificado.':
     'Trash and permanent deletion were not performed. This sample has nothing to undo because no files were changed.',
-  'O histórico de demonstração aparece após simular uma seleção e dura somente nesta sessão.':
-    'Demo history appears after simulating a selection and lasts for this session only.',
+  'O histórico de demonstração aparece depois de concluir um exemplo e dura somente nesta sessão.':
+    'Demo history appears after completing an example and lasts for this session only.',
   'Mais espaço para o que importa.': 'More room for what matters.',
   'O Inodune ajuda você a entender caches e artefatos, revisar cada item e preservar o essencial.':
     'Inodune helps you understand caches and artifacts, review each item, and preserve what matters.',
@@ -370,16 +368,16 @@ const catalog: Record<string, string> = {
   'Última atividade': 'Last activity',
   'A análise é somente leitura. Você aprova cada pasta no diálogo nativo; nada é removido ao iniciar.':
     'Scanning is read-only. You approve each folder in the native dialog; starting a scan removes nothing.',
-  'Você está em um protótipo. Todos os caminhos e valores são exemplos; nenhum acesso aos seus arquivos será solicitado.':
-    'You are using a prototype. All paths and values are samples; it will not request access to your files.',
+  'Você está em uma demonstração. Todos os caminhos e valores são exemplos; nenhum acesso aos seus arquivos será solicitado.':
+    'You are in a demonstration. Every path and value is an example; no access to your files will be requested.',
   'Escolha pastas específicas no diálogo nativo. A aprovação não inicia o scan.':
     'Choose specific folders in the native dialog. Approval does not start a scan.',
   'Escolha quais exemplos entram na análise. Nenhuma pasta real será aberta.':
     'Choose which samples to include in the scan. No real folders will be opened.',
   'O scanner Rust percorrerá somente as pastas aprovadas, sem seguir links ou mounts. Você poderá pausar, cancelar e revisar os resultados.':
     'The Rust scanner will inspect only approved folders without following links or mounts. You can pause, cancel, and review the results.',
-  'O provedor de demonstração emitirá itens e estados de análise. Você poderá pausar, cancelar e revisar tudo antes de simular uma decisão.':
-    'The demo provider will show sample items and scan states. You can pause, cancel, and review everything before simulating a decision.',
+  'O provedor de demonstração emitirá itens e estados de análise. Você poderá pausar, cancelar e revisar tudo antes de concluir um exemplo.':
+    'The demo provider will show sample items and scan states. You can pause, cancel, and review everything before completing an example.',
   'Controles dos escopos': 'Scope controls',
   'Exclusões usam caminhos relativos literais. “.” exclui todo o escopo.':
     'Exclusions use literal relative paths. “.” excludes the entire scope.',
@@ -460,8 +458,8 @@ const catalog: Record<string, string> = {
   'total ainda não informado': 'total not yet reported',
   'Não foi possível concluir a análise': 'Could not complete the scan',
   'Não foi possível concluir o exemplo': 'Could not complete the sample',
-  'Permissão negada no cenário simulado. Nenhum arquivo foi alterado. Escolha outro cenário em Configurações.':
-    'Permission denied in the simulated scenario. No files were changed. Choose another scenario in Settings.',
+  'Permissão negada neste exemplo. Nenhum arquivo foi alterado. Escolha outro cenário em Configurações.':
+    'Permission denied in this example. No files were changed. Choose another scenario in Settings.',
   'itens parciais disponíveis. Nenhuma seleção automática foi mantida.':
     'partial items are available. No automatic selection was kept.',
   'Relatório com erro.': 'Report with an error.',
@@ -566,7 +564,7 @@ const catalog: Record<string, string> = {
   'Não foi possível copiar. O caminho permanece disponível para seleção.':
     'Could not copy. The path remains available to select.',
   'Ação para os arquivos': 'Action for files',
-  'Política da simulação': 'Simulation policy',
+  'Política do exemplo': 'Example policy',
   'Mover para a Lixeira no mesmo volume não libera espaço físico. Você precisaria esvaziá-la em outra operação.':
     'Moving files to Trash on the same volume does not free physical space. You would need to empty it in a separate operation.',
   'Exclusão permanente é irreversível. Bytes lógicos não garantem espaço físico por hardlinks, CoW, snapshots ou arquivos abertos.':
@@ -595,21 +593,21 @@ const catalog: Record<string, string> = {
   'Revisar confirmação': 'Review confirmation',
   'Confirmar envio para a Lixeira': 'Confirm sending to Trash',
   'Confirmar exclusão permanente': 'Confirm permanent deletion',
-  'Simular envio para a Lixeira?': 'Simulate sending to Trash?',
-  'Simular exclusão permanente?': 'Simulate permanent deletion?',
-  'Confirmar simulação': 'Confirm simulation',
+  'Enviar para a Lixeira neste exemplo?': 'Send to Trash in this example?',
+  'Excluir permanentemente neste exemplo?': 'Delete permanently in this example?',
+  'Confirmar exemplo': 'Confirm example',
   'Enviar arquivos à Lixeira normalmente preserva a possibilidade de restauração e não libera espaço na mesma unidade. A confirmação nativa do backend ainda será necessária.':
     'Sending files to Trash usually preserves the option to restore them and does not free space on the same volume. Native backend confirmation will still be required.',
   'A exclusão permanente é irreversível. A confirmação nativa do backend ainda será necessária antes de executar o plano.':
     'Permanent deletion is irreversible. Native backend confirmation will still be required before the plan runs.',
   'Na mesma unidade, mover para a Lixeira não libera espaço. Uma operação real seria em geral reversível.':
     'Moving files to Trash on the same volume does not free space. A real operation would generally be reversible.',
-  'Uma exclusão permanente real não pode ser desfeita pelo Inodune. Este protótipo não exclui arquivos.':
-    'Inodune cannot undo a real permanent deletion. This prototype does not delete files.',
+  'Uma exclusão permanente real não pode ser desfeita. Esta demonstração não exclui arquivos.':
+    'A real permanent deletion cannot be undone. This demonstration does not delete files.',
   'Revisei os caminhos e autorizo o executor a prosseguir para a confirmação nativa do sistema.':
     'I reviewed the paths and authorize the executor to continue to native system confirmation.',
-  'Revisei os itens e entendo que esta é uma simulação sem alterações no disco.':
-    'I reviewed the items and understand this is a simulation with no disk changes.',
+  'Revisei os itens deste exemplo. Nenhum arquivo do computador será alterado.':
+    'I reviewed the items in this example. No files on the computer will be changed.',
   'Prosseguir para confirmação nativa': 'Continue to native confirmation',
   'Proteção é uma decisão explícita.': 'Protection is an explicit decision.',
   'Idade não é evidência de desuso.': 'Age is not evidence of disuse.',
@@ -626,12 +624,12 @@ const catalog: Record<string, string> = {
   'Aprovação revogada.': 'Approval revoked.',
   'Conclua ou pause a operação atual antes de alterar os escopos aprovados.':
     'Pause or finish the current operation before changing approved scopes.',
-  'Simulação concluída.': 'Simulation completed.',
+  'Exemplo concluído.': 'Example completed.',
   'Processando exemplos, item a item.':
     'Processing samples, one item at a time.',
-  'Simulação com itens não concluídos.': 'Simulation with incomplete items.',
-  'Simulado · sem alteração': 'Simulated · no changes',
-  'Falhou · permissão simulada': 'Failed · simulated permission error',
+  'Exemplo com itens não concluídos.': 'Example with incomplete items.',
+  'Concluído no exemplo': 'Completed in the example',
+  'Falhou no exemplo': 'Failed in the example',
   'Pulado · item alterado': 'Skipped · item changed',
   'Cancelado · não processado': 'Cancelled · not processed',
   'Potencial lógico estimado': 'Estimated logical potential',

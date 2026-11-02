@@ -37,16 +37,16 @@ test('complete journey: protect, explain, review, simulate and report with no re
   await expect(page.getByText('0 B na mesma unidade')).toBeVisible();
   await page.getByRole('button', { name: 'Revisar confirmação' }).click();
   await expect(
-    page.getByRole('button', { name: 'Confirmar simulação' }),
+    page.getByRole('button', { name: 'Confirmar exemplo' }),
   ).toBeDisabled();
   await page.getByRole('checkbox').check();
-  await page.getByRole('button', { name: 'Confirmar simulação' }).click();
+  await page.getByRole('button', { name: 'Confirmar exemplo' }).click();
   await expect(
-    page.getByRole('heading', { name: 'Simulação concluída.' }),
+    page.getByRole('heading', { name: 'Exemplo concluído.' }),
   ).toBeVisible();
   await expect(page.getByRole('heading', { level: 1 })).toBeFocused();
   await expect(
-    page.getByText('Simulado · sem alteração', { exact: true }),
+    page.getByText('Concluído no exemplo', { exact: true }),
   ).toHaveCount(2);
   await expect(page.getByText('Não medido', { exact: true })).toBeVisible();
 });
@@ -98,14 +98,14 @@ test('partial execution preserves failures and changed items', async ({
   await page.getByRole('button', { name: 'Revisar confirmação' }).click();
   await expect(page.getByRole('dialog')).toContainText('não pode ser desfeita');
   await page.getByRole('checkbox').check();
-  await page.getByRole('button', { name: 'Confirmar simulação' }).click();
+  await page.getByRole('button', { name: 'Confirmar exemplo' }).click();
   await expect(
     page.getByRole('heading', { name: 'Processando exemplos, item a item.' }),
   ).toBeVisible();
   await expect(
-    page.getByRole('heading', { name: 'Simulação concluída.' }),
+    page.getByRole('heading', { name: 'Exemplo concluído.' }),
   ).not.toBeVisible();
-  await expect(page.getByText('Falhou · permissão simulada')).toBeVisible();
+  await expect(page.getByText('Falhou no exemplo')).toBeVisible();
   await expect(page.getByText('Pulado · item alterado')).toBeVisible();
   expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
   await page.screenshot({
@@ -114,7 +114,7 @@ test('partial execution preserves failures and changed items', async ({
     animations: 'disabled',
   });
   await expect(
-    page.getByRole('heading', { name: 'Simulação com itens não concluídos.' }),
+    page.getByRole('heading', { name: 'Exemplo com itens não concluídos.' }),
   ).toBeVisible();
 });
 test('empty and error states remain truthful across innovation screens', async ({
@@ -220,10 +220,10 @@ test('cancellation between items keeps completed outcomes and report estimate fr
   await page.getByRole('button', { name: 'Revisar impacto' }).click();
   await page.getByRole('button', { name: 'Revisar confirmação' }).click();
   await page.getByRole('checkbox').check();
-  await page.getByRole('button', { name: 'Confirmar simulação' }).click();
+  await page.getByRole('button', { name: 'Confirmar exemplo' }).click();
   await page.getByRole('button', { name: 'Cancelar entre itens' }).click();
   await expect(page.getByText('Cancelado · não processado')).toBeVisible();
-  await expect(page.getByText('Simulado · sem alteração')).toBeVisible();
+  await expect(page.getByText('Concluído no exemplo')).toBeVisible();
   await page.getByRole('button', { name: 'Voltar à revisão' }).click();
   await page.getByRole('button', { name: 'Desmarcar todos' }).click();
   await page.getByRole('button', { name: 'Histórico', exact: true }).click();
