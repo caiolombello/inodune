@@ -516,23 +516,54 @@ fn validate_root_count(count: usize) -> Result<(), String> {
     }
 }
 
-fn dpkg_direct(ids: &[String]) -> Result<(String, bool), String> {
+fn container_marker() -> bool {
+    std::path::Path::new("/run/.containerenv").exists()
+        || std::path::Path::new("/.dockerenv").exists()
+}
+fn dpkg_query_blocks(record: &str) -> bool {
+    let mut fields = record.split('\t');
+    let essential = fields.next().unwrap_or("").trim();
+    let priority = fields.next().unwrap_or("").trim();
+    essential.eq_ignore_ascii_case("yes") || priority.eq_ignore_ascii_case("required")
+}
+fn dpkg_direct(ids: &[String], yes: bool) -> Result<(String, bool), String> {
+    if !yes {
+        return Err("dpkg direto no container exige --yes. Nada foi removido.".into());
+    }
+    if !container_marker() {
+        return Err("dpkg direto só é aceito dentro de um container. Nada foi removido.".into());
+    }
     let uid = std::fs::read_to_string("/proc/self/status").unwrap_or_default();
     let root = uid
         .lines()
         .find_map(|line| line.strip_prefix("Uid:"))
         .is_some_and(|rest| rest.split_whitespace().next() == Some("0"));
     if !root {
-        return Err("dpkg direto no container exige root".into());
+        return Err("dpkg direto no container exige root. Nada foi removido.".into());
     }
     for id in ids {
         inodune_apps::uninstall::validate_id(inodune_apps::Source::Apt, id)?;
         if inodune_apps::uninstall::package_blocked(id) {
             return Err(format!("Pacote bloqueado: {id}"));
         }
+        let query = std::process::Command::new("/usr/bin/dpkg-query")
+            .args(["-W", "-f=${Essential}\t${Priority}\n", "--", id])
+            .stdin(std::process::Stdio::null())
+            .output()
+            .map_err(|e| format!("dpkg-query indisponível: {e}"))?;
+        if !query.status.success() {
+            return Err(format!("dpkg-query recusou {id} antes da remoção"));
+        }
+        let record = String::from_utf8_lossy(&query.stdout);
+        if dpkg_query_blocks(record.trim()) {
+            return Err(format!(
+                "Pacote essencial ou de prioridade required: {id}. Nada foi removido."
+            ));
+        }
     }
     let status = std::process::Command::new("/usr/bin/dpkg")
         .arg("--remove")
+        .arg("--")
         .args(ids)
         .stdin(std::process::Stdio::null())
         .status()
@@ -559,7 +590,7 @@ fn uninstall_apps(args: &[&str]) -> Result<(String, bool), String> {
         return Err("Informe ao menos um ID. Uso: inodune apps uninstall ID... [--yes]".into());
     }
     if std::env::var("INODUNE_CONTAINER_DPKG").ok().as_deref() == Some("1") {
-        return dpkg_direct(&ids);
+        return dpkg_direct(&ids, yes);
     }
     let inventory = inodune_apps::inventory()?;
     let mut grouped: std::collections::BTreeMap<inodune_apps::Source, Vec<String>> =
@@ -653,8 +684,17 @@ fn usage() -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{confirmation_matches, present_apps, run};
+    use super::{confirmation_matches, dpkg_query_blocks, present_apps, run};
     use std::fs;
+
+    #[test]
+    fn dpkg_query_refuses_essential_and_required_priority() {
+        assert!(dpkg_query_blocks("yes\toptional"));
+        assert!(dpkg_query_blocks("no\trequired"));
+        assert!(dpkg_query_blocks("\trequired"));
+        assert!(!dpkg_query_blocks("no\toptional"));
+        assert!(!dpkg_query_blocks("\timportant"));
+    }
 
     #[test]
     fn broken_pipe_exits_cleanly_without_hiding_other_output_errors() {
