@@ -161,3 +161,32 @@ fn protected_sibling_subtree_is_excluded_and_safe_files_remain_authorized() {
     assert!(item.impact.contains("Lixeira"));
     assert!(!item.impact.contains("Inventário não autoriza"));
 }
+#[test]
+fn cache_with_only_its_preserved_subtree_says_nothing_to_clean() {
+    let temp = tempfile::tempdir().unwrap();
+    let cache = temp.path().join(".npm/_cacache/with-key");
+    fs::create_dir_all(&cache).unwrap();
+    fs::write(cache.join("notes.txt"), key()).unwrap();
+    let snapshot = scan::scan(
+        &[ApprovedRoot::open(temp.path(), ScopeKind::Projects).unwrap()],
+        &ScanControl::default(),
+        &ScanLimits::default(),
+        |_| {},
+    )
+    .unwrap();
+    let item = snapshot
+        .candidates
+        .iter()
+        .find(|c| c.detector_id == "npm.cache")
+        .unwrap();
+    // Still not cleanable (fail-closed), but explained truthfully.
+    assert_ne!(item.risk, Risk::Review);
+    assert!(item.reason.contains("Nada a limpar"), "{}", item.reason);
+    assert!(item.reason.contains("1 item protegido"), "{}", item.reason);
+    assert!(
+        !item.reason.contains("Cobertura incompleta"),
+        "{}",
+        item.reason
+    );
+    assert!(!item.reason.contains("(s)"), "{}", item.reason);
+}

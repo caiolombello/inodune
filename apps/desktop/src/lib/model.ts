@@ -217,3 +217,19 @@ export function executeDemo(
   if (scenario === 'partial' && id === 'rust') return 'skipped_changed';
   return 'simulated';
 }
+
+/**
+ * State after a finished scan: the new result replaces the previous one
+ * entirely (no merge with old rows); selection is recomputed from it.
+ */
+export function applyScanResult(
+  result: { candidates: Candidate[]; complete: boolean; cancelled: boolean },
+  automatic: boolean,
+): { candidates: Candidate[]; selected: string[] } {
+  const candidates = [...result.candidates];
+  const selected =
+    !result.cancelled && (result.complete || automatic)
+      ? selectOverviewDefaults(candidates, true)
+      : [];
+  return { candidates, selected };
+}

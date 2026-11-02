@@ -67,6 +67,7 @@
     formatBytes,
     formatSignedBytes,
     selectOverviewDefaults,
+    applyScanResult,
     isLocallyEligible,
     toggleSelection,
     simulateBudget,
@@ -497,7 +498,8 @@
       }
       if (result.result) {
         nativeResult = result.result;
-        candidates = result.result.candidates;
+        const next = applyScanResult(result.result, scanMode === 'automatic');
+        candidates = next.candidates;
         if (scanMode === 'automatic') {
           try {
             const discovered = await native.listScopes();
@@ -514,11 +516,7 @@
           sound.play(result.result.complete ? 'ready' : 'attention');
         // Low risk only. Automatic scans are rarely "complete" (system areas are
         // skipped), yet their plans are accepted; manual partial scans are not.
-        selected =
-          !result.result.cancelled &&
-          (result.result.complete || scanMode === 'automatic')
-            ? selectOverviewDefaults(candidates, true)
-            : [];
+        selected = next.selected;
         return;
       }
       nativeTimer = setTimeout(() => void pollNative(), 150);

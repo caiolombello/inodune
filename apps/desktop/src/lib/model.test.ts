@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  applyScanResult,
   demo,
   selectDefaults,
   selectOverviewDefaults,
@@ -191,4 +192,37 @@ it('local overview preselection only takes eligible low-risk items', () => {
       true,
     ),
   ).toEqual(['a']);
+});
+
+it('a new scan result replaces the previous rows instead of merging', () => {
+  const base = demo.candidates[0];
+  const stale = {
+    ...base,
+    id: 'old-pip',
+    risk: 'protected' as const,
+    reason: 'Cobertura incompleta: protegido.',
+  };
+  const fresh = {
+    ...base,
+    id: 'new-pip',
+    risk: 'low' as const,
+    supported_action: 'cache_contents' as const,
+  };
+  const first = applyScanResult(
+    { candidates: [stale], complete: true, cancelled: false },
+    true,
+  );
+  expect(first.candidates.map((c) => c.id)).toEqual(['old-pip']);
+  const second = applyScanResult(
+    { candidates: [fresh], complete: false, cancelled: false },
+    true,
+  );
+  expect(second.candidates.map((c) => c.id)).toEqual(['new-pip']);
+  expect(second.selected).toEqual(['new-pip']);
+  expect(
+    applyScanResult(
+      { candidates: [fresh], complete: true, cancelled: true },
+      true,
+    ).selected,
+  ).toEqual([]);
 });
