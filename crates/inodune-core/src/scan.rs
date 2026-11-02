@@ -1986,194 +1986,11 @@ pub fn protected_name(name: &std::ffi::OsStr) -> bool {
         || n.ends_with(".ovpn")
         || n == ".cursor"
 }
-fn placeholder(value: &str) -> bool {
-    let upper = value.to_ascii_uppercase();
-    [
-        "YOUR_",
-        "EXAMPLE",
-        "CHANGEME",
-        "PLACEHOLDER",
-        "<",
-        ">",
-        "XXX",
-        "DUMMY",
-        "FIXTURE",
-        "FAKE",
-    ]
-    .iter()
-    .any(|p| upper.contains(p))
-        || upper.starts_with("TEST_")
-}
-fn plausible_secret(value: &str) -> bool {
-    let value =
-        value.trim_matches(|c: char| c.is_whitespace() || matches!(c, '\'' | '"' | ',' | ';'));
-    value.len() >= 20
-        && value.len() <= 2048
-        && !placeholder(value)
-        && value
-            .bytes()
-            .all(|c| c.is_ascii_alphanumeric() || b"_+/=-.".contains(&c))
-        && value
-            .bytes()
-            .collect::<std::collections::BTreeSet<_>>()
-            .len()
-            >= 8
-}
-fn secret_key(name: &str) -> bool {
-    matches!(
-        name.to_ascii_lowercase().as_str(),
-        "_authtoken"
-            | "_auth"
-            | "token"
-            | "auth_token"
-            | "api_key"
-            | "apikey"
-            | "aws_secret_access_key"
-            | "aws_session_token"
-            | "access_token"
-            | "refresh_token"
-            | "client_secret"
-            | "accountkey"
-            | "secret_access_key"
-            | "secretaccesskey"
-            | "clientsecret"
-            | "accesstoken"
-            | "refreshtoken"
-            | "password"
-    )
-}
-fn json_credentials(value: &serde_json::Value) -> bool {
-    match value {
-        serde_json::Value::Object(map) => map.iter().any(|(key, value)| {
-            (secret_key(key) && value.as_str().is_some_and(plausible_secret))
-                || (key == "private_key"
-                    && value
-                        .as_str()
-                        .is_some_and(|s| credential_bytes(Path::new("key.pem"), s.as_bytes())))
-                || json_credentials(value)
-        }),
-        serde_json::Value::Array(items) => items.iter().any(json_credentials),
-        _ => false,
-    }
-}
-/// Format checks only, never decrypts a key. Source literals are not disk keys.
-pub fn credential_bytes(path: &Path, bytes: &[u8]) -> bool {
-    use base64::{engine::general_purpose::STANDARD, Engine};
-    let text = String::from_utf8_lossy(bytes);
-    let code = path.extension().and_then(|e| e.to_str()).is_some_and(|e| {
-        [
-            "rs", "js", "jsx", "ts", "tsx", "py", "go", "java", "c", "h", "cpp", "css", "html",
-            "map",
-        ]
-        .contains(&e)
-    });
-    let trimmed = text.trim_start();
-    if code && !trimmed.starts_with("-----BEGIN ") {
-        return false;
-    }
-    for (index, line) in text.lines().enumerate() {
-        let line = line.trim();
-        let Some(kind) = line
-            .strip_prefix("-----BEGIN ")
-            .and_then(|s| s.strip_suffix("-----"))
-        else {
-            continue;
-        };
-        if ![
-            "PRIVATE KEY",
-            "RSA PRIVATE KEY",
-            "EC PRIVATE KEY",
-            "DSA PRIVATE KEY",
-            "OPENSSH PRIVATE KEY",
-            "ENCRYPTED PRIVATE KEY",
-        ]
-        .contains(&kind)
-        {
-            continue;
-        }
-        let end = format!("-----END {kind}-----");
-        let mut body = String::new();
-        let mut complete = false;
-        let mut encrypted = false;
-        for part in text.lines().skip(index + 1) {
-            if part.trim() == end {
-                complete = true;
-                break;
-            }
-            if part.trim() == "Proc-Type: 4,ENCRYPTED" {
-                encrypted = true;
-                continue;
-            }
-            if encrypted && part.trim().starts_with("DEK-Info:") {
-                continue;
-            }
-            body.push_str(part.trim());
-        }
-        if !complete {
-            // A key exceeding the bounded prefix cannot safely be classified as documentation.
-            if bytes.len() == 4096 && trimmed.starts_with(line) {
-                return true;
-            }
-            continue;
-        }
-        if let Ok(decoded) = STANDARD.decode(body.as_bytes()) {
-            if encrypted && decoded.len() >= 48 {
-                return true;
-            }
-            if kind == "OPENSSH PRIVATE KEY" {
-                if decoded.starts_with(b"openssh-key-v1\0") && decoded.len() >= 64 {
-                    return true;
-                }
-            } else if decoded.len() >= 48 && decoded[0] == 0x30 {
-                // DER SEQUENCE with a coherent length, not a cited header or placeholder.
-                let first = decoded[1];
-                let (header, length) = if first & 0x80 == 0 {
-                    (2, first as usize)
-                } else {
-                    let count = (first & 0x7f) as usize;
-                    if count == 0 || count > 4 || decoded.len() < count + 2 {
-                        continue;
-                    }
-                    let length = decoded[2..2 + count]
-                        .iter()
-                        .fold(0usize, |n, b| (n << 8) | *b as usize);
-                    (count + 2, length)
-                };
-                if header + length == decoded.len() {
-                    return true;
-                }
-            }
-        }
-    }
-    if code {
-        return false;
-    }
-    if serde_json::from_slice(bytes)
-        .ok()
-        .as_ref()
-        .is_some_and(json_credentials)
-    {
-        return true;
-    }
-    text.lines().any(|line| {
-        let line = line.trim();
-        if line.starts_with('#') {
-            return false;
-        }
-        let Some((name, value)) = line.split_once('=').or_else(|| line.split_once(':')) else {
-            return false;
-        };
-        let name = name
-            .trim()
-            .strip_prefix("export ")
-            .unwrap_or(name.trim())
-            .trim_matches(['\'', '"']);
-        let name = name.rsplit_once(":").map_or(name, |(_, key)| key);
-        secret_key(name) && plausible_secret(value.split_once(" #").map_or(value, |(v, _)| v))
-    })
-}
-/// Read at most 4 KiB, through the retained root, without following symlinks.
-/// Unreadable/unstable data is still fail-closed; only false format matches change.
+/// Content policy shared by the scanner and the executor (see `credentials`).
+pub use crate::credentials::credential_bytes;
+/// Bounded read through the retained root, without following symlinks: the
+/// first 64 KiB of every file and up to 1 MiB of text files (no NUL in the first
+/// window). Unreadable or changing files are fail-closed (protected).
 pub fn sensitive_content(root: &ApprovedRoot, path: &Path) -> bool {
     let Ok(fd) = root.open_relative(path, OFlags::RDONLY | OFlags::NONBLOCK | OFlags::NOATIME)
     else {
@@ -2186,8 +2003,22 @@ pub fn sensitive_content(root: &ApprovedRoot, path: &Path) -> bool {
         return true;
     }
     let mut file = std::fs::File::from(fd);
+    use crate::credentials::{FIRST_WINDOW, TEXT_LIMIT};
     let mut bytes = Vec::with_capacity(4096);
-    if (&mut file).take(4096).read_to_end(&mut bytes).is_err() {
+    if (&mut file)
+        .take(FIRST_WINDOW as u64)
+        .read_to_end(&mut bytes)
+        .is_err()
+    {
+        return true;
+    }
+    if bytes.len() == FIRST_WINDOW
+        && !bytes.contains(&0)
+        && (&mut file)
+            .take((TEXT_LIMIT - FIRST_WINDOW) as u64)
+            .read_to_end(&mut bytes)
+            .is_err()
+    {
         return true;
     }
     let Ok(after) = fs::fstat(&file) else {

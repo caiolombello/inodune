@@ -3,6 +3,7 @@
 pub mod access;
 #[cfg(target_os = "linux")]
 pub mod cache_rules;
+pub mod credentials;
 #[cfg(target_os = "linux")]
 pub mod discovery;
 #[cfg(target_os = "linux")]

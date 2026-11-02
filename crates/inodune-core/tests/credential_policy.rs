@@ -28,7 +28,7 @@ fn qa_baits_and_botocore_metadata_do_not_poison_the_cache() {
         "../../../tests/fixtures/credential-cache-baits.json"
     ))
     .unwrap();
-    assert_eq!(cases.as_array().unwrap().len(), 29);
+    assert_eq!(cases.as_array().unwrap().len(), 43);
     for case in cases.as_array().unwrap() {
         let temp = tempfile::tempdir().unwrap();
         let cache = temp.path().join("node_modules");
@@ -111,9 +111,15 @@ fn actual_shapes_in_generic_names_and_nonplaceholder_cloud_values_stay_protected
             format!("aws_secret_access_key = {placeholder}").as_bytes()
         ));
     }
-    assert!(!scan::credential_bytes(
+    // 0.1.9 QA: a private-key header at the start of a line is enough; the body
+    // is never required to be valid. A header quoted inside a literal is not.
+    assert!(scan::credential_bytes(
         Path::new("notes.txt"),
         b"-----BEGIN PRIVATE KEY-----\njust a cited header"
+    ));
+    assert!(!scan::credential_bytes(
+        Path::new("notes.txt"),
+        b"The file starts with \"-----BEGIN PRIVATE KEY-----\" and ends with END."
     ));
 }
 #[test]
