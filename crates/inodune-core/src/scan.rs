@@ -93,6 +93,39 @@ thread_local! {
     static CACHE_HOME_OVERRIDE: std::cell::RefCell<Option<PathBuf>> = const { std::cell::RefCell::new(None) };
     static TRASH_DIR_OVERRIDE: std::cell::RefCell<Option<PathBuf>> = const { std::cell::RefCell::new(None) };
 }
+/// `Not a directory (os error 20)` -> Portuguese, keeping unknown text as is.
+pub fn os_error_pt(message: &str) -> String {
+    let Some(start) = message.find("(os error ") else {
+        return message.to_owned();
+    };
+    let code = message[start + 10..]
+        .split(')')
+        .next()
+        .and_then(|n| n.parse::<i32>().ok());
+    let text = match code {
+        Some(1) => "operação não permitida",
+        Some(2) => "arquivo ou pasta não existe mais",
+        Some(5) => "erro de leitura no disco",
+        Some(13) => "permissão negada",
+        Some(17) => "o destino já existe",
+        Some(18) => "o destino está em outro volume",
+        Some(20) => "um arquivo está onde se esperava uma pasta",
+        Some(21) => "uma pasta está onde se esperava um arquivo",
+        Some(28) => "sem espaço no dispositivo",
+        Some(30) => "sistema de arquivos somente leitura",
+        Some(39) => "a pasta não está vazia",
+        Some(40) => "links simbólicos em excesso",
+        _ => return message.to_owned(),
+    };
+    let prefix = message[..start].trim_end();
+    let english = prefix.rsplit_once(": ").map_or(prefix, |(_, tail)| tail);
+    if english.is_empty() || english == prefix {
+        text.to_owned()
+    } else {
+        format!("{}: {text}", &prefix[..prefix.len() - english.len() - 2])
+    }
+}
+
 /// Display form of a path: drops `.` components (`/home/u/./x` -> `/home/u/x`).
 /// Presentation only; `..` and symlinks are never resolved here.
 pub fn tidy_display_path(path: &str) -> String {
@@ -556,9 +589,9 @@ impl<F: FnMut(ScanProgress)> Walker<'_, F> {
         self.count_skip(code);
         if self.out.issues.len() < self.limits.max_issues {
             self.out.issues.push(ScanIssue {
-                display_path: path.to_string_lossy().into(),
+                display_path: tidy_display_path(&path.to_string_lossy()),
                 code: code.into(),
-                message: message.into(),
+                message: os_error_pt(message),
             });
         }
     }

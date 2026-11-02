@@ -751,6 +751,33 @@ fn decode_mount_path(input: &[u8]) -> Option<Vec<u8>> {
     Some(output)
 }
 
+/// Specific Portuguese reason for a failed sandboxed Git query. The repository
+/// stays protected either way; only the explanation changes.
+fn git_failure(code: Option<i32>, stderr: &[u8]) -> String {
+    let text = String::from_utf8_lossy(stderr);
+    let first = text
+        .lines()
+        .map(str::trim)
+        .find(|line| !line.is_empty())
+        .unwrap_or("")
+        .chars()
+        .filter(|c| !c.is_control())
+        .take(160)
+        .collect::<String>();
+    if first.starts_with("bwrap:") {
+        return format!(
+            "Sandbox somente leitura do Git (bubblewrap) indisponível neste ambiente, por exemplo em contêiner sem permissão para montar /proc; repositório preservado sem inspeção. Detalhe: {}",
+            crate::scan::os_error_pt(first.trim_start_matches("bwrap:").trim())
+        );
+    }
+    let code = code.map_or_else(|| "sinal".to_owned(), |c| c.to_string());
+    if first.is_empty() {
+        format!("Git terminou com erro (código {code}) sem diagnóstico; repositório preservado.")
+    } else {
+        format!("Git terminou com erro (código {code}): {first}. Repositório preservado.")
+    }
+}
+
 fn run_git(
     root: &ApprovedRoot,
     cwd: &Path,
@@ -861,7 +888,7 @@ fn bounded_wait_with_timeout(
                     return Err("Saída Git excedeu o limite.".into());
                 }
                 if !status.success() {
-                    return Err("Git retornou erro.".into());
+                    return Err(git_failure(status.code(), &stderr));
                 }
                 if !stderr.is_empty() {
                     return Err("Git emitiu diagnóstico; estado é incerto.".into());
@@ -1059,6 +1086,21 @@ fn parse_signed_count(value: &[u8], sign: u8) -> Option<u64> {
     std::str::from_utf8(digits).ok()?.parse().ok()
 }
 
+#[cfg(test)]
+mod git_failure_tests {
+    #[test]
+    fn sandbox_and_git_failures_are_explained() {
+        let sandbox = super::git_failure(
+            Some(1),
+            b"bwrap: Can't mount proc on /newroot/proc: Operation not permitted\n",
+        );
+        assert!(sandbox.contains("bubblewrap"), "{sandbox}");
+        assert!(!sandbox.contains("Git retornou erro"));
+        let git = super::git_failure(Some(128), b"fatal: not a git repository\n");
+        assert!(git.contains("código 128") && git.contains("fatal: not a git repository"));
+        assert!(super::git_failure(None, b"").contains("sem diagnóstico"));
+    }
+}
 #[cfg(test)]
 mod tests {
     use super::*;

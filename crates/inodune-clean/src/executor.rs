@@ -1084,7 +1084,7 @@ fn outcome(
         display_path: path.to_string_lossy().into(),
         status,
         logical_bytes,
-        message: message.into(),
+        message: inodune_core::scan::os_error_pt(message),
         preserved_at,
         durability_confirmed: true,
     }

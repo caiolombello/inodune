@@ -756,37 +756,8 @@ fn status_label(status: &inodune_clean::executor::FileStatus) -> &'static str {
     }
 }
 
-/// `Not a directory (os error 20)` -> Portuguese, keeping unknown text as is.
 fn os_error_text(message: &str) -> String {
-    let Some(start) = message.find("(os error ") else {
-        return message.to_owned();
-    };
-    let code = message[start + 10..]
-        .split(')')
-        .next()
-        .and_then(|n| n.parse::<i32>().ok());
-    let text = match code {
-        Some(1) => "operação não permitida",
-        Some(2) => "arquivo ou pasta não existe mais",
-        Some(5) => "erro de leitura no disco",
-        Some(13) => "permissão negada",
-        Some(17) => "o destino já existe",
-        Some(18) => "o destino está em outro volume",
-        Some(20) => "um arquivo está onde se esperava uma pasta",
-        Some(21) => "uma pasta está onde se esperava um arquivo",
-        Some(28) => "sem espaço no dispositivo",
-        Some(30) => "sistema de arquivos somente leitura",
-        Some(39) => "a pasta não está vazia",
-        Some(40) => "links simbólicos em excesso",
-        _ => return message.to_owned(),
-    };
-    let prefix = message[..start].trim_end();
-    let english = prefix.rsplit_once(": ").map_or(prefix, |(_, tail)| tail);
-    if english.is_empty() || english == prefix {
-        text.to_owned()
-    } else {
-        format!("{}: {text}", &prefix[..prefix.len() - english.len() - 2])
-    }
+    scan::os_error_pt(message)
 }
 
 /// Reviewable cache detectors, exactly as `scan` reports them.
