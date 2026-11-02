@@ -272,8 +272,27 @@ fn run_clean(args: &[String], control: &ScanControl) -> Result<(String, bool), S
             })
             .collect::<Vec<_>>();
         if eligible.is_empty() {
+            // Repeat why each candidate of this detector is not eligible.
+            let reasons = snapshot
+                .candidates
+                .iter()
+                .filter(|candidate| candidate.detector_id == *detector)
+                .map(|candidate| {
+                    format!(
+                        "  {} ({}): {}",
+                        scan::tidy_display_path(&candidate.display_path),
+                        risk_label(&candidate.risk),
+                        candidate.reason
+                    )
+                })
+                .collect::<Vec<_>>();
+            let detail = if reasons.is_empty() {
+                String::new()
+            } else {
+                format!(" Motivos:\n{}", reasons.join("\n"))
+            };
             return Err(format!(
-                "Nenhum candidato elegível para revisão '{detector}' foi encontrado nesta análise."
+                "Nenhum candidato elegível para revisão '{detector}' foi encontrado nesta análise.{detail}"
             ));
         }
         // Every candidate of the detector goes into one plan (use --root to

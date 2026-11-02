@@ -89,6 +89,12 @@ fn cleaned_pip_cache_with_only_empty_folders_says_nothing_to_clean() {
     );
     assert_ne!(code, Some(0), "{out}");
     assert!(out.contains("Nenhum candidato elegível"), "{out}");
+    // The protection reason of each candidate is repeated.
+    assert!(
+        out.contains("Motivos:") && out.contains("Nada a limpar"),
+        "{out}"
+    );
+    assert!(out.contains(".cache/pip (protegido)"), "{out}");
 }
 
 #[test]
