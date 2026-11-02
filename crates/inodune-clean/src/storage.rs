@@ -477,6 +477,7 @@ mod tests {
             gid,
             name: "only",
             census: Ok(GroupCensus {
+                name: "only".into(),
                 supplementary: vec![],
                 primary_users: vec!["only".into()],
             }),
@@ -562,6 +563,7 @@ mod tests {
             gid,
             name: "only",
             census: Ok(GroupCensus {
+                name: "only".into(),
                 supplementary: vec!["guest".into()],
                 primary_users: vec!["only".into()],
             }),
@@ -614,6 +616,7 @@ mod tests {
             gid,
             name: "only",
             census: Ok(GroupCensus {
+                name: "only".into(),
                 supplementary: vec![],
                 primary_users: vec!["only".into(), "guest".into()],
             }),

@@ -514,16 +514,25 @@ fn validate_witnesses(target: &ScannedTarget) -> Result<(), String> {
     }
 
     for (path, expected) in &target.witnesses {
-        if expected.mode & 0o022 != 0 {
-            return Err(
-                "Evidência gravável por terceiros; limpeza recusada sem alterar permissões.".into(),
-            );
-        }
         let fd = target
             .root
             .open_relative(path, OFlags::PATH)
             .map_err(|e| format!("Evidência desapareceu: {e}"))?;
-        if Fingerprint::from_stat(&fs::fstat(fd).map_err(|e| e.to_string())?) != *expected {
+        let stat = fs::fstat(fd).map_err(|e| e.to_string())?;
+        // Same rule as every other evidence check: o+w never, g+w only for the
+        // caller's private group. The fingerprint below pins mode and owner.
+        if let Err(refusal) = inodune_core::access::evidence_mode_allowed(
+            stat.st_uid,
+            stat.st_gid,
+            stat.st_mode,
+            &inodune_core::access::SystemGroups,
+        ) {
+            return Err(format!(
+                "Evidência gravável por terceiros; limpeza recusada sem alterar permissões. {}",
+                inodune_core::access::describe_write_refusal(refusal)
+            ));
+        }
+        if Fingerprint::from_stat(&stat) != *expected {
             return Err("Manifest, fonte ou lockfile mudou desde a análise; preserve o cache e analise novamente.".into());
         }
     }

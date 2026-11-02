@@ -302,7 +302,7 @@ pub fn verify_provider(
         if FileType::from_raw_mode(before.st_mode) != FileType::RegularFile
             || before.st_uid != rustix::process::getuid().as_raw()
             || before.st_nlink != 1
-            || before.st_mode & 0o022 != 0
+            || !crate::access::evidence_stat_allowed(&before)
             || before.st_size < 0
             || before.st_size as u64 > MAX_FILE_BYTES
             || expected_manifest
@@ -409,7 +409,7 @@ pub fn verify_provider(
     if FileType::from_raw_mode(lock_before.st_mode) != FileType::RegularFile
         || lock_before.st_uid != rustix::process::getuid().as_raw()
         || lock_before.st_nlink != 1
-        || lock_before.st_mode & 0o022 != 0
+        || !crate::access::evidence_stat_allowed(&lock_before)
         || lock_before.st_size < 0
         || lock_before.st_size as u64 > MAX_LOCK_BYTES
     {
@@ -547,7 +547,7 @@ fn read_lock(root: &ApprovedRoot, relative: &Path) -> Result<Option<ParsedLock>,
     if FileType::from_raw_mode(st.st_mode) != FileType::RegularFile
         || st.st_uid != rustix::process::getuid().as_raw()
         || st.st_nlink != 1
-        || st.st_mode & 0o022 != 0
+        || !crate::access::evidence_stat_allowed(&st)
         || st.st_size < 0
         || st.st_size as u64 > MAX_LOCK_BYTES
     {
@@ -615,7 +615,7 @@ fn assess_inner(
         if FileType::from_raw_mode(st.st_mode) != FileType::RegularFile
             || st.st_nlink != 1
             || st.st_uid != rustix::process::getuid().as_raw()
-            || st.st_mode & 0o022 != 0
+            || !crate::access::evidence_stat_allowed(&st)
             || !files.iter().any(|(p, f)| p == &rel && f == &fp)
         {
             return Err("Arquivo alterado, hardlink, permissões ou dono inseguros".into());

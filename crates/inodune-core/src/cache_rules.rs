@@ -359,7 +359,7 @@ pub fn witnesses(root: &ApprovedRoot, relative: &Path) -> Option<Vec<(PathBuf, F
             let stat = fs::fstat(fd).ok()?;
             (FileType::from_raw_mode(stat.st_mode) == FileType::RegularFile
                 && stat.st_nlink == 1
-                && stat.st_mode & 0o022 == 0
+                && crate::access::evidence_stat_allowed(&stat)
                 && stat.st_uid == rustix::process::getuid().as_raw())
             .then(|| (path, Fingerprint::from_stat(&stat)))
         })
@@ -558,8 +558,8 @@ pub fn pytest_nodeids_witnesses(
             (FileType::from_raw_mode(stat.st_mode) == FileType::RegularFile
                 && stat.st_nlink == 1
                 && stat.st_uid == rustix::process::getuid().as_raw()
-                && stat.st_mode & 0o022 == 0)
-                .then(|| (path, Fingerprint::from_stat(&stat)))
+                && crate::access::evidence_stat_allowed(&stat))
+            .then(|| (path, Fingerprint::from_stat(&stat)))
         })
         .collect()
 }
@@ -590,7 +590,7 @@ fn read_private_marker(root: &ApprovedRoot, relative: &Path) -> Option<Vec<u8>> 
     if FileType::from_raw_mode(before.st_mode) != FileType::RegularFile
         || before.st_nlink != 1
         || before.st_uid != rustix::process::getuid().as_raw()
-        || before.st_mode & 0o022 != 0
+        || !crate::access::evidence_stat_allowed(&before)
         || before.st_size < 0
         || before.st_size as u64 > MAX_PYTEST_MARKER_BYTES
     {

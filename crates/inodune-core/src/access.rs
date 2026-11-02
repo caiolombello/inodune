@@ -16,6 +16,8 @@ pub struct Caller {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct GroupCensus {
+    /// Group name (`gr_name`); a private group is named after its user.
+    pub name: String,
     /// Supplementary members from `getgrgid` (`gr_mem`). Primary users are separate.
     pub supplementary: Vec<String>,
     /// Users whose primary group id is this group.
@@ -104,6 +106,33 @@ pub fn stat_write_allowed(
     Ok(())
 }
 
+/// Evidence files (Cargo.toml, lockfiles, manifests, provider packages):
+/// writable by others is always refused; group-writable only when the group is
+/// the caller's private group (UPG, e.g. Ubuntu's default umask 002) and the
+/// caller owns the file. Same rule for every detector.
+pub fn evidence_mode_allowed(
+    owner_uid: u32,
+    owner_gid: u32,
+    mode: u32,
+    groups: &dyn GroupQuery,
+) -> Result<(), WriteRefusal> {
+    if mode & 0o002 != 0 {
+        return Err(WriteRefusal::OtherWrite);
+    }
+    if mode & 0o020 != 0 {
+        let (uid, gid) = groups
+            .uid_gid()
+            .map_err(|_| WriteRefusal::GroupLookupFailed)?;
+        exclusive_group(owner_uid, owner_gid, uid, gid, groups)?;
+    }
+    Ok(())
+}
+
+/// [`evidence_mode_allowed`] with the system's user and group database.
+pub fn evidence_stat_allowed(stat: &rustix::fs::Stat) -> bool {
+    evidence_mode_allowed(stat.st_uid, stat.st_gid, stat.st_mode, &SystemGroups).is_ok()
+}
+
 fn exclusive_group(
     owner_uid: u32,
     owner_gid: u32,
@@ -123,7 +152,9 @@ fn exclusive_group(
     let census = groups
         .census(owner_gid)
         .map_err(|_| WriteRefusal::GroupLookupFailed)?;
-    if !census.supplementary.is_empty() {
+    // User private group (UPG): named after the user, nobody else listed as a
+    // member and nobody else using it as primary group.
+    if census.name != name || census.supplementary.iter().any(|member| *member != name) {
         return Err(WriteRefusal::SharedGroupWrite);
     }
     if census.primary_users.len() == 1 && census.primary_users[0] == name {
@@ -192,9 +223,13 @@ unsafe fn lookup_caller() -> Result<Caller, GroupLookupError> {
 
 unsafe fn lookup_census(gid: u32) -> Result<GroupCensus, GroupLookupError> {
     let group = libc::getgrgid(gid);
-    if group.is_null() || (*group).gr_mem.is_null() {
+    if group.is_null() || (*group).gr_mem.is_null() || (*group).gr_name.is_null() {
         return Err(GroupLookupError);
     }
+    let group_name = CStr::from_ptr((*group).gr_name)
+        .to_str()
+        .map_err(|_| GroupLookupError)?
+        .to_owned();
     let mut supplementary = Vec::new();
     let mut member = (*group).gr_mem;
     while !(*member).is_null() {
@@ -231,6 +266,7 @@ unsafe fn lookup_census(gid: u32) -> Result<GroupCensus, GroupLookupError> {
         }
     };
     primary.map(|primary_users| GroupCensus {
+        name: group_name,
         supplementary,
         primary_users,
     })
@@ -239,6 +275,56 @@ unsafe fn lookup_census(gid: u32) -> Result<GroupCensus, GroupLookupError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn evidence_accepts_group_write_only_for_the_users_private_group() {
+        let upg = exclusive();
+        assert!(evidence_mode_allowed(1000, 1000, 0o100644, &upg).is_ok());
+        assert!(evidence_mode_allowed(1000, 1000, 0o100664, &upg).is_ok());
+        assert_eq!(
+            evidence_mode_allowed(1000, 1000, 0o100666, &upg),
+            Err(WriteRefusal::OtherWrite)
+        );
+        assert_eq!(
+            evidence_mode_allowed(1000, 1000, 0o100646, &upg),
+            Err(WriteRefusal::OtherWrite)
+        );
+        // Owned by another user.
+        assert!(evidence_mode_allowed(1001, 1000, 0o100664, &upg).is_err());
+        // File group is not the caller's primary group.
+        assert!(evidence_mode_allowed(1000, 50, 0o100664, &upg).is_err());
+        let census = |name: &str, supplementary: &[&str], primary: &[&str]| Fake {
+            caller: Ok(caller()),
+            census: Ok(GroupCensus {
+                name: name.into(),
+                supplementary: supplementary.iter().map(|s| (*s).into()).collect(),
+                primary_users: primary.iter().map(|s| (*s).into()).collect(),
+            }),
+        };
+        // Listed as member only by the user itself: still private.
+        assert!(
+            evidence_mode_allowed(1000, 1000, 0o100664, &census("only", &["only"], &["only"]))
+                .is_ok()
+        );
+        for shared in [
+            census("only", &["guest"], &["only"]),
+            census("staff", &[], &["only"]),
+            census("only", &[], &["only", "guest"]),
+        ] {
+            assert_eq!(
+                evidence_mode_allowed(1000, 1000, 0o100664, &shared),
+                Err(WriteRefusal::SharedGroupWrite)
+            );
+        }
+        let unknown = Fake {
+            caller: Ok(caller()),
+            census: Err(GroupLookupError),
+        };
+        assert_eq!(
+            evidence_mode_allowed(1000, 1000, 0o100664, &unknown),
+            Err(WriteRefusal::GroupLookupFailed)
+        );
+    }
 
     struct Fake {
         caller: Result<Caller, GroupLookupError>,
@@ -269,6 +355,7 @@ mod tests {
         Fake {
             caller: Ok(caller()),
             census: Ok(GroupCensus {
+                name: "only".into(),
                 supplementary: vec![],
                 primary_users: vec!["only".into()],
             }),
@@ -311,6 +398,7 @@ mod tests {
         let extra = Fake {
             caller: Ok(caller()),
             census: Ok(GroupCensus {
+                name: "only".into(),
                 supplementary: vec!["other".into()],
                 primary_users: vec!["only".into()],
             }),
@@ -322,6 +410,7 @@ mod tests {
         let another_primary = Fake {
             caller: Ok(caller()),
             census: Ok(GroupCensus {
+                name: "only".into(),
                 supplementary: vec![],
                 primary_users: vec!["only".into(), "guest".into()],
             }),
@@ -347,6 +436,7 @@ mod tests {
         let no_caller = Fake {
             caller: Err(GroupLookupError),
             census: Ok(GroupCensus {
+                name: "only".into(),
                 supplementary: vec![],
                 primary_users: vec!["only".into()],
             }),
@@ -402,6 +492,7 @@ mod tests {
                 name: String::new(),
             }),
             census: Ok(GroupCensus {
+                name: "only".into(),
                 supplementary: vec![],
                 primary_users: vec!["only".into()],
             }),
