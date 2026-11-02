@@ -290,42 +290,7 @@ fn execute_inner(
                         ));
                     }
                     Ok(stage) => {
-                        let official = if action == Action::Permanent {
-                            match crate::tools::purge(&detector_id, target) {
-                                Ok(ran) => ran,
-                                Err(error) => {
-                                    report.warnings.push(format!(
-                                        "{detector_id}: comando oficial falhou; remoção interna. {error}"
-                                    ));
-                                    false
-                                }
-                            }
-                        } else {
-                            false
-                        };
                         for (relative, expected) in &target.files {
-                            if official
-                                && matches!(
-                                    target.root.open_relative(relative, OFlags::PATH),
-                                    Err(rustix::io::Errno::NOENT)
-                                )
-                            {
-                                let path = target.root.path().join(relative);
-                                let result = outcome(
-                                    &path,
-                                    FileStatus::Removed,
-                                    expected.size,
-                                    "Removido pelo comando oficial.",
-                                    None,
-                                );
-                                report.logical_bytes_processed = report
-                                    .logical_bytes_processed
-                                    .saturating_add(result.logical_bytes);
-                                item.files.push(result);
-                                progress.completed_files += 1;
-                                on_progress(progress.clone());
-                                continue;
-                            }
                             let path = target.root.path().join(relative);
                             if journal_error.is_none() {
                                 if let Ok(j) = &mut journal {

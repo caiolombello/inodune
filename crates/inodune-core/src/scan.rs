@@ -91,6 +91,7 @@ fn directory_has_pyvenv_cfg(root: &ApprovedRoot, rel: &Path) -> bool {
 #[cfg(test)]
 thread_local! {
     static CACHE_HOME_OVERRIDE: std::cell::RefCell<Option<PathBuf>> = const { std::cell::RefCell::new(None) };
+    static TRASH_DIR_OVERRIDE: std::cell::RefCell<Option<PathBuf>> = const { std::cell::RefCell::new(None) };
 }
 pub fn xdg_thumbnail_root() -> Option<PathBuf> {
     xdg_cache_home().map(|p| p.join("thumbnails"))
@@ -1215,6 +1216,10 @@ impl<F: FnMut(ScanProgress)> Walker<'_, F> {
                 break;
             }
             let entry = files_rel.join(&name);
+            if self.trash_entry_must_stay(root, &entry) {
+                self.push_protected_trash_entry(root, &entry);
+                continue;
+            }
             let mut deletable = Vec::new();
             let mut sensitive = Vec::new();
             self.collect_trash(root, &entry, false, &mut deletable, &mut sensitive);
@@ -1316,6 +1321,59 @@ impl<F: FnMut(ScanProgress)> Walker<'_, F> {
                 supported_action: SupportedAction::CacheContents,
             });
         }
+    }
+    fn trash_entry_must_stay(&mut self, root: &ApprovedRoot, rel: &Path) -> bool {
+        if !self.allowed() || trash_keeps_entry(rel) {
+            return true;
+        }
+        let uid = rustix::process::getuid().as_raw();
+        let st = match root.lstat_relative(rel) {
+            Ok(st) if st.st_uid == uid => st,
+            Ok(_) => return false,
+            Err(_) => return true,
+        };
+        if FileType::from_raw_mode(st.st_mode) != FileType::Directory {
+            return false;
+        }
+        let Some(names) = self.names(root, rel) else {
+            return true;
+        };
+        names
+            .iter()
+            .any(|name| self.trash_entry_must_stay(root, &rel.join(name)))
+    }
+    fn push_protected_trash_entry(&mut self, root: &ApprovedRoot, entry: &Path) {
+        let Ok(st) = root.lstat_relative(entry) else {
+            return;
+        };
+        if st.st_uid != rustix::process::getuid().as_raw() {
+            return;
+        }
+        let fp = Fingerprint::from_stat(&st);
+        let id = format!("{}-{}", self.out.id, self.out.candidates.len());
+        self.out.candidates.push(Candidate {
+            id,
+            title: "Item protegido na Lixeira".into(),
+            display_path: root.path.join(entry).to_string_lossy().into_owned(),
+            detector_id: "protected.state".into(),
+            detector_version: "1".into(),
+            scope_id: root.display_path(),
+            category: "Lixeira".into(),
+            project: "Lixeira".into(),
+            risk: Risk::Protected,
+            logical_bytes: fp.size,
+            allocated_bytes_estimate: Some(fp.blocks.saturating_mul(512)),
+            identity: Some(Identity { dev: fp.dev, ino: fp.ino, mtime_unix: fp.mtime }),
+            coverage_key: None,
+            selected_by_default: false,
+            reason: "Entrada da Lixeira com sessão de agente, repositório Git ou credencial; somente análise.".into(),
+            impact: "A entrada inteira permanece, inclusive o .trashinfo correspondente.".into(),
+            rebuild_hint: "Restaure manualmente se ainda precisar do conteúdo.".into(),
+            preserved: "Sessões, repositórios Git, credenciais e o .trashinfo.".into(),
+            evidence: vec!["trash-whole-entry".into()],
+            activity: "Metadado; não comprova desuso.".into(),
+            supported_action: SupportedAction::None,
+        });
     }
     fn collect_trash(
         &mut self,
@@ -1720,6 +1778,39 @@ fn valid_thumbnail_name(name: &str) -> bool {
     name.strip_suffix(".png")
         .is_some_and(|h| h.len() == 32 && h.chars().all(|c| c.is_ascii_hexdigit()))
 }
+fn trash_keeps_entry(path: &Path) -> bool {
+    let Some(name) = path.file_name() else {
+        return false;
+    };
+    let n = name.to_string_lossy();
+    if matches!(
+        n.as_ref(),
+        ".codex"
+            | ".claude"
+            | "opencode"
+            | ".cursor"
+            | ".aws"
+            | ".kube"
+            | ".git"
+            | ".netrc"
+            | ".npmrc"
+            | ".pypirc"
+            | ".git-credentials"
+    ) {
+        return true;
+    }
+    if n.starts_with("id_rsa") || n.starts_with("id_ed25519") {
+        return true;
+    }
+    if n.ends_with(".key") || n.ends_with(".p12") || n.ends_with(".pfx") || n.ends_with(".kdbx") {
+        return true;
+    }
+    n == "config.json"
+        && path
+            .parent()
+            .and_then(|parent| parent.file_name())
+            .is_some_and(|parent| parent == ".docker")
+}
 fn protected_name(name: &std::ffi::OsStr) -> bool {
     let n = name.to_string_lossy();
     n.contains(".tfstate")
@@ -1734,6 +1825,10 @@ fn protected_name(name: &std::ffi::OsStr) -> bool {
         || ["AGENTS.md", "CLAUDE.md", "auth.json", "credentials.json"].contains(&n.as_ref())
 }
 pub fn user_trash_dir() -> Option<PathBuf> {
+    #[cfg(test)]
+    if let Some(path) = TRASH_DIR_OVERRIDE.with(|slot| slot.borrow().clone()) {
+        return Some(path);
+    }
     let data = std::env::var_os("XDG_DATA_HOME")
         .filter(|value| Path::new(value).is_absolute())
         .map(PathBuf::from)
@@ -1941,5 +2036,119 @@ mod uv_cache_tests {
         assert!(candidate.reason.contains("use `uv cache clean`"));
         assert_eq!(candidate.rebuild_hint, "use `uv cache clean`");
         assert!(matches!(candidate.supported_action, SupportedAction::None));
+    }
+}
+
+#[cfg(test)]
+mod trash_sensitivity_tests {
+    use super::*;
+    use std::fs;
+
+    #[test]
+    fn trash_keeps_agent_git_and_credential_entries_with_their_trashinfo() {
+        let root = tempfile::tempdir().unwrap();
+        let share = root.path().join("share");
+        let trash = share.join("Trash");
+        let files = trash.join("files");
+        let info = trash.join("info");
+        fs::create_dir_all(&files).unwrap();
+        fs::create_dir_all(&info).unwrap();
+        let cases = [
+            ("codex", ".codex/session.json"),
+            ("claude", ".claude/projects/a.json"),
+            ("opencode", ".local/share/opencode/session.json"),
+            ("cursor", ".cursor/argv.json"),
+            ("repo", "src/.git/HEAD"),
+            ("gitfile", ".git"),
+            ("aws", ".aws/credentials"),
+            ("kube", ".kube/config"),
+            ("docker", ".docker/config.json"),
+            ("netrc", ".netrc"),
+            ("npmrc", ".npmrc"),
+            ("pypirc", ".pypirc"),
+            ("git-credentials", ".git-credentials"),
+            ("rsa", "id_rsa"),
+            ("rsa-pub", "id_rsa.pub"),
+            ("ed25519", "id_ed25519"),
+            ("ed25519-pub", "id_ed25519.pub"),
+            ("key", "server.key"),
+            ("p12", "client.p12"),
+            ("pfx", "client.pfx"),
+            ("kdbx", "vault.kdbx"),
+        ];
+        for (entry, relative) in cases {
+            let path = files.join(entry).join(relative);
+            if let Some(parent) = path.parent() {
+                fs::create_dir_all(parent).unwrap();
+            }
+            fs::write(&path, b"keep").unwrap();
+            fs::write(info.join(format!("{entry}.trashinfo")), b"[Trash Info]\n").unwrap();
+        }
+        fs::create_dir_all(files.join("notes")).unwrap();
+        fs::write(files.join("notes/readme.txt"), b"plain").unwrap();
+        fs::write(info.join("notes.trashinfo"), b"[Trash Info]\nPath=/notes\n").unwrap();
+
+        struct Clear;
+        impl Drop for Clear {
+            fn drop(&mut self) {
+                TRASH_DIR_OVERRIDE.with(|slot| *slot.borrow_mut() = None);
+            }
+        }
+        let _clear = Clear;
+        TRASH_DIR_OVERRIDE.with(|slot| *slot.borrow_mut() = Some(trash.clone()));
+        let snapshot = scan(
+            &[ApprovedRoot::open(&share, ScopeKind::Projects).unwrap()],
+            &ScanControl::default(),
+            &ScanLimits::default(),
+            |_| {},
+        )
+        .unwrap();
+
+        for (entry, _) in cases {
+            let protected = snapshot.candidates.iter().find(|candidate| {
+                candidate.detector_id == "protected.state"
+                    && candidate.display_path.ends_with(&format!("/files/{entry}"))
+            });
+            let protected = protected.unwrap_or_else(|| panic!("missing protected entry {entry}"));
+            assert_eq!(protected.risk, Risk::Protected, "{entry}");
+            assert!(
+                matches!(protected.supported_action, SupportedAction::None),
+                "{entry}"
+            );
+            assert!(protected.reason.contains("somente análise"), "{entry}");
+            assert!(
+                !snapshot.candidates.iter().any(|candidate| {
+                    candidate.detector_id == "trash.entry"
+                        && candidate.display_path.ends_with(&format!("/files/{entry}"))
+                }),
+                "{entry} must not be deletable"
+            );
+            assert!(
+                !snapshot.targets.values().any(|target| {
+                    target
+                        .files
+                        .iter()
+                        .any(|(path, _)| path.ends_with(format!("{entry}.trashinfo")))
+                }),
+                "{entry}.trashinfo must stay out of every deletion manifest"
+            );
+            assert_eq!(
+                fs::read(info.join(format!("{entry}.trashinfo"))).unwrap(),
+                b"[Trash Info]\n"
+            );
+        }
+        let notes = snapshot
+            .candidates
+            .iter()
+            .find(|candidate| {
+                candidate.detector_id == "trash.entry"
+                    && candidate.display_path.ends_with("/files/notes")
+            })
+            .unwrap();
+        let target = snapshot.targets.get(&notes.id).unwrap();
+        assert!(target
+            .files
+            .iter()
+            .any(|(path, _)| path.ends_with("notes.trashinfo")));
     }
 }

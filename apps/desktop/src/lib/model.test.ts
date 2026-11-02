@@ -49,17 +49,9 @@ describe('conservative simulation policy', () => {
       risk: 'review' as const,
       supported_action: 'reviewed_cache_contents' as const,
     };
-    expect(toggleSelection([low.id], reviewed, [low, reviewed])).toEqual([
-      low.id,
-      reviewed.id,
-    ]);
-    expect(toggleSelection([reviewed.id], low, [low, reviewed])).toEqual([
-      reviewed.id,
-      low.id,
-    ]);
-    expect(toggleSelection([reviewed.id], reviewed, [low, reviewed])).toEqual(
-      [],
-    );
+    expect(toggleSelection([low.id], reviewed)).toEqual([low.id, reviewed.id]);
+    expect(toggleSelection([reviewed.id], low)).toEqual([reviewed.id, low.id]);
+    expect(toggleSelection([reviewed.id], reviewed)).toEqual([]);
   });
   it('suggests only low risk and rejects protected IDs even from a forged selection', () => {
     expect(selectDefaults(demo.candidates)).toEqual(['thumbs', 'py']);

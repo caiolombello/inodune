@@ -563,7 +563,7 @@
   function toggle(item: Candidate) {
     if (source === 'local' && !isLocallyEligible(item)) return;
     if (!scanBusy && !executing && !preparingCleanup && !localScanStale) {
-      selected = toggleSelection(selected, item, candidates);
+      selected = toggleSelection(selected, item);
       status = '';
     }
   }
