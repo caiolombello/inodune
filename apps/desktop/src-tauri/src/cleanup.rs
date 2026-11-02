@@ -106,7 +106,13 @@ pub fn prepare_cleanup(
         RequestedAction::Permanent => Action::Permanent,
     };
     executor::preflight(&executor::ExecutionOptions::local()?, requested)?;
-    let plan = prepare(snapshot, &candidate_ids, requested)?;
+    let plan = prepare(snapshot, &candidate_ids, requested).map_err(|e| {
+        if e == inodune_clean::plan::TRASH_NEEDS_PERMANENT {
+            TRASH_NEEDS_PERMANENT_GUI.to_owned()
+        } else {
+            e
+        }
+    })?;
     let view = plan.view();
     let mut plans = state
         .cleanup
@@ -123,6 +129,9 @@ pub fn prepare_cleanup(
     );
     Ok(view)
 }
+/// Desktop wording of `plan::TRASH_NEEDS_PERMANENT` (no CLI flag).
+const TRASH_NEEDS_PERMANENT_GUI: &str =
+    "Itens da Lixeira só saem com exclusão permanente; escolha “Exclusão permanente”.";
 fn safe_candidate(candidate: &inodune_core::Candidate) -> bool {
     candidate.risk == inodune_core::Risk::Low
         && !matches!(
@@ -153,12 +162,20 @@ pub fn prepare_safe_cleanup(
     locale: Option<PromptLocale>,
 ) -> Result<PlanView, String> {
     let snapshot = state.snapshot(&scan_id)?;
-    let ids = snapshot
+    let safe = snapshot
         .candidates
         .iter()
         .filter(|candidate| safe_candidate(candidate))
+        .collect::<Vec<_>>();
+    // A Trash entry sent to the Trash would only be renamed inside it.
+    let ids = safe
+        .iter()
+        .filter(|c| matches!(action, RequestedAction::Permanent) || c.detector_id != "trash.entry")
         .map(|candidate| candidate.id.clone())
         .collect::<Vec<_>>();
+    if ids.is_empty() && !safe.is_empty() {
+        return Err(TRASH_NEEDS_PERMANENT_GUI.into());
+    }
     if ids.is_empty() {
         return Err("Nenhum item seguro para limpar.".into());
     }

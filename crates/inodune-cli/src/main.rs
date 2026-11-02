@@ -208,6 +208,12 @@ fn run_clean(args: &[String], control: &ScanControl) -> Result<(String, bool), S
             "--review" => {
                 index += 1;
                 let requested = args.get(index).ok_or_else(usage)?;
+                if requested == "trash.entry" {
+                    return Err(
+                        "Itens da Lixeira não são de revisão; eles entram em --safe --permanent."
+                            .into(),
+                    );
+                }
                 let detector = review_detector(requested).ok_or_else(|| {
                     format!(
                         "Detector de revisão desconhecido: {requested}. IDs aceitos (como na análise): {}.",
@@ -247,6 +253,7 @@ fn run_clean(args: &[String], control: &ScanControl) -> Result<(String, bool), S
         return Ok((refuse_incomplete(&snapshot, &all, json)?, true));
     }
 
+    let trash_mode = action == inodune_clean::plan::Action::Trash;
     let selected = if safe {
         snapshot
             .candidates
@@ -313,11 +320,35 @@ fn run_clean(args: &[String], control: &ScanControl) -> Result<(String, bool), S
             .map(|candidate| candidate.id.clone())
             .collect::<Vec<_>>()
     };
+    // Sending a Trash entry to the Trash would only rename it inside the
+    // Trash: in Trash mode those items stay out of the selection.
+    let before = selected.len();
+    let selected: Vec<String> = selected
+        .into_iter()
+        .filter(|id| {
+            !trash_mode
+                || snapshot
+                    .candidates
+                    .iter()
+                    .all(|c| c.id != *id || c.detector_id != "trash.entry")
+        })
+        .collect();
+    let trash_entries_left_out = before - selected.len();
     let protected_or_review_items = snapshot
         .candidates
         .iter()
         .filter(|candidate| candidate.risk != Risk::Low)
         .count();
+    if selected.is_empty() && trash_entries_left_out > 0 && !json {
+        return Ok((
+            format!(
+                "Só há itens da Lixeira elegíveis ({}). {} Nenhuma limpeza executada.",
+                count(trash_entries_left_out, "item", "itens"),
+                inodune_clean::plan::TRASH_NEEDS_PERMANENT
+            ),
+            false,
+        ));
+    }
     if selected.is_empty() {
         // An apply request with nothing eligible is not a dry run.
         let view = CleanView {

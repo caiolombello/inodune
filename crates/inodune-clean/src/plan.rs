@@ -27,6 +27,10 @@ pub enum Action {
     Permanent,
 }
 
+/// Shared wording for CLI and desktop when a Trash entry meets a Trash plan.
+pub const TRASH_NEEDS_PERMANENT: &str =
+    "Itens da Lixeira só saem com exclusão permanente; use --permanent.";
+
 impl Action {
     /// Single wording for the action, used by every surface (native dialog,
     /// CLI, report). Derived only from the plan, never from detectors.
@@ -179,6 +183,10 @@ impl PlanSession {
             let candidate = by_id
                 .get(id.as_str())
                 .ok_or_else(|| "O item não pertence à análise atual.".to_owned())?;
+            // Moving a Trash entry to the Trash only renames it inside the Trash.
+            if action == Action::Trash && candidate.detector_id == "trash.entry" {
+                return Err(TRASH_NEEDS_PERMANENT.into());
+            }
             let approved = candidate.risk != Risk::Protected
                 && matches!(
                     candidate.supported_action,

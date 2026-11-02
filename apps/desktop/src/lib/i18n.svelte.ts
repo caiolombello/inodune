@@ -195,6 +195,8 @@ const catalog: Record<string, string> = {
   'Escolher thumbnails': 'Choose thumbnails',
   'Espaço efetivamente recuperado': 'Space actually recovered',
   'Exclusão permanente': 'Permanent deletion',
+  'Itens da Lixeira só saem com exclusão permanente; escolha “Exclusão permanente”.':
+    'Trash items only leave with permanent deletion; choose “Permanent deletion”.',
   'Execução parcial': 'Partial execution',
   'Experimentar cenários completos': 'Try complete scenarios',
   'Explorar sem analisar': 'Explore without analyzing',

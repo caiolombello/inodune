@@ -373,7 +373,48 @@ fn execute_inner(
                     }
                     Ok(stage) => {
                         let mut moved_links = MovedLinks::new();
-                        for (relative, expected) in &target.files {
+                        // Emptying a Trash entry: files first, then the empty
+                        // entry folder, and only then its .trashinfo, so that
+                        // files/<x> never stays without its .trashinfo.
+                        let empties_trash_entry =
+                            detector_id == "trash.entry" && action == Action::Permanent;
+                        let is_info = |path: &std::path::Path| !path.starts_with(&target.relative);
+                        let mut steps: Vec<Option<&(PathBuf, Fingerprint)>> = Vec::new();
+                        if empties_trash_entry {
+                            steps
+                                .extend(target.files.iter().filter(|(p, _)| !is_info(p)).map(Some));
+                            steps.push(None);
+                            steps.extend(target.files.iter().filter(|(p, _)| is_info(p)).map(Some));
+                        } else {
+                            steps.extend(target.files.iter().map(Some));
+                        }
+                        let mut entry_root_removed = false;
+                        for step in steps {
+                            let Some((relative, expected)) = step else {
+                                remove_empty_dirs(target);
+                                match remove_trash_entry_root(target) {
+                                    Ok(()) => entry_root_removed = true,
+                                    Err(e) => {
+                                        item.complete = false;
+                                        report.warnings.push(e);
+                                    }
+                                }
+                                continue;
+                            };
+                            if empties_trash_entry && is_info(relative) && !entry_root_removed {
+                                // Keep the record while anything of the entry remains.
+                                item.complete = false;
+                                item.files.push(outcome(
+                                    &target.root.path().join(relative),
+                                    FileStatus::SkippedChanged,
+                                    0,
+                                    "A entrada da Lixeira não ficou vazia; o .trashinfo foi mantido.",
+                                    None,
+                                ));
+                                progress.completed_files += 1;
+                                on_progress(progress.clone());
+                                continue;
+                            }
                             let path = target.root.path().join(relative);
                             if journal_error.is_none() {
                                 if let Ok(j) = &mut journal {
@@ -439,17 +480,19 @@ fn execute_inner(
                             progress.completed_files += 1;
                             on_progress(progress.clone());
                         }
-                        remove_empty_dirs(target);
-                        match remaining_cache_entries(target) {
-                            Ok(true) => {
-                                item.complete = false;
-                                report.warnings.push(format!("Conteúdo novo ou remanescente preservado em {}. Refaça a análise.",inodune_core::scan::tidy_display_path(&target.root.path().join(&target.relative).to_string_lossy())));
+                        if !entry_root_removed {
+                            remove_empty_dirs(target);
+                            match remaining_cache_entries(target) {
+                                Ok(true) => {
+                                    item.complete = false;
+                                    report.warnings.push(format!("Conteúdo novo ou remanescente preservado em {}. Refaça a análise.",inodune_core::scan::tidy_display_path(&target.root.path().join(&target.relative).to_string_lossy())));
+                                }
+                                Err(e) => {
+                                    item.complete = false;
+                                    report.warnings.push(e);
+                                }
+                                Ok(false) => {}
                             }
-                            Err(e) => {
-                                item.complete = false;
-                                report.warnings.push(e);
-                            }
-                            Ok(false) => {}
                         }
                         if let Err(e) = stage.finish(&target.root) {
                             item.complete = false;
@@ -839,6 +882,87 @@ fn count_inode(
         }
     }
     Ok(seen)
+}
+/// Removes the now-empty folder of an emptied Trash entry: same device and
+/// inode as scanned, owned by the user, a directory, never following links;
+/// rmdir fails if anything is left inside.
+fn remove_trash_entry_root(target: &ScannedTarget) -> Result<(), String> {
+    let keep = "A pasta da entrada da Lixeira foi mantida";
+    let name = target
+        .relative
+        .file_name()
+        .ok_or_else(|| format!("{keep}: nome inválido."))?;
+    let parent = target.relative.parent().unwrap_or(Path::new("."));
+    let parent_fd = target
+        .root
+        .open_relative(parent, OFlags::RDONLY | OFlags::DIRECTORY)
+        .map_err(|e| {
+            format!(
+                "{keep}: {}",
+                inodune_core::scan::os_error_pt(&e.to_string())
+            )
+        })?;
+    let st = lstat_child(&parent_fd, name).map_err(|e| format!("{keep}: {e}"))?;
+    if FileType::from_raw_mode(st.st_mode) != FileType::Directory
+        || st.st_dev != target.fingerprint.dev
+        || st.st_ino != target.fingerprint.ino
+        || st.st_uid != rustix::process::getuid().as_raw()
+    {
+        return Err(format!("{keep}: ela mudou desde a análise."));
+    }
+    // Folders that were already empty (or emptied above) go too; rmdir never
+    // removes a file, and the walk never follows links or leaves the volume.
+    if let Ok(dir) = fs::openat(
+        &parent_fd,
+        name,
+        OFlags::RDONLY | OFlags::DIRECTORY | OFlags::NOFOLLOW | OFlags::CLOEXEC,
+        Mode::empty(),
+    ) {
+        if fs::fstat(&dir).is_ok_and(|now| now.st_dev == st.st_dev && now.st_ino == st.st_ino) {
+            prune_empty_dirs(&dir, st.st_dev, st.st_uid, 0);
+        }
+    }
+    fs::unlinkat(&parent_fd, name, AtFlags::REMOVEDIR).map_err(|e| {
+        format!(
+            "{keep}; ainda há conteúdo nela ({}).",
+            inodune_core::scan::os_error_pt(&e.to_string())
+        )
+    })
+}
+/// Removes only empty subfolders (deepest first) below `dir`.
+fn prune_empty_dirs(dir: &OwnedFd, dev: u64, uid: u32, depth: usize) {
+    if depth > 256 {
+        return;
+    }
+    let mut names = Vec::new();
+    let mut buffer = [std::mem::MaybeUninit::uninit(); 8192];
+    let mut entries = fs::RawDir::new(dir, &mut buffer);
+    while let Some(Ok(entry)) = entries.next() {
+        let name = entry.file_name();
+        if name.to_bytes() == b"." || name.to_bytes() == b".." {
+            continue;
+        }
+        let Ok(st) = fs::statat(dir, name, AtFlags::SYMLINK_NOFOLLOW) else {
+            continue;
+        };
+        if FileType::from_raw_mode(st.st_mode) == FileType::Directory
+            && st.st_dev == dev
+            && st.st_uid == uid
+        {
+            names.push(name.to_owned());
+        }
+    }
+    for name in names {
+        if let Ok(child) = fs::openat(
+            dir,
+            name.as_c_str(),
+            OFlags::RDONLY | OFlags::DIRECTORY | OFlags::NOFOLLOW | OFlags::CLOEXEC,
+            Mode::empty(),
+        ) {
+            prune_empty_dirs(&child, dev, uid, depth + 1);
+        }
+        let _ = fs::unlinkat(dir, name.as_c_str(), AtFlags::REMOVEDIR);
+    }
 }
 fn remove_empty_dirs(target: &ScannedTarget) {
     let mut dirs: Vec<std::path::PathBuf> = target
