@@ -114,4 +114,5 @@ fn apply_with_nothing_eligible_is_not_reported_as_a_dry_run() {
         .unwrap();
     let text = String::from_utf8_lossy(&text.stdout);
     assert!(text.starts_with("Nada elegível para limpar"), "{text}");
+    assert!(!text.contains("nenhum item elegível"), "redundant: {text}");
 }

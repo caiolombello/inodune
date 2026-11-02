@@ -332,8 +332,12 @@ fn run_clean(args: &[String], control: &ScanControl) -> Result<(String, bool), S
             serde_json::to_string_pretty(&view).map_err(|e| e.to_string())?
         } else {
             format!(
-                "{}: nenhum item elegível; {} protegidos ou para revisão. Nenhuma limpeza executada.",
-                if apply { "Nada elegível para limpar" } else { "Plano somente leitura" },
+                "{}; {} protegidos ou para revisão. Nenhuma limpeza executada.",
+                if apply {
+                    "Nada elegível para limpar"
+                } else {
+                    "Plano somente leitura: nenhum item elegível"
+                },
                 count(protected_or_review_items, "item", "itens")
             )
         };
