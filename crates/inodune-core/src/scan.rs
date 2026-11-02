@@ -1442,9 +1442,11 @@ impl<F: FnMut(ScanProgress)> Walker<'_, F> {
                 &entry,
                 false,
                 hint.as_deref(),
-                &mut deletable,
-                &mut sensitive,
-                &mut links,
+                &mut TrashFound {
+                    deletable: &mut deletable,
+                    sensitive: &mut sensitive,
+                    links: &mut links,
+                },
             );
             if !sensitive.is_empty() {
                 for (path, fp) in &sensitive {
@@ -1637,9 +1639,7 @@ impl<F: FnMut(ScanProgress)> Walker<'_, F> {
         rel: &Path,
         inherited: bool,
         hint: Option<&Path>,
-        deletable: &mut Vec<(PathBuf, Fingerprint)>,
-        sensitive: &mut Vec<(PathBuf, Fingerprint)>,
-        links: &mut Vec<(u64, u64, u64, PathBuf)>,
+        found: &mut TrashFound<'_>,
     ) {
         let uid = rustix::process::getuid().as_raw();
         let st = match root.lstat_relative(rel) {
@@ -1686,22 +1686,22 @@ impl<F: FnMut(ScanProgress)> Walker<'_, F> {
                         &rel.join(name),
                         sensitive_here,
                         child_hint.as_deref(),
-                        deletable,
-                        sensitive,
-                        links,
+                        found,
                     );
                 }
             }
             FileType::RegularFile | FileType::Symlink => {
                 let fp = Fingerprint::from_stat(&st);
                 if sensitive_here {
-                    sensitive.push((rel.to_path_buf(), fp));
+                    found.sensitive.push((rel.to_path_buf(), fp));
                 } else if FileType::from_raw_mode(st.st_mode) == FileType::RegularFile
                     && st.st_nlink > 1
                 {
                     // Decided once the whole Trash/files was walked.
-                    if links.len() < 100_000 {
-                        links.push((st.st_dev, st.st_ino, st.st_nlink, rel.to_path_buf()));
+                    if found.links.len() < 100_000 {
+                        found
+                            .links
+                            .push((st.st_dev, st.st_ino, st.st_nlink, rel.to_path_buf()));
                     } else {
                         self.issue(
                             &root.path.join(rel),
@@ -1709,8 +1709,8 @@ impl<F: FnMut(ScanProgress)> Walker<'_, F> {
                             "Hardlinks em excesso na Lixeira; preservado.",
                         );
                     }
-                } else if deletable.len() < 100_000 {
-                    deletable.push((rel.to_path_buf(), fp));
+                } else if found.deletable.len() < 100_000 {
+                    found.deletable.push((rel.to_path_buf(), fp));
                 } else {
                     self.issue(
                         &root.path.join(rel),
@@ -2317,6 +2317,13 @@ pub fn cleanup_content_sensitive(root: &ApprovedRoot, relative: &Path) -> bool {
         }
         None => sensitive_content(root, relative),
     }
+}
+
+/// Outputs of one Trash entry walk (keeps collect_trash's signature short).
+struct TrashFound<'a> {
+    deletable: &'a mut Vec<(PathBuf, Fingerprint)>,
+    sensitive: &'a mut Vec<(PathBuf, Fingerprint)>,
+    links: &'a mut Vec<(u64, u64, u64, PathBuf)>,
 }
 
 pub fn user_trash_dir() -> Option<PathBuf> {
