@@ -2265,6 +2265,15 @@ fn trashinfo_original(root: &ApprovedRoot, info_rel: &Path) -> Option<PathBuf> {
     {
         return None;
     }
+    // Only plain components: "." and ".." (e.g. /x/node_modules/../README.md)
+    // or empty ones from "//" or a trailing "/" could fake a package or
+    // TypeScript location, so such a hint is rejected (stricter evaluation).
+    if decoded[1..]
+        .split(|b| *b == b'/')
+        .any(|part| part.is_empty() || part == b"." || part == b"..")
+    {
+        return None;
+    }
     use std::os::unix::ffi::OsStringExt;
     Some(PathBuf::from(std::ffi::OsString::from_vec(decoded)))
 }

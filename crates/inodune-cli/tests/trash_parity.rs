@@ -196,6 +196,22 @@ fn missing_or_lying_trashinfo_never_hides_a_private_key() {
         "//registry.npmjs.org/:_authToken=npm_FAKEFAKEFAKEFAKEFAKEFAKEFAKEFAKE1234",
         Some("/home/user/project/node_modules/x/index.js")
     ));
+    // A forged Path= with ".", ".." or empty components gives no hint: a real
+    // value stays protected instead of getting the documentation or
+    // TypeScript exemption through a fictitious package path.
+    let aws = "aws_secret_access_key = wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY";
+    for forged in [
+        "/x/node_modules/../README.md",
+        "/x/./node_modules/pkg/README.md",
+        "/x//node_modules/pkg/README.md",
+        "/x/node_modules/pkg/docs/",
+        "/x/node_modules/pkg/../../config.d.ts",
+    ] {
+        assert!(trash_verdict(aws, Some(forged)), "{forged}");
+    }
+    // The same value under a plain package README path is the documentation
+    // exemption that node_modules also applies (parity), so it is not a key.
+    assert!(!trash_verdict(aws, Some("/x/node_modules/pkg/README.md")));
     // Name rules apply to the original name too (union with the Trash name).
     assert!(trash_verdict("A=1\n", Some("/home/user/project/.env")));
     assert!(trash_verdict("plain", Some("/home/user/.ssh/id_ed25519")));
