@@ -1,5 +1,44 @@
 # Changelog
 
+## 0.1.11
+
+### Corrigido
+
+- **Segurança:** um cabeçalho `-----BEGIN … PRIVATE KEY-----` no início de linha protege
+  sempre, inclusive em README, CHANGELOG e docs dentro de `node_modules`,
+  `site-packages` e do registry do Cargo, e em METADATA de wheel. A exceção de
+  documentação vale só para as regras de `aws_secret_access_key`, `_authToken` e netrc.
+- **Evidência gravável pelo grupo (umask 002 do Ubuntu):** `Cargo.toml` 664 deixou de
+  recusar `--review rust.target`. Uma regra única (`access::evidence_mode_allowed`) vale
+  para todas as evidências: o+w sempre recusado; g+w só quando o arquivo é do usuário e o
+  grupo é o grupo privado dele (gid primário, mesmo nome, sem outros membros nem outros
+  usuários com esse gid primário). Erro de consulta recusa. O grupo privado agora também
+  exige nome igual ao do usuário.
+- **Hardlinks na Lixeira:** elos que foram juntos para a Lixeira (node-gyp) não deixam
+  mais a análise incompleta; elos com algum link fora da Lixeira continuam gerando aviso
+  `hardlink` e bloqueando. Toda recusa por análise incompleta lista os motivos (contagem
+  por código e caminhos de exemplo). `--review` ignora avisos que não tocam o alvo, mas
+  continua recusando avisos dentro do alvo ou num ancestral, manifesto incompleto, lista de
+  avisos truncada e análise cancelada.
+- Sem "Not a directory (os error 20)" no motivo de arquivos protegidos (`.env`, `tfstate`,
+  `id_ed25519`).
+- `clean --permanent --dry-run`: ação, risco e impacto do item seguem a ação do plano, em
+  português e com tamanhos legíveis.
+- Relatório e registro final do journal sempre gravados: a cópia salva fica limitada,
+  lista falhas e itens preservados primeiro e informa quantas linhas foram omitidas; os
+  totais ficam completos.
+- Um cache que só tem a parte preservada diz "Nada a limpar" em vez de "Cobertura
+  incompleta"; plurais corretos ("1 item protegido").
+- `--review` limpa todos os candidatos do detector num único plano (use `--root` para
+  restringir).
+- Sem `/./` no JSON de scan e de plano; a identidade do plano compara o caminho
+  normalizado nos dois lados.
+- `clean --yes` sem nada elegível responde `nothing_eligible` em vez de `dry_run`.
+- Diálogos nativos com "Limpar"/"Desinstalar"/"Cancelar".
+- Declarações TypeScript (`aws_secret_access_key: string;` em `.d.ts`) não são
+  credenciais; valores reais em `.ts` continuam protegidos.
+- Pacote: descrição longa abaixo de 80 colunas e man pages para os três binários.
+
 ## 0.1.10
 
 ### Corrigido
