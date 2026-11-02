@@ -1012,19 +1012,17 @@ impl<F: FnMut(ScanProgress)> Walker<'_, F> {
             .and_then(|fd| fs::fstat(&fd))
             .is_ok_and(|after| Fingerprint::from_stat(&after) == Fingerprint::from_stat(&st));
         complete &= stable;
-        // For a file candidate (e.g. a protected .env or tfstate) the ancestors
-        // start at its directory: opening the file itself as a directory only
-        // produced "Not a directory (os error 20)" in the reason.
-        let ancestors_from = if FileType::from_raw_mode(st.st_mode) == FileType::Directory {
-            rel
+        // A candidate that is not a directory (.env, tfstate, a preserved
+        // credential file) is never cleanable: same outcome as 0.1.10, where
+        // opening it as a directory failed (complete = false, Risk::Protected,
+        // no coverage_key). Only the text changed: no raw ENOTDIR message.
+        let ancestor_refusal = if FileType::from_raw_mode(st.st_mode) == FileType::Directory {
+            cleanup_ancestors_allowed(root, rel)
+                .err()
+                .map(|why| os_error_pt(&why))
         } else {
-            rel.parent()
-                .filter(|p| !p.as_os_str().is_empty())
-                .unwrap_or(Path::new("."))
+            Some("Arquivo avulso: fica fora da limpeza.".to_owned())
         };
-        let ancestor_refusal = cleanup_ancestors_allowed(root, ancestors_from)
-            .err()
-            .map(|why| os_error_pt(&why));
         if ancestor_refusal.is_some() {
             complete = false;
         }

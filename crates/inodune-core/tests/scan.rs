@@ -735,6 +735,21 @@ fn protected_files_have_no_raw_not_a_directory_reason() {
     assert!(protected.len() >= 4, "{protected:?}");
     for candidate in protected {
         assert_eq!(candidate.risk, inodune_core::Risk::Protected);
+        // Same outcome as 0.1.10: never cleanable, no coverage key, manifest
+        // not complete.
+        assert!(
+            candidate.coverage_key.is_none(),
+            "{}",
+            candidate.display_path
+        );
+        assert!(!result.targets[&candidate.id].complete);
+        assert!(
+            candidate
+                .reason
+                .contains("Arquivo avulso: fica fora da limpeza."),
+            "{}",
+            candidate.reason
+        );
         assert!(
             !candidate.reason.contains("os error") && !candidate.reason.contains("Not a directory"),
             "{}: {}",
