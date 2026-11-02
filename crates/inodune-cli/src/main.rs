@@ -240,16 +240,11 @@ fn run_clean(args: &[String], control: &ScanControl) -> Result<(String, bool), S
         .map(|p| ApprovedRoot::open(p, kind)?.with_exclusions(exclusions.clone()))
         .collect::<Result<Vec<_>, _>>()?;
     let snapshot = scan::scan(&roots, control, &ScanLimits::default(), |_| {})?;
-    if !snapshot.complete || snapshot.cancelled {
-        let output = if json {
-            serde_json::to_string_pretty(&snapshot.view()).map_err(|e| e.to_string())?
-        } else {
-            format!(
-                "Análise incompleta ou cancelada: {} candidatos. Nenhum plano pode ser executado.",
-                snapshot.candidates.len()
-            )
-        };
-        return Ok((output, true));
+    // A review of one detector may proceed when no issue touches its targets;
+    // everything else still refuses an incomplete or cancelled analysis.
+    if snapshot.cancelled || (!snapshot.complete && review.is_none()) {
+        let all: Vec<&scan::ScanIssue> = snapshot.issues.iter().collect();
+        return Ok((refuse_incomplete(&snapshot, &all, json)?, true));
     }
 
     let selected = if safe {
@@ -282,7 +277,23 @@ fn run_clean(args: &[String], control: &ScanControl) -> Result<(String, bool), S
                 "Nenhum candidato elegível para revisão '{detector}' foi encontrado nesta análise."
             ))
             }
-            [candidate] => vec![candidate.id.clone()],
+            [candidate] => {
+                if !snapshot.complete {
+                    let touching = issues_touching(&snapshot, candidate);
+                    // A truncated issue list cannot prove the target is untouched.
+                    let truncated = snapshot.issues.len() >= ScanLimits::default().max_issues;
+                    if truncated
+                        || !touching.is_empty()
+                        || !snapshot
+                            .targets
+                            .get(&candidate.id)
+                            .is_some_and(|t| t.complete)
+                    {
+                        return Ok((refuse_incomplete(&snapshot, &touching, json)?, true));
+                    }
+                }
+                vec![candidate.id.clone()]
+            }
             many => {
                 let paths = many
                     .iter()
@@ -336,7 +347,25 @@ fn run_clean(args: &[String], control: &ScanControl) -> Result<(String, bool), S
         .iter()
         .map(|v| (v.device, scan::tidy_display_path(&v.scope_path)))
         .collect();
-    let session = inodune_clean::plan::PlanSession::prepare(Arc::new(snapshot), &selected, action)?;
+    let partial_note = (!snapshot.complete).then(|| {
+        let all: Vec<&scan::ScanIssue> = snapshot.issues.iter().collect();
+        format!(
+            "Análise parcial; os avisos abaixo não tocam o alvo escolhido e o plano cobre só manifestos completos.\n{}",
+            issue_summary(&all)
+        )
+    });
+    let session = if snapshot.complete {
+        inodune_clean::plan::PlanSession::prepare(Arc::new(snapshot), &selected, action)?
+    } else {
+        inodune_clean::plan::PlanSession::prepare_verified_items(
+            Arc::new(snapshot),
+            &selected,
+            action,
+        )?
+    };
+    if let (Some(note), false) = (&partial_note, json) {
+        eprintln!("{note}");
+    }
     let plan_view = session.view();
     if !apply {
         let view = CleanView {
@@ -738,6 +767,73 @@ fn present_apps(inventory: &inodune_apps::Inventory, json: bool) -> Result<(Stri
         lines.join("\n")
     };
     Ok((output, partial))
+}
+
+/// Issues inside a candidate or on one of its ancestors.
+fn issues_touching<'a>(
+    snapshot: &'a scan::ScanSnapshot,
+    candidate: &inodune_core::Candidate,
+) -> Vec<&'a scan::ScanIssue> {
+    let target = std::path::PathBuf::from(scan::tidy_display_path(&candidate.display_path));
+    snapshot
+        .issues
+        .iter()
+        .filter(|issue| {
+            let path = std::path::PathBuf::from(scan::tidy_display_path(&issue.display_path));
+            path.starts_with(&target) || target.starts_with(&path)
+        })
+        .collect()
+}
+
+/// Count per issue code plus a few example paths.
+fn issue_summary(issues: &[&scan::ScanIssue]) -> String {
+    if issues.is_empty() {
+        return "  (sem avisos registrados; a análise foi interrompida ou excedeu limites)".into();
+    }
+    let mut by_code: std::collections::BTreeMap<&str, Vec<&scan::ScanIssue>> =
+        std::collections::BTreeMap::new();
+    for issue in issues {
+        by_code.entry(issue.code.as_str()).or_default().push(issue);
+    }
+    by_code
+        .iter()
+        .map(|(code, list)| {
+            let examples = list
+                .iter()
+                .take(3)
+                .map(|i| {
+                    format!(
+                        "{} ({})",
+                        scan::tidy_display_path(&i.display_path),
+                        i.message
+                    )
+                })
+                .collect::<Vec<_>>()
+                .join("; ");
+            format!("  {code}: {} — ex.: {examples}", list.len())
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+fn refuse_incomplete(
+    snapshot: &scan::ScanSnapshot,
+    issues: &[&scan::ScanIssue],
+    json: bool,
+) -> Result<String, String> {
+    if json {
+        return serde_json::to_string_pretty(&snapshot.view()).map_err(|e| e.to_string());
+    }
+    let state = if snapshot.cancelled {
+        "Análise cancelada"
+    } else {
+        "Análise incompleta"
+    };
+    Ok(format!(
+        "{state}: {}. Nenhum plano pode ser executado. Motivos:\n{}",
+        count(snapshot.candidates.len(), "candidato", "candidatos"),
+        issue_summary(issues)
+    ))
 }
 
 fn count(n: usize, one: &str, many: &str) -> String {
