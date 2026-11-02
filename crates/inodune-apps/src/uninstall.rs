@@ -28,6 +28,22 @@ pub struct View {
     pub items: Vec<Removal>,
     pub expires_in_seconds: u64,
     pub steam_handoff: bool,
+    /// Apresentação legível de `items`; não participa da autorização.
+    #[serde(default)]
+    pub details: Vec<RemovalDetail>,
+}
+/// Nome amigável, versão e tamanho de uma remoção, só para exibição.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(deny_unknown_fields)]
+pub struct RemovalDetail {
+    pub id: String,
+    pub name: String,
+    pub version: String,
+    #[serde(default)]
+    pub arch: Option<String>,
+    #[serde(default)]
+    pub size_bytes: Option<u64>,
+    pub requested: bool,
 }
 pub trait Transport {
     fn simulate(&mut self, request: &Request) -> Result<Vec<Removal>, String>;
@@ -51,6 +67,7 @@ impl Session {
                 items,
                 expires_in_seconds: 120,
                 steam_handoff: request.source == Source::Steam,
+                details: vec![],
             },
             request,
             expires: Instant::now() + Duration::from_secs(120),
@@ -762,14 +779,31 @@ mod packagekit {
                                 reply.error = Some("PackageKit retornou lista inválida".into());
                             }
                         }
-                        "ErrorCode" => reply.error = Some(
-                            "PackageKit recusou a transação; nada será repetido automaticamente"
-                                .into(),
-                        ),
+                        "ErrorCode" => {
+                            let (code, details) =
+                                args.get::<(u32, String)>().unwrap_or((0, String::new()));
+                            reply.error = Some(crate::presentation::packagekit_error(
+                                code, &details, simulate,
+                            ));
+                        }
                         "Finished" => {
                             reply.done = true;
-                            if args.get::<(u32, u32)>().is_none_or(|(exit, _)| exit != 1) {
-                                reply.error = Some("PackageKit não concluiu com sucesso".into());
+                            // Keep the specific ErrorCode message when one arrived first.
+                            match args.get::<(u32, u32)>() {
+                                Some((1, _)) => {}
+                                Some((exit, _)) => {
+                                    if reply.error.is_none() {
+                                        reply.error =
+                                            Some(crate::presentation::packagekit_exit(exit, simulate));
+                                    }
+                                }
+                                None => {
+                                    if reply.error.is_none() {
+                                        reply.error = Some(
+                                            "PackageKit encerrou com resposta inválida; resultado desconhecido".into(),
+                                        );
+                                    }
+                                }
                             }
                         }
                         _ => {}
@@ -783,7 +817,7 @@ mod packagekit {
                     gio::DBusCallFlags::ALLOW_INTERACTIVE_AUTHORIZATION
                 };
                 tx.call_sync(method, Some(&args), flags, 10000, gio::Cancellable::NONE)
-                    .map_err(|e| format!("PackageKit: {e}"))?;
+                    .map_err(|e| crate::presentation::packagekit_call_error(&e.to_string()))?;
                 let start = Instant::now();
                 loop {
                     while context.pending() {

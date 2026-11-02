@@ -74,3 +74,39 @@ class PackagerMetadataTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class DebianControlMetadataTests(unittest.TestCase):
+    """Lintian: malformed-contact, missing-dependency-on-libc, no-changelog, no-copyright-file."""
+
+    def test_deb_metadata_has_contact_libc_changelog_and_copyright(self):
+        import json
+        import re
+        conf = json.loads((ROOT / 'apps/desktop/src-tauri/tauri.conf.json').read_text())
+        deb = conf['bundle']['linux']['deb']
+        cargo = (ROOT / 'apps/desktop/src-tauri/Cargo.toml').read_text()
+        contact = re.compile(r'^[^<>]+ <[^<>@\s]+@[^<>@\s]+>$')
+        authors = re.search(r'^authors = \["([^"]+)"\]', cargo, re.M)
+        self.assertIsNotNone(authors)
+        self.assertRegex(authors.group(1), contact)
+        self.assertRegex(conf['bundle']['publisher'], contact)
+        self.assertIn('noreply.github.com', authors.group(1))
+        self.assertTrue(conf['bundle']['homepage'].startswith('https://'))
+        self.assertEqual(deb['section'], 'utils')
+        self.assertTrue(any(d.startswith('libc6 (>= ') for d in deb['depends']))
+        base = ROOT / 'apps/desktop/src-tauri'
+        changelog = (base / deb['changelog']).resolve()
+        copyright_file = (base / deb['files']['/usr/share/doc/inodune/copyright']).resolve()
+        self.assertTrue(changelog.is_file())
+        self.assertTrue(copyright_file.is_file())
+        first = changelog.read_text().splitlines()[0]
+        self.assertEqual(first.split()[:2], ['inodune', f"({conf['version']})"])
+        trailer = [l for l in changelog.read_text().splitlines() if l.startswith(' -- ')]
+        self.assertRegex(trailer[0][4:].split('  ')[0], contact)
+        self.assertTrue(copyright_file.read_text().startswith('Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/'))
+
+    def test_packager_snapshot_includes_debian_metadata(self):
+        import inspect
+        module = load('package-linux')
+        source = inspect.getsource(module.prepare_snapshot)
+        self.assertIn('ROOT / "packaging" / "debian"', source)

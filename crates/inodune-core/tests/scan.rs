@@ -485,6 +485,9 @@ fn recreatable_next_and_npm_caches_require_individual_review() {
             c.supported_action,
             inodune_core::SupportedAction::ReviewedCacheContents
         ));
+        // G4: the text must match the real action (cleanable after explicit review).
+        assert!(!c.impact.contains("não autoriza remoção"), "{}", c.impact);
+        assert!(c.impact.contains("Lixeira"), "{}", c.impact);
     }
 }
 

@@ -74,7 +74,7 @@ fn run_with_control(args: Vec<String>, control: &ScanControl) -> Result<(String,
                 .map(|s| (s, false))
                 .map_err(|e| e.to_string())
         }
-        ["clean", "--demo", "--dry-run"] => {
+        ["clean", "--demo"] | ["clean", "--demo", "--dry-run"] => {
             let inv = inodune_core::demo_inventory().map_err(|e| e.to_string())?;
             let ids = inv
                 .candidates
@@ -386,9 +386,20 @@ fn run_clean(args: &[String], control: &ScanControl) -> Result<(String, bool), S
             }
         }
         for volume in &report.volumes {
+            let delta = match volume.observed_delta {
+                Some(delta) if delta < 0 => format!(
+                    "−{}",
+                    inodune_apps::presentation::human_bytes(u64::try_from(delta.unsigned_abs()).unwrap_or(u64::MAX))
+                ),
+                Some(delta) => format!(
+                    "+{}",
+                    inodune_apps::presentation::human_bytes(u64::try_from(delta.unsigned_abs()).unwrap_or(u64::MAX))
+                ),
+                None => "não medida".to_owned(),
+            };
             text.push_str(&format!(
-                "\nDevice {}: variação observada de disponibilidade {:?} bytes (não atribuída).",
-                volume.device, volume.observed_delta
+                "\nVolume (dispositivo {}): variação observada de espaço disponível {delta} (não atribuída à limpeza).",
+                volume.device
             ));
         }
         for warning in &report.warnings {
@@ -590,7 +601,7 @@ fn uninstall_apps(args: &[&str]) -> Result<(String, bool), String> {
         }
     }
     if ids.is_empty() {
-        return Err("Informe ao menos um ID. Uso: inodune apps uninstall ID... [--yes]".into());
+        return Err("Informe ao menos um ID. Uso: inodune-cli apps uninstall ID... [--yes]".into());
     }
     #[cfg(feature = "container-dpkg-test")]
     if std::env::var("INODUNE_CONTAINER_DPKG").ok().as_deref() == Some("1") {
@@ -611,18 +622,43 @@ fn uninstall_apps(args: &[&str]) -> Result<(String, bool), String> {
         }
         grouped.entry(item.source).or_default().push(id.clone());
     }
+    if !yes && !std::io::stdin().is_terminal() {
+        return Err(
+            "Desinstalação exige --yes ou um terminal para confirmar. Nada foi removido.".into(),
+        );
+    }
+    // Simulate first so the person sees packages, dependencies and size before typing.
+    let all_items: Vec<inodune_apps::InstalledItem> = inventory
+        .sources
+        .into_iter()
+        .flat_map(|source| source.items)
+        .collect();
+    let mut prepared = Vec::new();
+    let mut packages = 0;
+    for (source, group) in grouped {
+        let request = inodune_apps::uninstall::Request {
+            source,
+            id: group[0].clone(),
+            ids: group.clone(),
+        };
+        let mut transport = inodune_apps::uninstall::SystemTransport;
+        let session = inodune_apps::uninstall::Session::prepare(request, &mut transport)?;
+        let view = session.view();
+        let details =
+            inodune_apps::presentation::describe(source, &view.items, &group, &all_items);
+        packages += details.len();
+        eprintln!(
+            "{}\n",
+            inodune_apps::presentation::confirmation_text(&details, view.steam_handoff)
+        );
+        prepared.push((session, view.id));
+    }
     if !yes {
         let stdin = std::io::stdin();
-        if !stdin.is_terminal() {
-            return Err(
-                "Desinstalação exige --yes ou um terminal para confirmar. Nada foi removido."
-                    .into(),
-            );
-        }
         eprintln!(
-            "Desinstalar {} item(ns). Digite UNINSTALL {} para confirmar.",
+            "Plano válido por 2 minutos. Digite UNINSTALL {} para confirmar ({} no total).",
             ids.len(),
-            ids.len()
+            if packages == 1 { "1 pacote".to_owned() } else { format!("{packages} pacotes") }
         );
         let mut line = String::new();
         stdin
@@ -633,19 +669,15 @@ fn uninstall_apps(args: &[&str]) -> Result<(String, bool), String> {
             return Err("Confirmação não corresponde; nada foi removido.".into());
         }
     }
-    for (source, group) in grouped {
-        let request = inodune_apps::uninstall::Request {
-            source,
-            id: group[0].clone(),
-            ids: group,
-        };
+    for (session, plan_id) in prepared {
         let mut transport = inodune_apps::uninstall::SystemTransport;
-        let session = inodune_apps::uninstall::Session::prepare(request, &mut transport)?;
-        let view = session.view();
-        session.execute(&view.id, &mut transport)?;
+        session.execute(&plan_id, &mut transport)?;
     }
     Ok((
-        format!("Desinstalação concluída: {} item(ns).", ids.len()),
+        format!(
+            "Desinstalação concluída: {}.",
+            if packages == 1 { "1 pacote".to_owned() } else { format!("{packages} pacotes") }
+        ),
         false,
     ))
 }
@@ -667,8 +699,8 @@ fn present_apps(inventory: &inodune_apps::Inventory, json: bool) -> Result<(Stri
             ));
             for item in &source.items {
                 let size = match item.size_bytes {
-                    Some(bytes) => format!("{bytes} bytes"),
-                    None => "desconhecido".to_string(),
+                    Some(bytes) => inodune_apps::presentation::human_bytes(bytes),
+                    None => "tamanho desconhecido".to_string(),
                 };
                 lines.push(format!(
                     "{:?} | {} | {} | {size} | uso {:?} | protegido={}",
@@ -683,7 +715,7 @@ fn present_apps(inventory: &inodune_apps::Inventory, json: bool) -> Result<(Stri
 }
 
 fn usage() -> String {
-    "Uso: inodune apps list [--json]\n     inodune apps uninstall ID... [--yes]\n     inodune-cli [--help|-h] [--version|-V]\n     inodune-cli scan --auto [--json]\n     inodune-cli scan --root ABS [--root ABS] [--exclude REL]... [--scope projects|thumbnails|protected] [--json]\n     inodune-cli clean --root ABS [--root ABS] [--exclude REL]... [--scope projects|thumbnails|protected] [--dry-run|--apply] [--safe] [--yes] [--review DETECTOR] [--permanent] [--json]\nDemonstração: scan --demo --json | clean --demo --dry-run. --exclude aceita caminhos relativos literais; '.' exclui a root inteira. clean executa depois de uma confirmação; --dry-run é explícito e não é o padrão. --safe escolhe o conjunto de um clique. --yes não pergunta. --permanent apaga direto. apps uninstall remove os IDs informados. Exit 2: erro; exit 3: cobertura ou execução parcial.".into()
+    "Uso: inodune-cli apps list [--json]\n     inodune-cli apps uninstall ID... [--yes]\n     inodune-cli [--help|-h] [--version|-V]\n     inodune-cli scan --auto [--json]\n     inodune-cli scan --root ABS [--root ABS] [--exclude REL]... [--scope projects|thumbnails|protected] [--json]\n     inodune-cli clean --root ABS [--root ABS] [--exclude REL]... [--scope projects|thumbnails|protected] [--dry-run|--apply] [--safe] [--yes] [--review DETECTOR] [--permanent] [--json]\nDemonstração (dados fictícios, nada é lido nem alterado): scan --demo --json | clean --demo [--dry-run]. --exclude aceita caminhos relativos literais; '.' exclui a root inteira. clean executa depois de uma confirmação; --dry-run é explícito e não é o padrão. --safe escolhe o conjunto de um clique. --yes não pergunta. --permanent exclui sem passar pela Lixeira (irreversível). apps uninstall mostra o plano (pacotes, dependências e tamanho) antes de pedir confirmação. Exit 2: erro; exit 3: cobertura ou execução parcial.".into()
 }
 
 #[cfg(test)]

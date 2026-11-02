@@ -70,6 +70,7 @@ pub async fn uninstall_prepare(
                 items: vec![],
                 expires_in_seconds: 0,
                 steam_handoff: false,
+                details: vec![],
             },
         };
         writeln!(
@@ -92,6 +93,21 @@ pub async fn uninstall_prepare(
             return Err(error.to_owned());
         }
         prepared.view = serde_json::from_value(value).map_err(|_| "Plano inválido do helper")?;
+        // Names and sizes come from the local inventory; display only.
+        let inventory: Vec<inodune_apps::InstalledItem> = inodune_apps::inventory()
+            .map(|inv| inv.sources.into_iter().flat_map(|s| s.items).collect())
+            .unwrap_or_default();
+        let requested = if request.ids.is_empty() {
+            vec![request.id.clone()]
+        } else {
+            request.ids.clone()
+        };
+        prepared.view.details = inodune_apps::presentation::describe(
+            request.source,
+            &prepared.view.items,
+            &requested,
+            &inventory,
+        );
         Ok::<_, String>(prepared)
     })
     .await
@@ -117,8 +133,7 @@ pub async fn uninstall_execute(
         return Err("ID de plano inválido".into());
     }
     tauri::async_runtime::spawn_blocking(move|| {
-        let list=prepared.view.items.iter().map(|i|format!("{} · {}",i.id,i.version)).collect::<Vec<_>>().join("\n");
-        let message=if prepared.view.steam_handoff {format!("Abrir a confirmação de desinstalação no Steam?\n\n{list}")}else{format!("Desinstalar os pacotes abaixo, inclusive dependências que saem junto? Não há autoremove nem purge. O sistema pode pedir autorização.\n\n{list}")};
+        let message=inodune_apps::presentation::confirmation_text(&prepared.view.details,prepared.view.steam_handoff);
         let accepted=app.dialog().message(message).title("Confirmar desinstalação").kind(MessageDialogKind::Warning).buttons(MessageDialogButtons::OkCancel).blocking_show();
         if !accepted {return Err("Desinstalação cancelada; plano consumido".into());}
         prepared.child.mark_execution_sent();

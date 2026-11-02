@@ -31,6 +31,8 @@ def prepare_snapshot(destination: Path) -> None:
     shutil.copytree(ROOT / "crates", destination / "crates")
     shutil.copytree(ROOT / "tests" / "fixtures", destination / "tests" / "fixtures")
     shutil.copytree(ROOT / "assets" / "brand", destination / "assets" / "brand")
+    # Debian changelog and DEP-5 copyright referenced by tauri.conf.json.
+    shutil.copytree(ROOT / "packaging" / "debian", destination / "packaging" / "debian")
     shutil.copytree(
         ROOT / "apps" / "desktop" / "src-tauri",
         destination / "apps" / "desktop" / "src-tauri",

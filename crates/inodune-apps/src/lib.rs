@@ -2,6 +2,7 @@
 mod command;
 mod files;
 mod packages;
+pub mod presentation;
 mod snap_api;
 mod steam;
 pub mod uninstall;
