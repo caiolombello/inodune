@@ -1415,10 +1415,21 @@ impl<F: FnMut(ScanProgress)> Walker<'_, F> {
             }
             let mut deletable = Vec::new();
             let mut sensitive = Vec::new();
+            // Original location from .trashinfo: name hint only (see
+            // trashinfo_original). None keeps the stricter evaluation.
+            let hint = trashinfo_original(
+                root,
+                &info_rel.join(format!("{}.trashinfo", name.to_string_lossy())),
+            );
+            if hint.as_deref().is_some_and(trash_keeps_entry) {
+                self.push_protected_trash_entry(root, &entry);
+                continue;
+            }
             self.collect_trash(
                 root,
                 &entry,
                 false,
+                hint.as_deref(),
                 &mut deletable,
                 &mut sensitive,
                 &mut links,
@@ -1613,6 +1624,7 @@ impl<F: FnMut(ScanProgress)> Walker<'_, F> {
         root: &ApprovedRoot,
         rel: &Path,
         inherited: bool,
+        hint: Option<&Path>,
         deletable: &mut Vec<(PathBuf, Fingerprint)>,
         sensitive: &mut Vec<(PathBuf, Fingerprint)>,
         links: &mut Vec<(u64, u64, u64, PathBuf)>,
@@ -1638,13 +1650,15 @@ impl<F: FnMut(ScanProgress)> Walker<'_, F> {
                 return;
             }
         };
-        let name_sensitive = rel
-            .file_name()
-            .is_some_and(|name| protected_name(name) || name == ".ssh" || name == ".gnupg");
+        // Name rules on the Trash name AND on the original name (union).
+        let named =
+            |name: &std::ffi::OsStr| protected_name(name) || name == ".ssh" || name == ".gnupg";
+        let name_sensitive =
+            rel.file_name().is_some_and(named) || hint.and_then(Path::file_name).is_some_and(named);
         let sensitive_here = inherited
             || name_sensitive
             || (FileType::from_raw_mode(st.st_mode) == FileType::RegularFile
-                && sensitive_content(root, rel));
+                && sensitive_content_as(root, rel, hint.unwrap_or(rel)));
         match FileType::from_raw_mode(st.st_mode) {
             FileType::Directory => {
                 let Some(names) = self.names(root, rel) else {
@@ -1654,10 +1668,12 @@ impl<F: FnMut(ScanProgress)> Walker<'_, F> {
                     if !self.allowed() {
                         return;
                     }
+                    let child_hint = hint.map(|h| h.join(&name));
                     self.collect_trash(
                         root,
                         &rel.join(name),
                         sensitive_here,
+                        child_hint.as_deref(),
                         deletable,
                         sensitive,
                         links,
@@ -2136,6 +2152,13 @@ pub use crate::credentials::credential_bytes;
 /// first 64 KiB of every file and up to 1 MiB of text files (no NUL in the first
 /// window). Unreadable or changing files are fail-closed (protected).
 pub fn sensitive_content(root: &ApprovedRoot, path: &Path) -> bool {
+    sensitive_content_as(root, path, path)
+}
+
+/// Same bounded read of `path`, classified as if it were named `name_hint`.
+/// The hint only feeds `credential_bytes` (extension/documentation rules); a
+/// private-key header and real values protect whatever the hint says.
+pub fn sensitive_content_as(root: &ApprovedRoot, path: &Path, name_hint: &Path) -> bool {
     let Ok(fd) = root.open_relative(path, OFlags::RDONLY | OFlags::NONBLOCK | OFlags::NOATIME)
     else {
         return true;
@@ -2169,7 +2192,110 @@ pub fn sensitive_content(root: &ApprovedRoot, path: &Path) -> bool {
         return true;
     };
     Fingerprint::from_stat(&before) != Fingerprint::from_stat(&after)
-        || credential_bytes(path, &bytes)
+        || credential_bytes(name_hint, &bytes)
+}
+
+/// Original location of a Trash entry, from `info/<name>.trashinfo`.
+/// Untrusted: it is only a name hint for the same content rules used in
+/// caches, and name rules apply to it in addition to the Trash name. Any
+/// doubt (missing, not private, too big, malformed) returns None, which keeps
+/// the stricter evaluation by the random Trash name.
+fn trashinfo_original(root: &ApprovedRoot, info_rel: &Path) -> Option<PathBuf> {
+    let fd = root
+        .open_relative(
+            info_rel,
+            OFlags::RDONLY | OFlags::NONBLOCK | OFlags::NOATIME,
+        )
+        .ok()?;
+    let st = fs::fstat(&fd).ok()?;
+    if FileType::from_raw_mode(st.st_mode) != FileType::RegularFile
+        || st.st_uid != rustix::process::getuid().as_raw()
+        || st.st_nlink != 1
+        || !(0..=8192).contains(&st.st_size)
+    {
+        return None;
+    }
+    let mut text = String::new();
+    std::fs::File::from(fd)
+        .take(8193)
+        .read_to_string(&mut text)
+        .ok()?;
+    let mut lines = text.lines();
+    if lines.next()? != "[Trash Info]" {
+        return None;
+    }
+    let mut found = None;
+    for line in lines {
+        if let Some(value) = line.strip_prefix("Path=") {
+            if found.is_some() {
+                return None;
+            }
+            found = Some(value);
+        }
+    }
+    let encoded = found?.as_bytes();
+    let mut decoded = Vec::with_capacity(encoded.len());
+    let mut i = 0;
+    while i < encoded.len() {
+        if encoded[i] == b'%' {
+            let hex = std::str::from_utf8(encoded.get(i + 1..i + 3)?).ok()?;
+            decoded.push(u8::from_str_radix(hex, 16).ok()?);
+            i += 3;
+        } else {
+            decoded.push(encoded[i]);
+            i += 1;
+        }
+    }
+    if decoded.is_empty()
+        || decoded.len() > 4096
+        || decoded[0] != b'/'
+        || decoded.iter().any(|b| *b == 0 || b.is_ascii_control())
+    {
+        return None;
+    }
+    use std::os::unix::ffi::OsStringExt;
+    Some(PathBuf::from(std::ffi::OsString::from_vec(decoded)))
+}
+
+/// For a path inside the user's `Trash/files/<entry>/...`: the original path
+/// of the same file according to the entry's `.trashinfo`.
+fn trash_name_hint(root: &ApprovedRoot, relative: &Path) -> Option<PathBuf> {
+    let mut ancestor = relative;
+    let mut rest: Vec<&std::ffi::OsStr> = Vec::new();
+    while let Some(parent) = ancestor.parent() {
+        if parent.file_name().is_some_and(|n| n == "files")
+            && parent
+                .parent()
+                .is_some_and(|trash| is_user_trash(&root.path.join(trash)))
+        {
+            let entry = ancestor.file_name()?;
+            let info = parent
+                .parent()?
+                .join("info")
+                .join(format!("{}.trashinfo", entry.to_string_lossy()));
+            let mut hint = trashinfo_original(root, &info)?;
+            for part in rest.iter().rev() {
+                hint.push(part);
+            }
+            return Some(hint);
+        }
+        rest.push(ancestor.file_name()?);
+        ancestor = parent;
+    }
+    None
+}
+
+/// Executor revalidation for any manifest file: content as in the scan, with
+/// the Trash name hint when the file lives in the user's Trash, plus the name
+/// rules on the hinted name (never fewer rules than the Trash name alone).
+pub fn cleanup_content_sensitive(root: &ApprovedRoot, relative: &Path) -> bool {
+    match trash_name_hint(root, relative) {
+        Some(hint) => {
+            hint.file_name().is_some_and(protected_name)
+                || sensitive_content_as(root, relative, &hint)
+        }
+        None => sensitive_content(root, relative),
+    }
 }
 
 pub fn user_trash_dir() -> Option<PathBuf> {

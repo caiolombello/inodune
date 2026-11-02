@@ -952,7 +952,7 @@ fn process_file(
     if relative
         .components()
         .any(|part| inodune_core::scan::protected_name(part.as_os_str()))
-        || inodune_core::scan::sensitive_content(&target.root, relative)
+        || inodune_core::scan::cleanup_content_sensitive(&target.root, relative)
     {
         return fail("Credencial, chave privada ou leitura insegura; arquivo protegido.");
     }
