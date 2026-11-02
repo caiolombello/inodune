@@ -1422,7 +1422,7 @@ impl<F: FnMut(ScanProgress)> Walker<'_, F> {
             }
             let entry = files_rel.join(&name);
             if self.trash_entry_must_stay(root, &entry) {
-                self.push_protected_trash_entry(root, &entry);
+                self.push_protected_trash_entry(root, &entry, TRASH_KEEP_REASON);
                 continue;
             }
             let mut deletable = Vec::new();
@@ -1433,10 +1433,14 @@ impl<F: FnMut(ScanProgress)> Walker<'_, F> {
                 root,
                 &info_rel.join(format!("{}.trashinfo", name.to_string_lossy())),
             );
-            if hint.as_deref().is_some_and(trash_keeps_entry) {
-                self.push_protected_trash_entry(root, &entry);
-                continue;
-            }
+            // Without a valid origin record the entry is analysis only (it
+            // could be the content of a ~/.ssh folder); an origin inside a
+            // sensitive folder too. It is still walked for issues and links.
+            let analysis_only = match hint.as_deref() {
+                None => Some(TRASH_ORPHAN_REASON),
+                Some(original) if sensitive_origin(original) => Some(TRASH_SENSITIVE_ORIGIN_REASON),
+                Some(_) => None,
+            };
             self.collect_trash(
                 root,
                 &entry,
@@ -1448,6 +1452,10 @@ impl<F: FnMut(ScanProgress)> Walker<'_, F> {
                     links: &mut links,
                 },
             );
+            if let Some(reason) = analysis_only {
+                self.push_protected_trash_entry(root, &entry, reason);
+                continue;
+            }
             if !sensitive.is_empty() {
                 for (path, fp) in &sensitive {
                     if !self.allowed() {
@@ -1570,7 +1578,7 @@ impl<F: FnMut(ScanProgress)> Walker<'_, F> {
             .iter()
             .any(|name| self.trash_entry_must_stay(root, &rel.join(name)))
     }
-    fn push_protected_trash_entry(&mut self, root: &ApprovedRoot, entry: &Path) {
+    fn push_protected_trash_entry(&mut self, root: &ApprovedRoot, entry: &Path, reason: &str) {
         let Ok(st) = root.lstat_relative(entry) else {
             return;
         };
@@ -1591,10 +1599,14 @@ impl<F: FnMut(ScanProgress)> Walker<'_, F> {
             risk: Risk::Protected,
             logical_bytes: fp.size,
             allocated_bytes_estimate: Some(fp.blocks.saturating_mul(512)),
-            identity: Some(Identity { dev: fp.dev, ino: fp.ino, mtime_unix: fp.mtime }),
+            identity: Some(Identity {
+                dev: fp.dev,
+                ino: fp.ino,
+                mtime_unix: fp.mtime,
+            }),
             coverage_key: None,
             selected_by_default: false,
-            reason: "Entrada da Lixeira com sessão de agente, repositório Git ou credencial; somente análise.".into(),
+            reason: reason.into(),
             impact: "A entrada inteira permanece, inclusive o .trashinfo correspondente.".into(),
             rebuild_hint: "Restaure manualmente se ainda precisar do conteúdo.".into(),
             preserved: "Sessões, repositórios Git, credenciais e o .trashinfo.".into(),
@@ -2072,6 +2084,11 @@ fn valid_thumbnail_name(name: &str) -> bool {
     name.strip_suffix(".png")
         .is_some_and(|h| h.len() == 32 && h.chars().all(|c| c.is_ascii_hexdigit()))
 }
+const TRASH_KEEP_REASON: &str =
+    "Entrada da Lixeira com sessão de agente, repositório Git ou credencial; somente análise.";
+const TRASH_ORPHAN_REASON: &str = "Sem registro de origem válido na Lixeira; só análise.";
+const TRASH_SENSITIVE_ORIGIN_REASON: &str =
+    "Veio de uma pasta sensível (chaves, credenciais ou perfil); só análise.";
 fn trash_keeps_entry(path: &Path) -> bool {
     let Some(name) = path.file_name() else {
         return false;
@@ -2140,6 +2157,10 @@ pub fn credential_name(name: &std::ffi::OsStr) -> bool {
         "credentials.json",
         "access_tokens.db",
         "application_default_credentials.json",
+        ".password-store",
+        ".terraform.d",
+        ".mozilla",
+        ".thunderbird",
     ]
     .contains(&n.as_str())
         || [".p12", ".pfx", ".kdbx"].iter().any(|ext| n.ends_with(ext))
@@ -2280,7 +2301,9 @@ fn trashinfo_original(root: &ApprovedRoot, info_rel: &Path) -> Option<PathBuf> {
 
 /// For a path inside the user's `Trash/files/<entry>/...`: the original path
 /// of the same file according to the entry's `.trashinfo`.
-fn trash_name_hint(root: &ApprovedRoot, relative: &Path) -> Option<PathBuf> {
+/// `None`: not inside the user's `Trash/files`. `Some(None)`: inside it but
+/// without a valid `.trashinfo`. `Some(Some(path))`: original path.
+fn trash_name_hint(root: &ApprovedRoot, relative: &Path) -> Option<Option<PathBuf>> {
     let mut ancestor = relative;
     let mut rest: Vec<&std::ffi::OsStr> = Vec::new();
     while let Some(parent) = ancestor.parent() {
@@ -2294,11 +2317,13 @@ fn trash_name_hint(root: &ApprovedRoot, relative: &Path) -> Option<PathBuf> {
                 .parent()?
                 .join("info")
                 .join(format!("{}.trashinfo", entry.to_string_lossy()));
-            let mut hint = trashinfo_original(root, &info)?;
+            let Some(mut hint) = trashinfo_original(root, &info) else {
+                return Some(None);
+            };
             for part in rest.iter().rev() {
                 hint.push(part);
             }
-            return Some(hint);
+            return Some(Some(hint));
         }
         rest.push(ancestor.file_name()?);
         ancestor = parent;
@@ -2311,12 +2336,34 @@ fn trash_name_hint(root: &ApprovedRoot, relative: &Path) -> Option<PathBuf> {
 /// rules on the hinted name (never fewer rules than the Trash name alone).
 pub fn cleanup_content_sensitive(root: &ApprovedRoot, relative: &Path) -> bool {
     match trash_name_hint(root, relative) {
-        Some(hint) => {
-            hint.file_name().is_some_and(protected_name)
+        // In the Trash without a valid origin record: never removed.
+        Some(None) => true,
+        Some(Some(hint)) => {
+            sensitive_origin(&hint)
+                || hint.file_name().is_some_and(protected_name)
                 || sensitive_content_as(root, relative, &hint)
         }
         None => sensitive_content(root, relative),
     }
+}
+
+/// The original location of a Trash entry is inside (or is) a sensitive
+/// folder: any component matches the existing name rules (credential and
+/// protected names, trash_keeps_entry), or `.config/gh`.
+pub fn sensitive_origin(original: &Path) -> bool {
+    let parts: Vec<&std::ffi::OsStr> = original
+        .components()
+        .filter_map(|c| match c {
+            std::path::Component::Normal(part) => Some(part),
+            _ => None,
+        })
+        .collect();
+    parts.iter().any(|part| {
+        protected_name(part)
+            || trash_keeps_entry(Path::new(part))
+            || *part == ".ssh"
+            || *part == ".gnupg"
+    }) || parts.windows(2).any(|w| w[0] == ".config" && w[1] == "gh")
 }
 
 /// Outputs of one Trash entry walk (keeps collect_trash's signature short).
