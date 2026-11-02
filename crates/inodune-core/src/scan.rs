@@ -1356,8 +1356,13 @@ impl<F: FnMut(ScanProgress)> Walker<'_, F> {
             return;
         };
         let uid = rustix::process::getuid().as_raw();
+        let files_dev = root.lstat_relative(&files_rel).ok().map(|st| st.st_dev);
+        // Hardlinked regular files found in Trash/files: (dev, ino, nlink, path).
+        let mut links: Vec<(u64, u64, u64, PathBuf)> = Vec::new();
+        let mut walked_all = true;
         for name in names {
             if !self.allowed() {
+                walked_all = false;
                 break;
             }
             let entry = files_rel.join(&name);
@@ -1367,7 +1372,14 @@ impl<F: FnMut(ScanProgress)> Walker<'_, F> {
             }
             let mut deletable = Vec::new();
             let mut sensitive = Vec::new();
-            self.collect_trash(root, &entry, false, &mut deletable, &mut sensitive);
+            self.collect_trash(
+                root,
+                &entry,
+                false,
+                &mut deletable,
+                &mut sensitive,
+                &mut links,
+            );
             if !sensitive.is_empty() {
                 for (path, fp) in &sensitive {
                     if !self.allowed() {
@@ -1467,6 +1479,8 @@ impl<F: FnMut(ScanProgress)> Walker<'_, F> {
                 supported_action: SupportedAction::CacheContents,
             });
         }
+        let walked_all = walked_all && self.allowed();
+        self.settle_trash_links(root, files_dev, links, walked_all);
     }
     fn trash_entry_must_stay(&mut self, root: &ApprovedRoot, rel: &Path) -> bool {
         if !self.allowed() || trash_keeps_entry(rel) {
@@ -1521,6 +1535,36 @@ impl<F: FnMut(ScanProgress)> Walker<'_, F> {
             supported_action: SupportedAction::None,
         });
     }
+    /// Hardlinks whose links are all inside the user's Trash/files (e.g. a
+    /// node-gyp build moved to Trash with both links) stay preserved without
+    /// making the analysis incomplete. Any link elsewhere, a different device or
+    /// an interrupted walk keeps the blocking `hardlink` issue.
+    fn settle_trash_links(
+        &mut self,
+        root: &ApprovedRoot,
+        files_dev: Option<u64>,
+        links: Vec<(u64, u64, u64, PathBuf)>,
+        walked_all: bool,
+    ) {
+        let mut seen: HashMap<(u64, u64), u64> = HashMap::new();
+        for (dev, ino, _, _) in &links {
+            *seen.entry((*dev, *ino)).or_insert(0) += 1;
+        }
+        for (dev, ino, nlink, path) in links {
+            let internal = walked_all
+                && files_dev == Some(dev)
+                && seen.get(&(dev, ino)).copied() == Some(nlink);
+            if internal {
+                self.count_skip("trash_internal_hardlink");
+            } else {
+                self.issue(
+                    &root.path.join(&path),
+                    "hardlink",
+                    "Hardlink com elo fora da Lixeira; preservado.",
+                );
+            }
+        }
+    }
     fn collect_trash(
         &mut self,
         root: &ApprovedRoot,
@@ -1528,6 +1572,7 @@ impl<F: FnMut(ScanProgress)> Walker<'_, F> {
         inherited: bool,
         deletable: &mut Vec<(PathBuf, Fingerprint)>,
         sensitive: &mut Vec<(PathBuf, Fingerprint)>,
+        links: &mut Vec<(u64, u64, u64, PathBuf)>,
     ) {
         let uid = rustix::process::getuid().as_raw();
         let st = match root.lstat_relative(rel) {
@@ -1566,7 +1611,14 @@ impl<F: FnMut(ScanProgress)> Walker<'_, F> {
                     if !self.allowed() {
                         return;
                     }
-                    self.collect_trash(root, &rel.join(name), sensitive_here, deletable, sensitive);
+                    self.collect_trash(
+                        root,
+                        &rel.join(name),
+                        sensitive_here,
+                        deletable,
+                        sensitive,
+                        links,
+                    );
                 }
             }
             FileType::RegularFile | FileType::Symlink => {
@@ -1576,11 +1628,16 @@ impl<F: FnMut(ScanProgress)> Walker<'_, F> {
                 } else if FileType::from_raw_mode(st.st_mode) == FileType::RegularFile
                     && st.st_nlink > 1
                 {
-                    self.issue(
-                        &root.path.join(rel),
-                        "hardlink",
-                        "Hardlink na Lixeira; preservado.",
-                    );
+                    // Decided once the whole Trash/files was walked.
+                    if links.len() < 100_000 {
+                        links.push((st.st_dev, st.st_ino, st.st_nlink, rel.to_path_buf()));
+                    } else {
+                        self.issue(
+                            &root.path.join(rel),
+                            "hardlink",
+                            "Hardlinks em excesso na Lixeira; preservado.",
+                        );
+                    }
                 } else if deletable.len() < 100_000 {
                     deletable.push((rel.to_path_buf(), fp));
                 } else {
