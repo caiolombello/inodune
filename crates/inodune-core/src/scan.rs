@@ -427,6 +427,14 @@ impl Fingerprint {
         }
     }
 }
+struct Measurement {
+    logical: u64,
+    allocated: u64,
+    complete: bool,
+    files: Vec<(PathBuf, Fingerprint)>,
+    blocks: Vec<String>,
+    preserved: Vec<PathBuf>,
+}
 #[derive(Clone)]
 pub struct ScannedTarget {
     pub root: ApprovedRoot,
@@ -435,6 +443,8 @@ pub struct ScannedTarget {
     pub files: Vec<(PathBuf, Fingerprint)>,
     /// Non-deletable evidence (manifest/lock/source) bound to an eventual plan.
     pub witnesses: Vec<(PathBuf, Fingerprint)>,
+    /// Intentional, non-deletable subtrees/files. Bound into the plan hash.
+    pub preserved: Vec<PathBuf>,
     pub complete: bool,
 }
 #[derive(Clone)]
@@ -651,7 +661,9 @@ impl<F: FnMut(ScanProgress)> Walker<'_, F> {
         &mut self,
         root: &ApprovedRoot,
         rel: &Path,
-    ) -> (u64, u64, bool, Vec<(PathBuf, Fingerprint)>, Vec<String>) {
+        partial_credentials: bool,
+    ) -> Measurement {
+        let mut preserved: Vec<PathBuf> = Vec::new();
         let mut pending = vec![(rel.to_path_buf(), 0usize)];
         let mut logical = 0u64;
         let mut allocated = 0u64;
@@ -666,6 +678,9 @@ impl<F: FnMut(ScanProgress)> Walker<'_, F> {
             }
         };
         while let Some((path, depth)) = pending.pop() {
+            if preserved.iter().any(|p| path.starts_with(p)) {
+                continue;
+            }
             if !self.allowed() {
                 complete = false;
                 break;
@@ -705,6 +720,25 @@ impl<F: FnMut(ScanProgress)> Walker<'_, F> {
                     continue;
                 }
             };
+            let credential = path.file_name().is_some_and(credential_name)
+                || (FileType::from_raw_mode(st.st_mode) == FileType::RegularFile
+                    && sensitive_content(root, &path));
+            if partial_credentials && credential {
+                let parent = path.parent().unwrap_or(rel);
+                let keep = if FileType::from_raw_mode(st.st_mode) == FileType::Directory
+                    || parent == rel
+                {
+                    path.clone()
+                } else {
+                    parent.to_owned()
+                };
+                if !preserved.iter().any(|p| keep.starts_with(p)) {
+                    preserved.retain(|p| !p.starts_with(&keep));
+                    preserved.push(keep);
+                }
+                self.count_skip("credential_preserved");
+                continue;
+            }
             if is_protected_agent_path(&root.path.join(&path))
                 || path.file_name().is_some_and(|n| {
                     n == ".git" || n == ".ssh" || n == ".gnupg" || protected_name(n)
@@ -714,9 +748,7 @@ impl<F: FnMut(ScanProgress)> Walker<'_, F> {
                 complete = false;
                 continue;
             }
-            if FileType::from_raw_mode(st.st_mode) == FileType::RegularFile
-                && sensitive_content(root, &path)
-            {
+            if credential {
                 note(
                     &mut blocks,
                     "assinatura de chave privada ou leitura insegura",
@@ -800,6 +832,25 @@ impl<F: FnMut(ScanProgress)> Walker<'_, F> {
                 }
             }
         }
+        if !preserved.is_empty() {
+            files.retain(|(path, _)| !preserved.iter().any(|keep| path.starts_with(keep)));
+            logical = 0;
+            allocated = 0;
+            hardlinks.clear();
+            let mut counted = HashSet::new();
+            for (_, fp) in &files {
+                if FileType::from_raw_mode(fp.mode) != FileType::RegularFile {
+                    continue;
+                }
+                if counted.insert((fp.dev, fp.ino)) {
+                    logical = logical.saturating_add(fp.size);
+                    allocated = allocated.saturating_add(fp.blocks.saturating_mul(512));
+                }
+                if fp.nlink > 1 {
+                    hardlinks.entry((fp.dev, fp.ino)).or_insert((fp.nlink, 0)).1 += 1;
+                }
+            }
+        }
         for (nlink, seen_here) in hardlinks.values() {
             if *seen_here != *nlink {
                 self.issue(
@@ -811,7 +862,14 @@ impl<F: FnMut(ScanProgress)> Walker<'_, F> {
                 complete = false;
             }
         }
-        (logical, allocated, complete, files, blocks)
+        Measurement {
+            logical,
+            allocated,
+            complete,
+            files,
+            blocks,
+            preserved,
+        }
     }
     fn candidate(
         &mut self,
@@ -830,7 +888,35 @@ impl<F: FnMut(ScanProgress)> Walker<'_, F> {
         let Some(st) = self.metadata(root, rel) else {
             return;
         };
-        let (logical, allocated, mut complete, files, blocks) = self.measure(root, rel);
+        let partial_credentials = matches!(
+            detector,
+            "npm.cache"
+                | "python.pip-cache"
+                | "rust.target"
+                | "node.modules"
+                | "next.cache"
+                | "python.mypy-cache"
+                | "python.ruff-cache"
+                | "uv.cache"
+        );
+        let Measurement {
+            logical,
+            allocated,
+            mut complete,
+            files,
+            blocks,
+            preserved,
+        } = self.measure(root, rel, partial_credentials);
+        if partial_credentials && files.is_empty() {
+            complete = false;
+        }
+        for keep in &preserved {
+            if !self.allowed() {
+                complete = false;
+                break;
+            }
+            self.candidate(root, keep, project, CandidatePolicy { detector: "protected.state", title: "Credencial / diretório preservado", category, risk: Risk::Protected, reason: "Credencial ou conteúdo não verificável: arquivo e diretório imediato ficam fora da limpeza." });
+        }
         if root.intersects_exclusion(rel) {
             complete = false;
         }
@@ -879,6 +965,7 @@ impl<F: FnMut(ScanProgress)> Walker<'_, F> {
         let rebuildable = matches!(
             detector,
             "python.pip-cache"
+                | "node.modules"
                 | "npm.cache"
                 | "next.cache"
                 | "python.mypy-cache"
@@ -907,16 +994,17 @@ impl<F: FnMut(ScanProgress)> Walker<'_, F> {
                 fingerprint: Fingerprint::from_stat(&st),
                 files,
                 witnesses,
+                preserved: preserved.clone(),
                 complete,
             },
         );
         self.out.candidates.push(Candidate{
             id, title:title.into(),display_path:root.path.join(rel).to_string_lossy().into(),detector_id:detector.into(),detector_version:"1".into(),scope_id:root.display_path(),category:category.into(),project:project.into(),
             selected_by_default:risk==Risk::Low,risk,logical_bytes:logical,allocated_bytes_estimate:Some(allocated),identity:Some(Identity{dev:st.st_dev,ino:st.st_ino,mtime_unix:st.st_mtime}),coverage_key:(ancestor_refusal.is_none() && coverage_complete && stable).then(||format!("{}:{}",st.st_dev,st.st_ino)),
-            reason:if let Some(why)=ancestor_refusal{format!("{reason} {why}")}else if complete{reason.into()}else{format!("{reason} Cobertura incompleta ({}): protegido.", if blocks.is_empty(){"cobertura incompleta".to_owned()}else{blocks.join(", ")})},
-            impact:if py||thumbs {"O aplicativo recriará o cache; a primeira abertura pode ser mais lenta.".into()}else{"Pode conter dados de trabalho ou exigir reconstrução/download. Inventário não autoriza remoção.".into()},
+            reason:if complete && !preserved.is_empty(){format!("{reason} {} arquivo(s)/diretório(s) protegido(s) excluído(s); somente o manifesto seguro vai para a Lixeira com revisão.",preserved.len())}else if let Some(why)=ancestor_refusal{format!("{reason} {why}")}else if complete{reason.into()}else{format!("{reason} Cobertura incompleta ({}): protegido.", if blocks.is_empty(){"cobertura incompleta".to_owned()}else{blocks.join(", ")})},
+            impact:if partial_credentials {"Somente os arquivos revisados do manifesto vão para a Lixeira; exclusões protegidas permanecem no lugar. Exclusão permanente exige escolha explícita.".into()}else if py||thumbs {"O aplicativo recriará o cache; a primeira abertura pode ser mais lenta.".into()}else{"Pode conter dados de trabalho ou exigir reconstrução/download. Inventário não autoriza remoção.".into()},
             rebuild_hint:if uv_managed{"use `uv cache clean`".into()}else if detector=="python.pip-cache" {"Equivalente oficial: pip cache purge (apenas informativo).".into()}else if detector=="npm.cache" {"Equivalente oficial: npm cache clean --force (apenas informativo).".into()}else if detector=="rust.target" {"Equivalente oficial: cargo clean (apenas informativo).".into()}else if rebuildable {"A ferramenta recria o cache; pode exigir download/recompilação.".into()}else if py {"Bytecode recriado ao importar o módulo.".into()}else if thumbs{"Miniaturas recriadas pelo aplicativo.".into()}else{"Custo não medido; revisão necessária.".into()},
-            preserved:"Código, estado, configuração, credenciais, sessões e memória nunca entram em remoção genérica.".into(),evidence:vec!["root-approved".into(),"openat2-no-symlinks-no-xdev".into(),if complete{"coverage-complete"}else{"coverage-incomplete"}.into()],activity:format!("mtime Unix {} (metadado; não comprova desuso)",st.st_mtime),supported_action:if low_cache{SupportedAction::CacheContents}else if reviewed_cache{SupportedAction::ReviewedCacheContents}else{SupportedAction::None},
+            preserved:if partial_credentials{"Credenciais e diretórios excluídos permanecem no lugar; a raiz do cache nunca é removida inteira."}else{"Código, estado, configuração, credenciais, sessões e memória nunca entram em remoção genérica."}.into(),evidence:vec!["root-approved".into(),"openat2-no-symlinks-no-xdev".into(),if complete{"coverage-complete"}else{"coverage-incomplete"}.into()],activity:format!("mtime Unix {} (metadado; não comprova desuso)",st.st_mtime),supported_action:if low_cache{SupportedAction::CacheContents}else if reviewed_cache{SupportedAction::ReviewedCacheContents}else{SupportedAction::None},
         });
     }
     fn build_subsets(
@@ -1028,6 +1116,7 @@ impl<F: FnMut(ScanProgress)> Walker<'_, F> {
                     fingerprint: fp.clone(),
                     files,
                     witnesses,
+                    preserved: Vec::new(),
                     complete: true,
                 },
             );
@@ -1120,6 +1209,7 @@ impl<F: FnMut(ScanProgress)> Walker<'_, F> {
                 fingerprint: fingerprint.clone(),
                 files: vec![(path.clone(), fingerprint.clone())],
                 witnesses,
+                preserved: Vec::new(),
                 complete: true,
             },
         );
@@ -1305,6 +1395,7 @@ impl<F: FnMut(ScanProgress)> Walker<'_, F> {
                     fingerprint: Fingerprint::from_stat(&st),
                     files: deletable,
                     witnesses: Vec::new(),
+                    preserved: Vec::new(),
                     complete: true,
                 },
             );
@@ -1533,16 +1624,23 @@ impl<F: FnMut(ScanProgress)> Walker<'_, F> {
                     break;
                 }
                 let path = rel.join(name);
-                let Some(st) = self.metadata(root, &path) else {
-                    continue;
+                let st = match root.lstat_relative(&path) {
+                    Ok(st) if st.st_uid == rustix::process::getuid().as_raw() => st,
+                    _ => {
+                        let _ = self.metadata(root, &path);
+                        continue;
+                    }
                 };
                 let kind = FileType::from_raw_mode(st.st_mode);
                 if kind == FileType::Symlink {
-                    self.issue(
-                        &root.path.join(&path),
-                        "symlink",
-                        "Link preservado; alvo não acessado.",
-                    );
+                    self.count_skip("symlink");
+                    if self.out.issues.len() < self.limits.max_issues {
+                        self.out.issues.push(ScanIssue {
+                            display_path: root.path.join(&path).to_string_lossy().into(),
+                            code: "symlink".into(),
+                            message: "Link preservado; alvo não acessado.".into(),
+                        });
+                    }
                     continue;
                 }
                 if name == ".git" {
@@ -1584,7 +1682,7 @@ impl<F: FnMut(ScanProgress)> Walker<'_, F> {
                     continue;
                 }
                 if n == "node_modules" {
-                    self.candidate(root,&path,&project,CandidatePolicy{detector:"node.modules",title:"Dependências Node",category:"Desenvolvimento",risk:Risk::Low,reason:"node_modules recriável pelo gerenciador do projeto. Fora da limpeza de 1 clique."});
+                    self.candidate(root,&path,&project,CandidatePolicy{detector:"node.modules",title:"Dependências Node",category:"Desenvolvimento",risk:Risk::Review,reason:"node_modules recriável pelo gerenciador do projeto. Fora da limpeza de 1 clique."});
                     if let Some(item) = self.out.candidates.last_mut() {
                         item.selected_by_default = false;
                     }
@@ -1835,51 +1933,247 @@ fn trash_keeps_entry(path: &Path) -> bool {
             .and_then(|parent| parent.file_name())
             .is_some_and(|parent| parent == ".docker")
 }
+/// Exact sensitive names, not substrings of source filenames.
+pub fn credential_name(name: &std::ffi::OsStr) -> bool {
+    let n = name.to_string_lossy().to_ascii_lowercase();
+    if n.ends_with(".pub") {
+        return false;
+    }
+    for base in ["id_rsa", "id_ed25519", "id_ecdsa", "id_dsa", "id_xmss"] {
+        if let Some(suffix) = n.strip_prefix(base) {
+            if ["", "_sk", ".old", ".bak", ".backup", "_sk.old", "_sk.bak"].contains(&suffix) {
+                return true;
+            }
+        }
+    }
+    [
+        ".netrc",
+        ".pgpass",
+        ".git-credentials",
+        ".npmrc",
+        ".pypirc",
+        ".ssh",
+        ".gnupg",
+        ".kube",
+        ".docker",
+        ".aws",
+        ".azure",
+        "azure",
+        "gcloud",
+        "keyrings",
+        "token",
+        "token.json",
+        "auth.json",
+        "credentials",
+        "credentials.json",
+        "access_tokens.db",
+        "application_default_credentials.json",
+    ]
+    .contains(&n.as_str())
+        || [".p12", ".pfx", ".kdbx"].iter().any(|ext| n.ends_with(ext))
+        || (n.starts_with(".env")
+            && ![".example", ".sample", ".template"]
+                .iter()
+                .any(|suffix| n.ends_with(suffix)))
+}
 pub fn protected_name(name: &std::ffi::OsStr) -> bool {
-    let n = name.to_string_lossy();
-    let lower = n.to_ascii_lowercase();
-    let n = lower.as_str();
-    (n.starts_with("id_") && !n.ends_with(".pub"))
-        || [
-            ".netrc",
-            ".ssh",
-            ".gnupg",
-            ".kube",
-            ".cursor",
-            ".pgpass",
-            ".npmrc",
-            ".pypirc",
-            ".docker",
-            ".git-credentials",
-            ".aws",
-            ".azure",
-            "azure",
-            "gcloud",
-            "keyrings",
-            "tokens",
-            "token",
-            "access_tokens.db",
-            "application_default_credentials.json",
-        ]
-        .contains(&n)
-        || n.contains("token")
-        || [".key", ".p12", ".pfx", ".kdbx"]
-            .iter()
-            .any(|ext| n.ends_with(ext))
-        || n.contains("credential")
-        || n.contains("credencia")
+    let n = name.to_string_lossy().to_ascii_lowercase();
+    credential_name(name)
         || n.contains(".tfstate")
         || n.ends_with(".tfvars")
         || n.ends_with(".tfplan")
         || n == ".terraform.lock.hcl"
-        || n.starts_with(".env")
         || n.ends_with(".ovpn")
-        || n.ends_with(".pem")
-        || n == "credentials"
-        || ["agents.md", "claude.md", "auth.json", "credentials.json"].contains(&n)
+        || n == ".cursor"
 }
-/// Bounded signature check through the retained root; never follows symlinks.
-/// Unreadable or unstable content is preserved, not assumed safe.
+fn placeholder(value: &str) -> bool {
+    let upper = value.to_ascii_uppercase();
+    [
+        "YOUR_",
+        "EXAMPLE",
+        "CHANGEME",
+        "PLACEHOLDER",
+        "<",
+        ">",
+        "XXX",
+        "DUMMY",
+        "FIXTURE",
+        "FAKE",
+    ]
+    .iter()
+    .any(|p| upper.contains(p))
+        || upper.starts_with("TEST_")
+}
+fn plausible_secret(value: &str) -> bool {
+    let value =
+        value.trim_matches(|c: char| c.is_whitespace() || matches!(c, '\'' | '"' | ',' | ';'));
+    value.len() >= 20
+        && value.len() <= 2048
+        && !placeholder(value)
+        && value
+            .bytes()
+            .all(|c| c.is_ascii_alphanumeric() || b"_+/=-.".contains(&c))
+        && value
+            .bytes()
+            .collect::<std::collections::BTreeSet<_>>()
+            .len()
+            >= 8
+}
+fn secret_key(name: &str) -> bool {
+    matches!(
+        name.to_ascii_lowercase().as_str(),
+        "_authtoken"
+            | "_auth"
+            | "token"
+            | "auth_token"
+            | "api_key"
+            | "apikey"
+            | "aws_secret_access_key"
+            | "aws_session_token"
+            | "access_token"
+            | "refresh_token"
+            | "client_secret"
+            | "accountkey"
+            | "secret_access_key"
+            | "secretaccesskey"
+            | "clientsecret"
+            | "accesstoken"
+            | "refreshtoken"
+            | "password"
+    )
+}
+fn json_credentials(value: &serde_json::Value) -> bool {
+    match value {
+        serde_json::Value::Object(map) => map.iter().any(|(key, value)| {
+            (secret_key(key) && value.as_str().is_some_and(plausible_secret))
+                || (key == "private_key"
+                    && value
+                        .as_str()
+                        .is_some_and(|s| credential_bytes(Path::new("key.pem"), s.as_bytes())))
+                || json_credentials(value)
+        }),
+        serde_json::Value::Array(items) => items.iter().any(json_credentials),
+        _ => false,
+    }
+}
+/// Format checks only, never decrypts a key. Source literals are not disk keys.
+pub fn credential_bytes(path: &Path, bytes: &[u8]) -> bool {
+    use base64::{engine::general_purpose::STANDARD, Engine};
+    let text = String::from_utf8_lossy(bytes);
+    let code = path.extension().and_then(|e| e.to_str()).is_some_and(|e| {
+        [
+            "rs", "js", "jsx", "ts", "tsx", "py", "go", "java", "c", "h", "cpp", "css", "html",
+            "map",
+        ]
+        .contains(&e)
+    });
+    let trimmed = text.trim_start();
+    if code && !trimmed.starts_with("-----BEGIN ") {
+        return false;
+    }
+    for (index, line) in text.lines().enumerate() {
+        let line = line.trim();
+        let Some(kind) = line
+            .strip_prefix("-----BEGIN ")
+            .and_then(|s| s.strip_suffix("-----"))
+        else {
+            continue;
+        };
+        if ![
+            "PRIVATE KEY",
+            "RSA PRIVATE KEY",
+            "EC PRIVATE KEY",
+            "DSA PRIVATE KEY",
+            "OPENSSH PRIVATE KEY",
+            "ENCRYPTED PRIVATE KEY",
+        ]
+        .contains(&kind)
+        {
+            continue;
+        }
+        let end = format!("-----END {kind}-----");
+        let mut body = String::new();
+        let mut complete = false;
+        let mut encrypted = false;
+        for part in text.lines().skip(index + 1) {
+            if part.trim() == end {
+                complete = true;
+                break;
+            }
+            if part.trim() == "Proc-Type: 4,ENCRYPTED" {
+                encrypted = true;
+                continue;
+            }
+            if encrypted && part.trim().starts_with("DEK-Info:") {
+                continue;
+            }
+            body.push_str(part.trim());
+        }
+        if !complete {
+            // A key exceeding the bounded prefix cannot safely be classified as documentation.
+            if bytes.len() == 4096 && trimmed.starts_with(line) {
+                return true;
+            }
+            continue;
+        }
+        if let Ok(decoded) = STANDARD.decode(body.as_bytes()) {
+            if encrypted && decoded.len() >= 48 {
+                return true;
+            }
+            if kind == "OPENSSH PRIVATE KEY" {
+                if decoded.starts_with(b"openssh-key-v1\0") && decoded.len() >= 64 {
+                    return true;
+                }
+            } else if decoded.len() >= 48 && decoded[0] == 0x30 {
+                // DER SEQUENCE with a coherent length, not a cited header or placeholder.
+                let first = decoded[1];
+                let (header, length) = if first & 0x80 == 0 {
+                    (2, first as usize)
+                } else {
+                    let count = (first & 0x7f) as usize;
+                    if count == 0 || count > 4 || decoded.len() < count + 2 {
+                        continue;
+                    }
+                    let length = decoded[2..2 + count]
+                        .iter()
+                        .fold(0usize, |n, b| (n << 8) | *b as usize);
+                    (count + 2, length)
+                };
+                if header + length == decoded.len() {
+                    return true;
+                }
+            }
+        }
+    }
+    if code {
+        return false;
+    }
+    if serde_json::from_slice(bytes)
+        .ok()
+        .as_ref()
+        .is_some_and(json_credentials)
+    {
+        return true;
+    }
+    text.lines().any(|line| {
+        let line = line.trim();
+        if line.starts_with('#') {
+            return false;
+        }
+        let Some((name, value)) = line.split_once('=').or_else(|| line.split_once(':')) else {
+            return false;
+        };
+        let name = name
+            .trim()
+            .strip_prefix("export ")
+            .unwrap_or(name.trim())
+            .trim_matches(['\'', '"']);
+        let name = name.rsplit_once(":").map_or(name, |(_, key)| key);
+        secret_key(name) && plausible_secret(value.split_once(" #").map_or(value, |(v, _)| v))
+    })
+}
+/// Read at most 4 KiB, through the retained root, without following symlinks.
+/// Unreadable/unstable data is still fail-closed; only false format matches change.
 pub fn sensitive_content(root: &ApprovedRoot, path: &Path) -> bool {
     let Ok(fd) = root.open_relative(path, OFlags::RDONLY | OFlags::NONBLOCK | OFlags::NOATIME)
     else {
@@ -1899,33 +2193,8 @@ pub fn sensitive_content(root: &ApprovedRoot, path: &Path) -> bool {
     let Ok(after) = fs::fstat(&file) else {
         return true;
     };
-    if Fingerprint::from_stat(&before) != Fingerprint::from_stat(&after) {
-        return true;
-    }
-    let text = String::from_utf8_lossy(&bytes);
-    let lower = text.to_ascii_lowercase();
-    (text.contains("-----BEGIN ") && text.contains("PRIVATE KEY-----"))
-        || bytes
-            .windows(b"openssh-key-v1\0".len())
-            .any(|w| w == b"openssh-key-v1\0")
-        || [
-            "_authtoken",
-            "aws_secret_access_key",
-            "aws_session_token",
-            "access_token",
-            "refresh_token",
-            "client_secret",
-            "private_key",
-            "accountkey=",
-            "password=",
-            "password =",
-            "secret_access_key",
-        ]
-        .iter()
-        .any(|marker| lower.contains(marker))
-        || lower.lines().any(|line| {
-            line.contains("machine ") && (line.contains("login ") || line.contains("password "))
-        })
+    Fingerprint::from_stat(&before) != Fingerprint::from_stat(&after)
+        || credential_bytes(path, &bytes)
 }
 
 pub fn user_trash_dir() -> Option<PathBuf> {
@@ -2261,64 +2530,40 @@ mod trash_sensitivity_tests {
 mod credential_cache_regressions {
     use super::*;
     #[test]
-    fn nested_credentials_block_the_entire_cache_manifest() {
-        for (name, bytes) in [
-            ("id_ed25519", "fake fixture"),
-            (".netrc", "machine example.invalid login fake"),
-            ("blob", "-----BEGIN OPENSSH PRIVATE KEY-----\nfake fixture"),
-            ("opaque", "-----BEGIN RSA PRIVATE KEY-----\nfake fixture"),
-            (
-                "blob-auth",
-                "//registry.example.invalid/:_authToken=fixture-not-a-token",
-            ),
-            ("blob-cloud", "aws_secret_access_key=fixture-not-a-key"),
-            (".pgpass", "fake fixture"),
-            (".aws/credentials", "fake fixture"),
+    fn exact_credential_names_do_not_match_source_or_templates() {
+        for name in [
+            "id_ecdsa",
+            "id_ed25519_sk",
+            "id_rsa.old",
+            ".netrc",
+            ".env.local",
+            ".pgpass",
+            "token.json",
+            "backup.p12",
+            "vault.kdbx",
+            "credentials",
         ] {
-            let temp = tempfile::tempdir().unwrap();
-            let cache = temp.path().join(".npm/_cacache/x");
-            std::fs::create_dir_all(&cache).unwrap();
-            let secret = cache.join(name);
-            std::fs::create_dir_all(secret.parent().unwrap()).unwrap();
-            std::fs::write(&secret, bytes).unwrap();
-            std::fs::write(cache.join("ordinary"), "recreatable fixture").unwrap();
-            let root = ApprovedRoot::open(temp.path(), ScopeKind::Projects).unwrap();
-            let snapshot = scan(
-                &[root],
-                &ScanControl::default(),
-                &ScanLimits::default(),
-                |_| {},
-            )
-            .unwrap();
-            let item = snapshot
-                .candidates
-                .iter()
-                .find(|c| c.detector_id == "npm.cache")
-                .unwrap();
-            assert_eq!(item.risk, Risk::Protected, "{name}");
-            assert!(matches!(item.supported_action, SupportedAction::None));
-            assert!(item.reason.contains("protegido"));
-            assert!(secret.exists());
+            assert!(credential_name(std::ffi::OsStr::new(name)), "{name}");
         }
-    }
-    #[test]
-    fn names_preserve_existing_protections_and_public_keys_are_not_private() {
         for name in [
             "AGENTS.md",
             "CLAUDE.md",
-            ".env.local",
-            "state.tfstate",
-            "id_ecdsa",
-            ".netrc",
             "service.key",
-            "backup.p12",
-            "vault.kdbx",
-            "azure",
-            "session-token",
+            "token.rs",
+            "tokenizer.json",
+            "tokens.json",
+            "credentials.rs",
+            "id_generator.js",
+            "id_map.json",
+            "id_ed25519.pub",
+            "id_rsa-cert.pub",
+            ".env.example",
+            ".env.sample",
+            ".env.template",
         ] {
-            assert!(protected_name(std::ffi::OsStr::new(name)), "{name}");
+            assert!(!protected_name(std::ffi::OsStr::new(name)), "{name}");
         }
-        assert!(!protected_name(std::ffi::OsStr::new("id_ed25519.pub")));
+        assert!(protected_name(std::ffi::OsStr::new("state.tfstate")));
     }
     #[test]
     fn signature_probe_never_follows_symlinks() {

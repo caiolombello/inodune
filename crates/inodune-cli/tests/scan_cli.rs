@@ -27,9 +27,9 @@ fn json_scan_is_real_read_only_and_partial_exit_is_not_hidden() {
         .arg(root.path())
         .output()
         .unwrap();
-    assert_eq!(partial.status.code(), Some(3));
+    assert_eq!(partial.status.code(), Some(0));
     let partial: serde_json::Value = serde_json::from_slice(&partial.stdout).unwrap();
-    assert_eq!(partial["complete"], false);
+    assert_eq!(partial["complete"], true);
 }
 
 #[test]
@@ -134,7 +134,7 @@ fn cli_credentials_inside_cache_are_never_removed_even_with_permanent() {
         }
         fs::write(
             cache.join(name),
-            b"-----BEGIN OPENSSH PRIVATE KEY-----\nfake fixture",
+            "-----BEGIN PRIVATE KEY-----\nMD4CAQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==\n-----END PRIVATE KEY-----\n",
         )
         .unwrap();
         fs::write(cache.join("ordinary"), b"ordinary fixture").unwrap();

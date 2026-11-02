@@ -32,59 +32,29 @@ impl PackageSource for RpmDnf {
     }
     fn list(&self) -> Result<SourceReport, String> {
         let names: Vec<_> = ids(&run(Query::Dnf)?)?.into_iter().collect();
-        let protected = protected_names(Path::new("/etc/dnf/protected.d"));
+        let protected = crate::uninstall::protected_dnf()?;
         let mut items = vec![];
         let mut warnings = vec![];
         for batch in names.chunks(128) {
-            let (parsed, batch_warnings) =
-                parse_rpm(&run(Query::Rpm(batch))?, protected.as_ref().ok())?;
+            let (parsed, batch_warnings) = parse_rpm(&run(Query::Rpm(batch))?, Some(&protected))?;
             items.extend(parsed);
             warnings.extend(batch_warnings);
         }
         let owners = crate::uninstall::core_utility_owners(Source::Rpm)?;
         for item in &mut items {
             if owners.contains(&item.id) {
-                item.protected = true;
+                item.protect();
                 item.notes.push("Fornece binário básico do sistema".into());
             }
         }
         let mut result = report(self.name(), "ok", items);
         result.warnings = warnings;
-        if let Err(e) = protected {
-            result.warnings.push(e);
-        }
         Ok(result)
     }
 }
-fn protected_names(dir: &Path) -> Result<BTreeSet<String>, String> {
-    let mut names = BTreeSet::new();
-    let entries = match std::fs::read_dir(dir) {
-        Ok(e) => e,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(names),
-        Err(e) => return Err(e.to_string()),
-    };
-    for (i, entry) in entries.enumerate() {
-        if i >= 256 {
-            return Err("Limite protected.d".into());
-        }
-        let text = files::read(&entry.map_err(|e| e.to_string())?.path())?;
-        for line in text
-            .lines()
-            .map(str::trim)
-            .filter(|s| !s.is_empty() && !s.starts_with('#'))
-        {
-            // Unknown glob/config syntax fails closed for the entire RPM inventory.
-            if !valid_id(line) {
-                return Err("Sintaxe protected.d não suportada".into());
-            }
-            names.insert(line.into());
-        }
-    }
-    Ok(names)
-}
 fn parse_rpm(
     text: &str,
-    _protected: Option<&BTreeSet<String>>,
+    protected: Option<&BTreeSet<String>>,
 ) -> Result<(Vec<InstalledItem>, Vec<String>), String> {
     let mut items = vec![];
     let mut warnings = vec![];
@@ -104,7 +74,7 @@ fn parse_rpm(
             }
         }
         item.install_date = timestamp(f[3]);
-        if crate::uninstall::package_blocked(f[0]) {
+        if crate::uninstall::package_blocked(f[0]) || protected.is_some_and(|p| p.contains(f[0])) {
             item.protect();
         }
         item.notes
@@ -227,7 +197,7 @@ impl PackageSource for AptDpkg {
         let owners = crate::uninstall::core_utility_owners(Source::Apt)?;
         for item in &mut items {
             if owners.contains(item.id.split(':').next().unwrap_or(&item.id)) {
-                item.protected = true;
+                item.protect();
                 item.notes.push("Fornece binário básico do sistema".into());
             }
         }
@@ -272,7 +242,10 @@ pub(crate) fn parse_dpkg(
                     .push("Installed-Size inválido; tamanho desconhecido".into());
             }
         }
-        if f[4] == "yes" || f[5] == "required" || crate::uninstall::package_blocked(f[0]) {
+        if f[4] == "yes"
+            || matches!(f[5], "required" | "important")
+            || crate::uninstall::package_blocked(f[0])
+        {
             item.protect();
         }
         items.push(item);
@@ -417,7 +390,7 @@ mod tests {
         .unwrap();
         assert!(warnings.is_empty());
         let item = parsed.remove(0);
-        assert!(!item.protected);
+        assert!(item.protected);
         assert_eq!(item.install_date, Some(1700000000));
         assert!(parse_rpm("bad data", None).is_err());
         for user in [true, false] {
@@ -445,7 +418,7 @@ mod tests {
         assert!(warnings.is_empty());
         assert_eq!(items.len(), 3);
         assert_eq!(items[0].size_bytes, Some(12 * 1024));
-        assert!(items[1].protected && !items[2].protected);
+        assert!(items[1].protected && items[2].protected);
         assert!(parse_dpkg("bad", &manual).is_err());
     }
     #[test]

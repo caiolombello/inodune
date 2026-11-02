@@ -12,6 +12,7 @@ pub(crate) enum Query<'a> {
     Flatpak(bool),
     AptManual,
     Dpkg,
+    NativeState(bool),
     CoreOwners(bool),
     Snap,
 }
@@ -42,6 +43,11 @@ impl Query<'_> {
                 let mut args: Vec<String> = if *apt { vec!["-S".into(), "--".into()] } else { vec!["-qf".into(), "--qf=%{NAME}\n".into(), "--".into()] };
                 args.extend(paths);
                 (if *apt { "/usr/bin/dpkg-query" } else { "/usr/bin/rpm" }, args)
+            },
+            Self::NativeState(apt) => if *apt {
+                ("/usr/bin/dpkg-query", vec!["-W".into(), "-f=${Package}\t${Version}\t${Architecture}\t${db:Status-Status}\n".into()])
+            } else {
+                ("/usr/bin/rpm", vec!["-qa".into(), "--qf=%{NAME}\t%{EPOCHNUM}:%{VERSION}-%{RELEASE}\t%{ARCH}\tinstalled\n".into()])
             },
             Self::Dpkg => ("/usr/bin/dpkg-query", vec!["-W".into(), "-f=${binary:Package}\t${Version}\t${Installed-Size}\t${Status}\t${Essential}\t${Priority}\n".into()]),
             Self::Snap => ("/usr/bin/snap", vec!["list".into(), "--all".into()]),

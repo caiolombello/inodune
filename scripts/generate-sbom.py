@@ -2,6 +2,7 @@
 """Create unsigned SPDX 2.3 inventories from the locked Rust and npm graphs."""
 from __future__ import annotations
 
+import argparse
 import hashlib
 import json
 import os
@@ -155,11 +156,38 @@ def generate_rust() -> Path:
     return path
 
 
+def write_checksums() -> Path:
+    paths = []
+    for suffix in ("*.deb", "*.rpm", "*.tar.gz"):
+        found = sorted(OUT.glob(suffix))
+        if len(found) != 1:
+            raise RuntimeError(f"Expected one artifact matching {suffix}, got {len(found)}")
+        paths.extend(found)
+    paths.extend(OUT / name for name in ("install-user.py", "inodune-frontend.spdx.json", "inodune-rust.spdx.json"))
+    entries = [f"{hashlib.sha256(path.read_bytes()).hexdigest()}  {path.name}" for path in paths]
+    sums = OUT / "SHA256SUMS"
+    sums.write_text("\n".join(entries) + "\n", encoding="utf-8")
+    return sums
+
+
 def main() -> None:
+    parser = argparse.ArgumentParser()
+    group = parser.add_mutually_exclusive_group()
+    group.add_argument("--frontend-only", action="store_true")
+    group.add_argument("--rust-only", action="store_true")
+    parser.add_argument("--checksums", action="store_true")
+    args = parser.parse_args()
+    if (not args.frontend_only or args.checksums) and os.environ.get("INODUNE_PACKAGER") != "1":
+        raise SystemExit("Rust SBOM/checksums must run inside the packager through package-linux.py")
     OUT.mkdir(parents=True, exist_ok=True)
-    frontend = generate_frontend()
-    rust = generate_rust()
-    for path in (frontend, rust):
+    paths = []
+    if not args.rust_only:
+        paths.append(generate_frontend())
+    if not args.frontend_only:
+        paths.append(generate_rust())
+    if args.checksums:
+        paths.append(write_checksums())
+    for path in paths:
         print(f"Wrote {path} ({path.stat().st_size} bytes)")
 
 

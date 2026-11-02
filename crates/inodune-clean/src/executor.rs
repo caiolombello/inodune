@@ -416,28 +416,39 @@ fn execute_inner(
     report
 }
 fn remaining_cache_entries(target: &ScannedTarget) -> Result<bool, String> {
-    if FileType::from_raw_mode(target.fingerprint.mode) == FileType::RegularFile {
-        return match target.root.open_relative(&target.relative, OFlags::PATH) {
-            Ok(_) => Ok(true),
-            Err(rustix::io::Errno::NOENT) => Ok(false),
-            Err(e) => Err(e.to_string()),
+    let mut pending = vec![target.relative.clone()];
+    let mut walked = 0usize;
+    while let Some(path) = pending.pop() {
+        if target.preserved.iter().any(|keep| path.starts_with(keep)) {
+            continue;
+        }
+        walked += 1;
+        if walked > 100_000 {
+            return Err("Verificação de remanescentes excedeu limite".into());
+        }
+        let st = match target.root.lstat_relative(&path) {
+            Ok(st) => st,
+            Err(rustix::io::Errno::NOENT) => continue,
+            Err(e) => return Err(e.to_string()),
         };
-    }
-
-    let fd = target
-        .root
-        .open_relative(
-            &target.relative,
-            OFlags::RDONLY | OFlags::DIRECTORY | OFlags::NOATIME,
-        )
-        .map_err(|e| e.to_string())?;
-    let mut buffer = [std::mem::MaybeUninit::uninit(); 8192];
-    let mut entries = fs::RawDir::new(&fd, &mut buffer);
-    while let Some(entry) = entries.next() {
-        let entry = entry.map_err(|e| e.to_string())?;
-        let name = entry.file_name().to_bytes();
-        if name != b"." && name != b".." {
+        if FileType::from_raw_mode(st.st_mode) != FileType::Directory {
             return Ok(true);
+        }
+        let fd = target
+            .root
+            .open_relative(&path, OFlags::RDONLY | OFlags::DIRECTORY | OFlags::NOATIME)
+            .map_err(|e| e.to_string())?;
+        let mut buffer = [std::mem::MaybeUninit::uninit(); 8192];
+        let mut entries = fs::RawDir::new(&fd, &mut buffer);
+        while let Some(entry) = entries.next() {
+            let entry = entry.map_err(|e| e.to_string())?;
+            let name = entry.file_name().to_bytes();
+            if name != b"." && name != b".." {
+                if walked.saturating_add(pending.len()) >= 100_000 {
+                    return Err("Verificação de remanescentes excedeu limite".into());
+                }
+                pending.push(path.join(std::ffi::OsStr::from_bytes(name)));
+            }
         }
     }
     Ok(false)
@@ -479,6 +490,13 @@ fn validate_target(target: &ScannedTarget) -> Result<(), String> {
         }
     }) {
         return Err("O manifesto contém um caminho fora do item aprovado.".into());
+    }
+    if target
+        .files
+        .iter()
+        .any(|(path, _)| target.preserved.iter().any(|keep| path.starts_with(keep)))
+    {
+        return Err("Manifesto sobrepõe uma exclusão protegida".into());
     }
     validate_witnesses(target)
 }
@@ -657,13 +675,23 @@ fn lstat_child(parent: &OwnedFd, name: &std::ffi::OsStr) -> Result<rustix::fs::S
     fs::fstat(file).map_err(|e| e.to_string())
 }
 fn links_inside(target: &ScannedTarget, dev: u64, ino: u64, nlink: u64) -> bool {
-    count_inode(&target.root, &target.relative, dev, ino).is_ok_and(|count| count == nlink)
+    count_inode(&target.root, &target.relative, dev, ino, &target.preserved)
+        .is_ok_and(|count| count == nlink)
 }
-fn count_inode(root: &ApprovedRoot, relative: &Path, dev: u64, ino: u64) -> Result<u64, String> {
+fn count_inode(
+    root: &ApprovedRoot,
+    relative: &Path,
+    dev: u64,
+    ino: u64,
+    preserved: &[PathBuf],
+) -> Result<u64, String> {
     let mut pending = vec![relative.to_path_buf()];
     let mut seen = 0u64;
     let mut walked = 0usize;
     while let Some(path) = pending.pop() {
+        if preserved.iter().any(|keep| path.starts_with(keep)) {
+            continue;
+        }
         walked += 1;
         if walked > 100_000 {
             return Err("contagem de hardlink excedeu o limite".into());
@@ -701,6 +729,13 @@ fn remove_empty_dirs(target: &ScannedTarget) {
     dirs.sort_by_key(|path| std::cmp::Reverse(path.components().count()));
     dirs.dedup();
     for dir in dirs {
+        if target
+            .preserved
+            .iter()
+            .any(|keep| keep.starts_with(&dir) || dir.starts_with(keep))
+        {
+            continue;
+        }
         let Some(name) = dir.file_name() else {
             continue;
         };

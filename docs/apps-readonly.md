@@ -75,7 +75,7 @@ Depois de tentar enviar o ID para execução, o processo Tauri nunca mata o help
 
 Sinais PackageKit seguem o contrato legado `Package`: Resolve aceita somente INSTALLED=1; RemovePackages SIMULATE aceita somente REMOVING=13. Qualquer outro info recusa a lista inteira. O campo de origem/dados do package_id é opaco: `manual:*`, `auto:*`, `installed:*` e `@System` não determinam estado. Apenas `info=INSTALLED` em Resolve e `info=REMOVING` na remoção são aceitos. Enums diferentes e listas incompletas bloqueiam. Os IDs completos, incluindo versão/arquitetura, da re-simulação são enviados sem alterações para a remoção real, com allow_deps=false e autoremove=false, cobertos por teste de argumentos.
 
-Os bloqueios fixos incluem prefixos dos gerenciadores (dnf/libdnf/rpm/apt/dpkg/packagekit/flatpak/snapd), kernel, sessão, login, rede, D-Bus, PAM, shell e ferramentas básicas. Há regressões para dnf5, libdnf5 e gnome-session-*, além de fixtures de ciclo de vida que demonstram que um helper enviado continua vivo quando a GUI deixa de aguardá-lo.
+A política nativa compartilhada combina a lista fixa de `uninstall::fixed_block`, metadados Essential/Priority required/important, donos das ferramentas básicas e protected.d no RPM. O helper reconsulta o mesmo inventário de pedidos usado pela CLI antes da preparação e execução; dependências propostas também passam pelas proteções. IDs solicitados fora desse inventário são recusados.
 
 ### Teste isolado de dpkg em container
 
@@ -103,18 +103,39 @@ A feature `container-dpkg-test` não participa desse teste.
 
 A limpeza de caches usa Lixeira por padrão, inclusive pip/npm; exclusão
 permanente exige seleção explícita. Credenciais por nome ou assinatura nos
-primeiros 4 KiB bloqueiam o item inteiro e são rechecadas pelo executor comum.
+primeiros 4 KiB são rechecadas pelo executor comum. Na 0.1.9, arquivos sensíveis e seus diretórios imediatos ficam fora do manifesto; irmãos seguros permanecem revisáveis, conforme a granularidade documentada no CHANGELOG.
 Não há garantia de detectar segredos sem formato reconhecível ou após esse
 prefixo. `--safe` inclui somente risco baixo.
 
 ### Sinais PackageKit durante a execução real
 
-O enum é extraído com `info & 0xFFFF`; os bits altos de severidade não
-alteram a ação. Resolve continua aceitando apenas INSTALLED e a simulação
-apenas REMOVING. Na transação real, REMOVING, CLEANUP, FINISHED e PREPARING
-são observações aceitas somente para IDs completos já aprovados. Não
-ampliam o plano nem comprovam sucesso: o sinal Finished da transação
-continua obrigatório. INSTALLING, UPDATING, DOWNGRADING, REINSTALLING,
-qualquer outro enum e qualquer ID fora do plano são recusados; numa
-transação já iniciada isso significa resultado desconhecido, sem retry.
-A falha intermitente original do QA não foi reproduzida neste sandbox.
+O enum é extraído com `info & 0xFFFF`; os bits altos de severidade não alteram a ação.
+Resolve aceita somente INSTALLED; duplicatas idênticas são deduplicadas antes da
+checagem de ambiguidade. A simulação aceita somente REMOVING. Na execução real,
+REMOVING/CLEANUP/FINISHED/PREPARING são observações para IDs completos aprovados.
+
+Na 0.1.9, INSTALLING/CLEANUP/FINISHED/PREPARING de um pacote **fora** do plano
+podem representar um trigger dpkg: só são tolerados provisoriamente se nome,
+arquitetura e versão já constavam no snapshot instalado anterior. Não podem ser
+aliases de um pacote do plano. Não autorizam remover ou acrescentar nada ao plano.
+O sinal Finished de sucesso continua obrigatório. Depois dele, um novo snapshot
+`dpkg-query`/RPM deve ser exatamente o anterior menos as versões do plano.
+Qualquer pacote do plano ainda instalado, remoção externa, instalação extra ou
+mudança de versão resulta em erro de resultado desconhecido, sem retry. Múltiplas
+versões instaladas em RPM são contabilizadas individualmente. Outros enums de ação
+fora do plano continuam recusados, inclusive REMOVING/UPDATING/DOWNGRADING/REINSTALLING.
+
+O teste real em container deve ser reexecutado no host; os unitários usam snapshots
+e sinais sintéticos, nunca instalam/removem pacotes do host.
+
+### SBOM e checksums de distribuição
+
+`package-linux.py` chama o gerador frontend com `--frontend-only` no host e chama
+`generate-sbom.py --rust-only --checksums` via `/usr/bin/python3` na imagem
+`localhost/inodune-packager:debian12`, herdada de Containerfile.packager. O container
+usa rede desativada, Cargo/Rustup da imagem e registry offline montado somente leitura.
+Apenas a pasta de saída dos pacotes é gravável. Se o cache não estiver em
+`.tools/cargo/registry`, informe `INODUNE_CARGO_REGISTRY`. Não é necessário Cargo no host.
+Os SBOMs e SHA256SUMS são arquivos externos ao .deb/.rpm; SHA256SUMS cobre ambos os
+pacotes, o arquivo portátil, o instalador e os dois SBOMs. Isso não representa uma
+assinatura ou certificação de cadeia de suprimentos.

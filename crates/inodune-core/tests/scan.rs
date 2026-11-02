@@ -27,7 +27,7 @@ fn scans_only_approved_tree_without_following_links_or_modifying_metadata() {
         |_| {},
     )
     .unwrap();
-    assert!(!result.complete); // a skipped symlink is explicitly partial coverage.
+    assert!(result.complete); // intentional, reported symlink skips are not scan failures.
     assert!(result
         .candidates
         .iter()

@@ -40,7 +40,7 @@ pub struct Session {
 }
 impl Session {
     pub fn prepare(request: Request, transport: &mut impl Transport) -> Result<Self, String> {
-        validate_id(request.source, &request.id)?;
+        validate_request(&request)?;
         let items = canonical(transport.simulate(&request)?)?;
         let mut random = [0u8; 16];
         getrandom::fill(&mut random).map_err(|_| "Aleatoriedade indisponível")?;
@@ -152,6 +152,25 @@ pub fn package_blocked(name: &str) -> bool {
 fn fixed_block(name: &str) -> bool {
     let n = name.split(':').next().unwrap_or(name).to_ascii_lowercase();
     if [
+        "gnu-coreutils",
+        "base-files",
+        "sed",
+        "login",
+        "libc6",
+        "libssl3t64",
+        "libsystemd0",
+        "libpam0g",
+        "zlib1g",
+        "debconf",
+        "procps",
+        "e2fsprogs",
+        "libgcc-s1",
+        "glibc",
+        "glibc-common",
+        "libgcc",
+        "openssl-libs",
+        "pam",
+        "systemd-libs",
         "bash",
         "coreutils",
         "rust-coreutils",
@@ -206,6 +225,7 @@ fn fixed_block(name: &str) -> bool {
 pub struct SystemTransport;
 impl Transport for SystemTransport {
     fn simulate(&mut self, request: &Request) -> Result<Vec<Removal>, String> {
+        validate_request(request)?;
         if request.ids.len() > 1 {
             return simulate_group(self, request);
         }
@@ -216,19 +236,11 @@ impl Transport for SystemTransport {
         }
         match request.source {
             Source::Apt | Source::Rpm => {
-                let resolved = packagekit::resolve(&request.id)?;
-                if resolved.len() != 1 {
-                    return Err("Resolve ambíguo; escolha uma identidade instalada exata".into());
-                }
-                let name = package_name(&resolved[0].id)?;
-                if name != request.id.split(':').next().unwrap_or(&request.id) {
-                    return Err("Resolve não corresponde ao pacote solicitado".into());
-                }
-                if let Some((_, arch)) = request.id.split_once(':') {
-                    if resolved[0].id.split(';').nth(2) != Some(arch) {
-                        return Err("Arquitetura divergente no Resolve".into());
-                    }
-                }
+                validate_native_request(request)?;
+                let resolved = vec![exact_resolve(
+                    &request.id,
+                    packagekit::resolve(&request.id)?,
+                )?];
                 let items = packagekit::remove(&resolved, true)?;
                 if !items.iter().any(|item| item.id == resolved[0].id) {
                     return Err("Simulação não inclui o pacote solicitado; plano bloqueado".into());
@@ -248,6 +260,7 @@ impl Transport for SystemTransport {
     }
 
     fn execute(&mut self, request: &Request, items: &[Removal]) -> Result<(), String> {
+        validate_request(request)?;
         if request.ids.len() > 1 && !matches!(request.source, Source::Apt | Source::Rpm) {
             for id in &request.ids {
                 let one = Request {
@@ -262,8 +275,13 @@ impl Transport for SystemTransport {
         refuse_root()?;
         match request.source {
             Source::Apt | Source::Rpm => {
+                validate_native_request(request)?;
                 protect_native(request.source, items)?;
-                let _ = packagekit::remove(items, false)?;
+                let before = installed_native_state(request.source)?;
+                verify_planned_installed(&before, items)?;
+                let _ = packagekit::remove_real(items, &before)?;
+                let after = installed_native_state(request.source)?;
+                verify_native_result(&before, &after, items)?;
                 Ok(())
             }
             Source::Steam => {
@@ -307,15 +325,15 @@ fn simulate_group(
         }
     }
     if matches!(request.source, Source::Apt | Source::Rpm) {
+        validate_native_request(request)?;
         let mut resolved = Vec::new();
         for id in &request.ids {
-            let found = packagekit::resolve(id)?;
-            if found.len() != 1 {
-                return Err("Resolve ambíguo; escolha uma identidade instalada exata".into());
-            }
-            resolved.push(found.into_iter().next().unwrap());
+            resolved.push(exact_resolve(id, packagekit::resolve(id)?)?);
         }
         let items = packagekit::remove(&resolved, true)?;
+        if !resolved.iter().all(|r| items.iter().any(|i| i.id == r.id)) {
+            return Err("Simulação não inclui toda a seleção; plano bloqueado".into());
+        }
         protect_native(request.source, &items)?;
         return Ok(items);
     }
@@ -330,6 +348,151 @@ fn simulate_group(
     }
     Ok(items)
 }
+fn validate_request(request: &Request) -> Result<(), String> {
+    validate_id(request.source, &request.id)?;
+    if request.ids.len() > 100 || (!request.ids.is_empty() && request.ids[0] != request.id) {
+        return Err("Seleção e ID principal não correspondem".into());
+    }
+    let mut unique = BTreeSet::new();
+    for id in &request.ids {
+        validate_id(request.source, id)?;
+        if !unique.insert(id) {
+            return Err("ID repetido na seleção".into());
+        }
+    }
+    Ok(())
+}
+
+fn exact_resolve(requested: &str, mut items: Vec<Removal>) -> Result<Removal, String> {
+    items.sort();
+    items.dedup();
+    if items.len() != 1 {
+        return Err("Resolve ambíguo; escolha uma identidade instalada exata".into());
+    }
+    let item = items.remove(0);
+    if package_name(&item.id)? != requested.split(':').next().unwrap_or(requested) {
+        return Err("Resolve não corresponde ao pacote solicitado".into());
+    }
+    if let Some((_, arch)) = requested.split_once(':') {
+        if item.id.split(';').nth(2) != Some(arch) {
+            return Err("Arquitetura divergente no Resolve".into());
+        }
+    }
+    if item.id.split(';').nth(1) != Some(&item.version) {
+        return Err("Versão divergente no Resolve".into());
+    }
+    Ok(item)
+}
+
+fn validate_native_request(request: &Request) -> Result<(), String> {
+    use crate::PackageSource;
+    let inventory = match request.source {
+        Source::Apt => crate::AptDpkg.list()?,
+        Source::Rpm => crate::RpmDnf.list()?,
+        _ => return Err("Fonte nativa inválida".into()),
+    };
+    let ids = if request.ids.is_empty() {
+        std::slice::from_ref(&request.id)
+    } else {
+        &request.ids
+    };
+    validate_native_selection(request.source, ids, &inventory.items)
+}
+fn validate_native_selection(
+    source: Source,
+    ids: &[String],
+    inventory: &[crate::InstalledItem],
+) -> Result<(), String> {
+    for id in ids {
+        validate_id(source, id)?;
+        let item = inventory
+            .iter()
+            .find(|item| item.source == source && item.id == *id)
+            .ok_or_else(|| format!("ID não está no inventário: {id}"))?;
+        if item.protected || fixed_block(id) {
+            return Err(format!("Pacote bloqueado: {id}"));
+        }
+    }
+    Ok(())
+}
+
+type NativeState = std::collections::BTreeMap<(String, String), BTreeSet<String>>;
+fn normalized_version(version: &str) -> &str {
+    version.strip_prefix("0:").unwrap_or(version)
+}
+fn removal_identity(item: &Removal) -> Result<(String, String), String> {
+    let name = package_name(&item.id)?;
+    let fields: Vec<_> = item.id.split(';').collect();
+    if fields[1] != item.version {
+        return Err("Versão divergente na identidade".into());
+    }
+    Ok((name.to_owned(), fields[2].to_owned()))
+}
+fn installed_native_state(source: Source) -> Result<NativeState, String> {
+    parse_native_state(
+        &crate::command::run(crate::command::Query::NativeState(source == Source::Apt))?,
+        source,
+    )
+}
+fn parse_native_state(text: &str, source: Source) -> Result<NativeState, String> {
+    let mut state = NativeState::new();
+    for line in text.lines() {
+        let f: Vec<_> = line.split('\t').collect();
+        if f.len() != 4 {
+            return Err("Snapshot de pacotes inválido".into());
+        }
+        if f[3] != "installed" {
+            continue;
+        }
+        validate_id(source, f[0])?;
+        if f[1].is_empty() || f[2].is_empty() || f.iter().any(|s| s.chars().any(char::is_control)) {
+            return Err("Snapshot de pacotes ambíguo".into());
+        }
+        let key = (f[0].to_owned(), f[2].to_owned());
+        let version = normalized_version(f[1]).to_owned();
+        state.entry(key).or_default().insert(version);
+    }
+    if state.is_empty() {
+        return Err("Snapshot de pacotes instalados vazio".into());
+    }
+    Ok(state)
+}
+fn state_has(state: &NativeState, key: &(String, String), version: &str) -> bool {
+    state
+        .get(key)
+        .is_some_and(|versions| versions.contains(normalized_version(version)))
+}
+fn verify_planned_installed(state: &NativeState, items: &[Removal]) -> Result<(), String> {
+    for item in items {
+        if !state_has(state, &removal_identity(item)?, &item.version) {
+            return Err("Plano não corresponde ao estado instalado; refaça o plano".into());
+        }
+    }
+    Ok(())
+}
+fn verify_native_result(
+    before: &NativeState,
+    after: &NativeState,
+    items: &[Removal],
+) -> Result<(), String> {
+    verify_planned_installed(before, items)?;
+    let mut expected = before.clone();
+    for item in items {
+        let key = removal_identity(item)?;
+        let versions = expected
+            .get_mut(&key)
+            .ok_or("Pacote do plano ausente no snapshot")?;
+        versions.remove(normalized_version(&item.version));
+        if versions.is_empty() {
+            expected.remove(&key);
+        }
+    }
+    if *after != expected {
+        return Err("Estado final difere das remoções aprovadas; pacote do plano permanece ou pacote fora do plano mudou. Resultado desconhecido, sem retry".into());
+    }
+    Ok(())
+}
+
 pub fn refuse_root() -> Result<(), String> {
     if rustix::process::geteuid().is_root() || rustix::process::getuid().is_root() {
         Err("O helper recusa execução como root".into())
@@ -407,7 +570,7 @@ fn parse_core_utility_owners(source: Source, text: &str) -> Result<BTreeSet<Stri
     Ok(names)
 }
 
-fn protected_dnf() -> Result<BTreeSet<String>, String> {
+pub(crate) fn protected_dnf() -> Result<BTreeSet<String>, String> {
     use std::path::Path;
     let mut names = BTreeSet::new();
     for dir in ["/etc/dnf/protected.d", "/etc/yum/protected.d"] {
@@ -485,6 +648,7 @@ mod packagekit {
         method: &str,
         simulate: bool,
         approved: &[Removal],
+        before: &NativeState,
         info: u32,
         id: String,
     ) -> Result<Option<Removal>, String> {
@@ -493,8 +657,23 @@ mod packagekit {
         }
         package_name(&id)?;
         if !approved.iter().any(|item| item.id == id) {
+            let fields: Vec<_> = id.split(';').collect();
+            let key = (fields[0].to_owned(), fields[2].to_owned());
+            if approved
+                .iter()
+                .any(|item| removal_identity(item).is_ok_and(|planned| planned == key))
+            {
+                return Err("Identidade do pacote aprovado mudou; resultado desconhecido".into());
+            }
+            // dpkg triggers may announce INSTALLING/FINISHED for an unchanged
+            // installed package. This is provisional: verify_native_result must
+            // prove the entire outside-plan installed state stayed identical.
+            if matches!(info & 0xffff, 12 | 14 | 18 | 21) && state_has(before, &key, fields[1]) {
+                return Ok(None);
+            }
             return Err(
-                "PackageKit sinalizou pacote fora do plano aprovado; resultado desconhecido".into(),
+                "PackageKit sinalizou mudança fora do plano aprovado; resultado desconhecido"
+                    .into(),
             );
         }
         // REMOVING, CLEANUP, FINISHED, PREPARING only. These are observations,
@@ -517,6 +696,7 @@ mod packagekit {
         args: glib::Variant,
         simulate: bool,
         approved: &[Removal],
+        before: &NativeState,
     ) -> Result<Vec<Removal>, String> {
         let context = glib::MainContext::new();
         context
@@ -541,6 +721,7 @@ mod packagekit {
                 let state = reply.clone();
                 let method_owned = method.to_owned();
                 let approved = approved.to_vec();
+                let before = before.clone();
                 let signal = tx.connect_g_signal(move |_, _, name, args| {
                     let Ok(mut reply) = state.lock() else {
                         return;
@@ -550,7 +731,7 @@ mod packagekit {
                             if let Some((info, id, _summary)) = args.get::<(u32, String, String)>()
                             {
                                 if reply.items.len() < 10000 {
-                                    match transaction_package_signal(&method_owned, simulate, &approved, info, id) {
+                                    match transaction_package_signal(&method_owned, simulate, &approved, &before, info, id) {
                                         Ok(Some(item)) => reply.items.push(item),
                                         Ok(None) => {},
                                         Err(error) => reply.error = Some(error),
@@ -571,7 +752,7 @@ mod packagekit {
                                         reply.error = Some("Simulação acima do limite".into());
                                         break;
                                     }
-                                    match transaction_package_signal(&method_owned, simulate, &approved, info, id) {
+                                    match transaction_package_signal(&method_owned, simulate, &approved, &before, info, id) {
                                         Ok(Some(item)) => reply.items.push(item),
                                         Ok(None) => {},
                                         Err(error) => reply.error = Some(error),
@@ -635,14 +816,28 @@ mod packagekit {
             (1u64 << 2, vec![id.to_owned()]).to_variant(),
             true,
             &[],
+            &NativeState::new(),
         )
     }
     pub fn remove(items: &[Removal], simulate: bool) -> Result<Vec<Removal>, String> {
+        if !simulate {
+            return Err("Execução real exige snapshot instalado".into());
+        }
         transaction(
             "RemovePackages",
             removal_parameters(items, simulate),
             simulate,
             items,
+            &NativeState::new(),
+        )
+    }
+    pub fn remove_real(items: &[Removal], before: &NativeState) -> Result<Vec<Removal>, String> {
+        transaction(
+            "RemovePackages",
+            removal_parameters(items, false),
+            false,
+            items,
+            before,
         )
     }
     #[cfg(test)]
@@ -700,6 +895,7 @@ mod packagekit {
                             "RemovePackages",
                             true,
                             &[],
+                            &NativeState::new(),
                             info | severity << 16,
                             id
                         )
@@ -722,6 +918,7 @@ mod packagekit {
                         "RemovePackages",
                         false,
                         &approved,
+                        &NativeState::new(),
                         info | severity << 16,
                         id.clone(),
                     );
@@ -742,12 +939,89 @@ mod packagekit {
                         "RemovePackages",
                         false,
                         &approved,
+                        &NativeState::new(),
                         info,
                         foreign.into()
                     )
                     .is_err());
                 }
             }
+        }
+        #[test]
+        fn unchanged_dpkg_trigger_signals_are_provisional_not_extra_removals() {
+            let plan = [Removal {
+                id: "aisleriot;1;amd64;manual:ubuntu-main".into(),
+                version: "1".into(),
+            }];
+            let before = parse_native_state(
+                "aisleriot\t1\tamd64\tinstalled\nlibglib2.0-0t64\t2.88\tamd64\tinstalled\n",
+                Source::Apt,
+            )
+            .unwrap();
+            for info in [12, 18] {
+                assert!(transaction_package_signal(
+                    "RemovePackages",
+                    false,
+                    &plan,
+                    &before,
+                    info,
+                    "libglib2.0-0t64;2.88;amd64;manual:ubuntu-main".into()
+                )
+                .unwrap()
+                .is_none());
+                assert!(transaction_package_signal(
+                    "RemovePackages",
+                    true,
+                    &plan,
+                    &before,
+                    info,
+                    "libglib2.0-0t64;2.88;amd64;manual:ubuntu-main".into()
+                )
+                .is_err());
+            }
+            assert!(transaction_package_signal(
+                "RemovePackages",
+                false,
+                &plan,
+                &before,
+                12,
+                "aisleriot;1;amd64;auto:ubuntu-main".into()
+            )
+            .is_err());
+            for info in [11, 13, 19, 20] {
+                assert!(transaction_package_signal(
+                    "RemovePackages",
+                    false,
+                    &plan,
+                    &before,
+                    info,
+                    "libglib2.0-0t64;2.88;amd64;manual:ubuntu-main".into()
+                )
+                .is_err());
+            }
+            assert!(transaction_package_signal(
+                "RemovePackages",
+                false,
+                &plan,
+                &before,
+                12,
+                "other;1;amd64;manual:ubuntu-main".into()
+            )
+            .is_err());
+            assert!(transaction_package_signal(
+                "RemovePackages",
+                false,
+                &plan,
+                &before,
+                12,
+                "libglib2.0-0t64;2.89;amd64;manual:ubuntu-main".into()
+            )
+            .is_err());
+            let after =
+                parse_native_state("libglib2.0-0t64\t2.88\tamd64\tinstalled\n", Source::Apt)
+                    .unwrap();
+            assert!(verify_native_result(&before, &after, &plan).is_ok());
+            assert!(verify_native_result(&before, &NativeState::new(), &plan).is_err());
         }
         #[test]
         fn real_removal_uses_exact_resimulated_versioned_ids_without_dependencies_or_autoremove() {
@@ -1075,6 +1349,134 @@ mod tests {
             .contains("custom-tools"));
     }
     #[test]
+    fn identical_resolve_duplicates_are_one_identity_but_distinct_ids_are_ambiguous() {
+        let item = Removal {
+            id: "dnsmasq-utils;2.92;amd64;manual:ubuntu-updates-main".into(),
+            version: "2.92".into(),
+        };
+        assert_eq!(
+            exact_resolve("dnsmasq-utils", vec![item.clone(); 3]).unwrap(),
+            item
+        );
+        let other = Removal {
+            id: "dnsmasq-utils;2.92;amd64;manual:ubuntu-security-main".into(),
+            ..item.clone()
+        };
+        assert!(exact_resolve("dnsmasq-utils", vec![item.clone(), other]).is_err());
+        assert!(exact_resolve("other", vec![item.clone()]).is_err());
+        assert!(exact_resolve("dnsmasq-utils:arm64", vec![item]).is_err());
+    }
+    #[test]
+    fn helper_and_json_share_native_policy_and_refuse_non_inventory_ids() {
+        let names = [
+            "hello",
+            "libc6:amd64",
+            "libssl3t64",
+            "libsystemd0",
+            "priority-important",
+            "auto-dependency",
+        ];
+        let mut text = String::new();
+        for name in names {
+            text.push_str(&format!(
+                "{name}\t1\t1\tinstall ok installed\tno\t{}\n",
+                if name == "priority-important" {
+                    "important"
+                } else {
+                    "optional"
+                }
+            ));
+        }
+        let manual = names[..names.len() - 1]
+            .iter()
+            .map(|s| (*s).to_owned())
+            .collect();
+        let (items, _) = crate::packages::parse_dpkg(&text, &manual).unwrap();
+        assert!(validate_native_selection(Source::Apt, &["hello".into()], &items).is_ok());
+        for id in [
+            "libc6:amd64",
+            "libssl3t64",
+            "libsystemd0",
+            "priority-important",
+            "auto-dependency",
+            "hello;id",
+        ] {
+            assert!(
+                validate_native_selection(Source::Apt, &[id.into()], &items).is_err(),
+                "{id}"
+            );
+        }
+        let json = serde_json::to_value(&items).unwrap();
+        for item in json
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|i| i["id"] != "hello")
+        {
+            assert_eq!(item["protected"], true);
+            assert_eq!(item["risk"], "protected");
+        }
+    }
+    #[test]
+    fn final_native_state_requires_all_planned_removals_and_no_other_changes() {
+        let before = parse_native_state(
+            "hello\t1\tamd64\tinstalled\nlibglib2.0-0t64\t2.88\tamd64\tinstalled\n",
+            Source::Apt,
+        )
+        .unwrap();
+        let item = Removal {
+            id: "hello;1;amd64;manual:ubuntu-main".into(),
+            version: "1".into(),
+        };
+        let after = parse_native_state(
+            "libglib2.0-0t64\t2.88\tamd64\tinstalled\nhello\t1\tamd64\tconfig-files\n",
+            Source::Apt,
+        )
+        .unwrap();
+        assert!(verify_native_result(&before, &after, std::slice::from_ref(&item)).is_ok());
+        assert!(verify_native_result(&before, &before, std::slice::from_ref(&item)).is_err());
+        let missing = NativeState::new();
+        assert!(verify_native_result(&before, &missing, std::slice::from_ref(&item)).is_err());
+        let mut upgraded = after.clone();
+        upgraded.insert(
+            ("libglib2.0-0t64".into(), "amd64".into()),
+            BTreeSet::from(["2.89".into()]),
+        );
+        assert!(verify_native_result(&before, &upgraded, std::slice::from_ref(&item)).is_err());
+        let mut added = after;
+        added.insert(
+            ("other".into(), "amd64".into()),
+            BTreeSet::from(["1".into()]),
+        );
+        assert!(verify_native_result(&before, &added, &[item]).is_err());
+    }
+    #[test]
+    fn selection_cannot_hide_a_different_primary_id() {
+        let request = Request {
+            source: Source::Apt,
+            id: "auto-dependency".into(),
+            ids: vec!["hello".into()],
+        };
+        let mut mock = Mock::default();
+        assert!(Session::prepare(request, &mut mock).is_err());
+        assert_eq!(mock.calls, 0);
+    }
+    #[test]
+    fn rpm_multiple_installed_versions_are_preserved_individually() {
+        let before = parse_native_state("hello\t0:1\tx86_64\tinstalled\nkernel-core\t0:6.1\tx86_64\tinstalled\nkernel-core\t0:6.2\tx86_64\tinstalled\n", Source::Rpm).unwrap();
+        let after = parse_native_state(
+            "kernel-core\t0:6.1\tx86_64\tinstalled\nkernel-core\t0:6.2\tx86_64\tinstalled\n",
+            Source::Rpm,
+        )
+        .unwrap();
+        let items = [Removal {
+            id: "hello;1;x86_64;@System".into(),
+            version: "1".into(),
+        }];
+        assert!(verify_native_result(&before, &after, &items).is_ok());
+        assert_eq!(after[&("kernel-core".into(), "x86_64".into())].len(), 2);
+    }
+    #[test]
     fn fixed_session_and_kernel_packages_are_always_blocked() {
         for n in [
             "bash",
@@ -1094,7 +1496,7 @@ mod tests {
         ] {
             assert!(fixed_block(n), "{n}");
         }
-        for n in ["systemd-libs", "NetworkManager", "kernel-core"] {
+        for n in ["NetworkManager", "kernel-core"] {
             assert!(!fixed_block(n), "{n}");
         }
     }

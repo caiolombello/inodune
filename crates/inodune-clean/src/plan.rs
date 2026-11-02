@@ -17,7 +17,7 @@ use std::{
 };
 
 const PLAN_TTL: Duration = Duration::from_secs(120);
-const PLAN_RULE_VERSION: &[u8] = b"inodune-cache-plan-v3";
+const PLAN_RULE_VERSION: &[u8] = b"inodune-cache-plan-v4";
 const MAX_PLAN_ITEMS: usize = 5000;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -201,6 +201,20 @@ impl PlanSession {
             let absolute = target.root.path().join(&target.relative);
             if absolute.to_str().is_none() || candidate.display_path != absolute.to_string_lossy() {
                 return Err("O caminho do item não pode ser representado sem ambiguidade.".into());
+            }
+            for keep in &target.preserved {
+                total_path_bytes = total_path_bytes
+                    .saturating_add(target.root.path().join(keep).as_os_str().as_bytes().len());
+                if total_path_bytes > 32 * 1024 * 1024 {
+                    return Err("Exclusões do plano excedem 32 MiB".into());
+                }
+                validate_relative(keep)?;
+                if !keep.starts_with(&target.relative) || keep == &target.relative {
+                    return Err("Exclusão protegida fora do item".into());
+                }
+                if target.files.iter().any(|(path, _)| path.starts_with(keep)) {
+                    return Err("Manifesto sobrepõe exclusão protegida".into());
+                }
             }
             for (path, _) in &target.files {
                 total_path_bytes = total_path_bytes
@@ -404,6 +418,10 @@ fn plan_hash(snapshot: &ScanSnapshot, ids: &[String], action: Action) -> Result<
         for (path, fingerprint) in &target.files {
             hash_field(&mut hash, path.as_os_str().as_bytes());
             hash_fingerprint(&mut hash, fingerprint);
+        }
+        hash_field(&mut hash, &(target.preserved.len() as u64).to_le_bytes());
+        for keep in &target.preserved {
+            hash_field(&mut hash, keep.as_os_str().as_bytes());
         }
         hash_field(&mut hash, &(target.witnesses.len() as u64).to_le_bytes());
         for (path, fingerprint) in &target.witnesses {
