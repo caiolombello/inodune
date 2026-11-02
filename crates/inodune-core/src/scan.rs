@@ -1000,7 +1000,19 @@ impl<F: FnMut(ScanProgress)> Walker<'_, F> {
             .and_then(|fd| fs::fstat(&fd))
             .is_ok_and(|after| Fingerprint::from_stat(&after) == Fingerprint::from_stat(&st));
         complete &= stable;
-        let ancestor_refusal = cleanup_ancestors_allowed(root, rel).err();
+        // For a file candidate (e.g. a protected .env or tfstate) the ancestors
+        // start at its directory: opening the file itself as a directory only
+        // produced "Not a directory (os error 20)" in the reason.
+        let ancestors_from = if FileType::from_raw_mode(st.st_mode) == FileType::Directory {
+            rel
+        } else {
+            rel.parent()
+                .filter(|p| !p.as_os_str().is_empty())
+                .unwrap_or(Path::new("."))
+        };
+        let ancestor_refusal = cleanup_ancestors_allowed(root, ancestors_from)
+            .err()
+            .map(|why| os_error_pt(&why));
         if ancestor_refusal.is_some() {
             complete = false;
         }

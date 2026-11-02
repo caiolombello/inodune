@@ -703,3 +703,43 @@ fn cargo_target_with_only_internal_hardlinks_stays_deletable() {
         inodune_core::SupportedAction::ReviewedCacheContents
     ));
 }
+
+/// 0.1.10 QA: protected files (.env, tfstate, id_ed25519) showed
+/// "Not a directory (os error 20)" as part of their reason.
+#[test]
+fn protected_files_have_no_raw_not_a_directory_reason() {
+    let root = tempfile::tempdir().unwrap();
+    let project = root.path().join("p");
+    fs::create_dir_all(project.join("node_modules")).unwrap();
+    fs::write(project.join("package.json"), "{}").unwrap();
+    for name in [
+        ".env",
+        "terraform.tfstate",
+        "id_ed25519",
+        "node_modules/id_ed25519",
+    ] {
+        fs::write(project.join(name), "fixture").unwrap();
+    }
+    let result = scan(
+        &[ApprovedRoot::open(root.path(), ScopeKind::Projects).unwrap()],
+        &ScanControl::default(),
+        &ScanLimits::default(),
+        |_| {},
+    )
+    .unwrap();
+    let protected: Vec<_> = result
+        .candidates
+        .iter()
+        .filter(|c| c.detector_id == "protected.state")
+        .collect();
+    assert!(protected.len() >= 4, "{protected:?}");
+    for candidate in protected {
+        assert_eq!(candidate.risk, inodune_core::Risk::Protected);
+        assert!(
+            !candidate.reason.contains("os error") && !candidate.reason.contains("Not a directory"),
+            "{}: {}",
+            candidate.display_path,
+            candidate.reason
+        );
+    }
+}
