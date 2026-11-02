@@ -73,20 +73,40 @@ pub struct ExecutionReport {
     #[serde(default)]
     pub journal_path: Option<String>,
 }
-/// Bytes of file lines kept in a stored report (JSON, pretty-printed below the
-/// 8 MiB report and journal-record limits).
+/// Maximum size of the whole stored report, serialized as pretty JSON (the
+/// saved file); the compact journal record is smaller still.
 pub const STORED_REPORT_BUDGET: usize = 4 * 1024 * 1024;
+/// Room left for warnings appended after the selection (journal/history).
+const STORED_REPORT_MARGIN: usize = 64 * 1024;
 
 impl ExecutionReport {
     pub fn omitted_files(&self) -> u64 {
         self.items.iter().map(|item| item.omitted_files).sum()
     }
 
-    /// Copy for history and the journal: every total, item and warning is kept;
-    /// file lines that need attention (failed, skipped, cancelled, quarantined)
-    /// come first, then moved/removed ones until the budget is spent. Omitted
+    /// Copy for history and the journal whose WHOLE pretty-printed JSON fits
+    /// in `cap` (minus a margin for later warnings): every total, item and
+    /// warning is kept; file lines that need attention (failed, skipped,
+    /// cancelled, quarantined) come first, then moved/removed ones. Omitted
     /// lines are counted per item and announced in a warning.
-    pub fn for_storage(&self, budget: usize) -> ExecutionReport {
+    pub fn for_storage(&self, cap: usize) -> ExecutionReport {
+        let target = cap.saturating_sub(STORED_REPORT_MARGIN);
+        let mut line_budget = target;
+        let mut out = self.select_lines(line_budget);
+        for _ in 0..16 {
+            let size = serde_json::to_vec_pretty(&out).map_or(usize::MAX, |b| b.len());
+            if size <= target || line_budget == 0 {
+                break;
+            }
+            // Nesting indentation and the item structure are not counted per
+            // line; shrink the line budget by the measured excess and retry.
+            line_budget = line_budget.saturating_sub(size - target + 16 * 1024);
+            out = self.select_lines(line_budget);
+        }
+        out
+    }
+
+    fn select_lines(&self, budget: usize) -> ExecutionReport {
         let mut out = self.clone();
         let mut order: Vec<(usize, usize, bool)> = Vec::new();
         for (i, item) in self.items.iter().enumerate() {

@@ -235,6 +235,8 @@ fn huge_reports_are_stored_bounded_with_failures_first_and_totals_kept() {
     let stored = report.for_storage(STORED_REPORT_BUDGET);
     let pretty = serde_json::to_vec_pretty(&stored).unwrap();
     assert!(pretty.len() < 8 * 1024 * 1024, "{}", pretty.len());
+    // 0.1.11 QA: the cap applies to the whole serialized file (was 4,62 MiB).
+    assert!(pretty.len() <= STORED_REPORT_BUDGET, "{}", pretty.len());
     let record =
         serde_json::to_vec(&serde_json::json!({"phase":"finished","report":stored})).unwrap();
     assert!(record.len() < storage::MAX_JOURNAL_RECORD);
@@ -260,4 +262,9 @@ fn huge_reports_are_stored_bounded_with_failures_first_and_totals_kept() {
     let temp = tempfile::tempdir().unwrap();
     let saved = storage::save_report(&temp.path().join("reports"), &stored).unwrap();
     assert!(saved.exists());
+    let on_disk = std::fs::metadata(&saved).unwrap().len() as usize;
+    assert!(
+        on_disk <= STORED_REPORT_BUDGET,
+        "saved report is {on_disk} bytes"
+    );
 }
