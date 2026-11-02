@@ -112,7 +112,9 @@
               >
               {#if entry.error}<strong>{t('Relatório com erro')}</strong
                 >{:else}<strong
-                  >{actionLabel(entry.action)} · {entry.complete
+                  >{actionLabel(entry.action).replace(/^./, (c) =>
+                    c.toUpperCase(),
+                  )} · {entry.complete
                     ? t('Concluído')
                     : t('Incompleto')}</strong
                 >{/if}

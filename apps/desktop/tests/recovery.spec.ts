@@ -87,7 +87,7 @@ test('report explains irreversible cleanup and preserves a copyable recovery loc
     .getByLabel('Modo de análise', { exact: true })
     .selectOption('manual');
   await page.getByRole('button', { name: 'Histórico', exact: true }).click();
-  await page.getByRole('button', { name: /Remoção permanente/ }).click();
+  await page.getByRole('button', { name: /Exclusão permanente/ }).click();
 
   await expect(page.getByRole('alert').first()).toContainText(
     'Execução cancelada',
