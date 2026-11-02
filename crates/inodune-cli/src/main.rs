@@ -240,9 +240,9 @@ fn run_clean(args: &[String], control: &ScanControl) -> Result<(String, bool), S
         .map(|p| ApprovedRoot::open(p, kind)?.with_exclusions(exclusions.clone()))
         .collect::<Result<Vec<_>, _>>()?;
     let snapshot = scan::scan(&roots, control, &ScanLimits::default(), |_| {})?;
-    // A review of one detector may proceed when no issue touches its targets;
-    // everything else still refuses an incomplete or cancelled analysis.
-    if snapshot.cancelled || (!snapshot.complete && review.is_none()) {
+    // Fail-closed: any incomplete or cancelled analysis refuses every plan
+    // (review, safe and default), listing the reasons.
+    if snapshot.cancelled || !snapshot.complete {
         let all: Vec<&scan::ScanIssue> = snapshot.issues.iter().collect();
         return Ok((refuse_incomplete(&snapshot, &all, json)?, true));
     }
@@ -277,23 +277,7 @@ fn run_clean(args: &[String], control: &ScanControl) -> Result<(String, bool), S
             ));
         }
         // Every candidate of the detector goes into one plan (use --root to
-        // narrow it). Each is checked on its own when the analysis is partial.
-        if !snapshot.complete {
-            // A truncated issue list cannot prove a target is untouched.
-            let truncated = snapshot.issues.len() >= ScanLimits::default().max_issues;
-            for candidate in &eligible {
-                let touching = issues_touching(&snapshot, candidate);
-                if truncated
-                    || !touching.is_empty()
-                    || !snapshot
-                        .targets
-                        .get(&candidate.id)
-                        .is_some_and(|t| t.complete)
-                {
-                    return Ok((refuse_incomplete(&snapshot, &touching, json)?, true));
-                }
-            }
-        }
+        // narrow it). The analysis is complete here (checked above).
         eligible
             .iter()
             .map(|candidate| candidate.id.clone())
@@ -342,25 +326,7 @@ fn run_clean(args: &[String], control: &ScanControl) -> Result<(String, bool), S
         .iter()
         .map(|v| (v.device, scan::tidy_display_path(&v.scope_path)))
         .collect();
-    let partial_note = (!snapshot.complete).then(|| {
-        let all: Vec<&scan::ScanIssue> = snapshot.issues.iter().collect();
-        format!(
-            "Análise parcial; os avisos abaixo não tocam o alvo escolhido e o plano cobre só manifestos completos.\n{}",
-            issue_summary(&all)
-        )
-    });
-    let session = if snapshot.complete {
-        inodune_clean::plan::PlanSession::prepare(Arc::new(snapshot), &selected, action)?
-    } else {
-        inodune_clean::plan::PlanSession::prepare_verified_items(
-            Arc::new(snapshot),
-            &selected,
-            action,
-        )?
-    };
-    if let (Some(note), false) = (&partial_note, json) {
-        eprintln!("{note}");
-    }
+    let session = inodune_clean::plan::PlanSession::prepare(Arc::new(snapshot), &selected, action)?;
     let plan_view = session.view();
     if !apply {
         let view = CleanView {
@@ -768,22 +734,6 @@ fn present_apps(inventory: &inodune_apps::Inventory, json: bool) -> Result<(Stri
         lines.join("\n")
     };
     Ok((output, partial))
-}
-
-/// Issues inside a candidate or on one of its ancestors.
-fn issues_touching<'a>(
-    snapshot: &'a scan::ScanSnapshot,
-    candidate: &inodune_core::Candidate,
-) -> Vec<&'a scan::ScanIssue> {
-    let target = std::path::PathBuf::from(scan::tidy_display_path(&candidate.display_path));
-    snapshot
-        .issues
-        .iter()
-        .filter(|issue| {
-            let path = std::path::PathBuf::from(scan::tidy_display_path(&issue.display_path));
-            path.starts_with(&target) || target.starts_with(&path)
-        })
-        .collect()
 }
 
 /// Count per issue code plus a few example paths.

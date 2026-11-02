@@ -17,9 +17,8 @@
 - **Hardlinks na Lixeira:** elos que foram juntos para a Lixeira (node-gyp) não deixam
   mais a análise incompleta; elos com algum link fora da Lixeira continuam gerando aviso
   `hardlink` e bloqueando. Toda recusa por análise incompleta lista os motivos (contagem
-  por código e caminhos de exemplo). `--review` ignora avisos que não tocam o alvo, mas
-  continua recusando avisos dentro do alvo ou num ancestral, manifesto incompleto, lista de
-  avisos truncada e análise cancelada.
+  por código e caminhos de exemplo). Análise incompleta ou cancelada continua recusando
+  todo plano (`--review`, `--safe` e o padrão), como na 0.1.10.
 - Sem "Not a directory (os error 20)" no motivo de arquivos protegidos (`.env`, `tfstate`,
   `id_ed25519`).
 - `clean --permanent --dry-run`: ação, risco e impacto do item seguem a ação do plano, em

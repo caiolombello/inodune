@@ -107,7 +107,7 @@ fn hardlinks_trashed_together_do_not_block_later_cleanups() {
 }
 
 #[test]
-fn a_real_external_link_still_blocks_and_the_refusal_explains_why() {
+fn a_real_external_link_keeps_every_plan_refused_with_the_reason() {
     let temp = tempfile::tempdir().unwrap();
     let root = temp.path();
     let root_arg = root.to_str().unwrap();
@@ -126,19 +126,11 @@ fn a_real_external_link_still_blocks_and_the_refusal_explains_why() {
         .iter()
         .any(|issue| issue["code"] == "hardlink"));
 
-    // A general cleanup refuses and lists the reason with an example path.
-    let (code, out, err) = cli(root, &["clean", "--root", root_arg, "--safe", "--yes"]);
-    assert_eq!(code, Some(3), "{out}{err}");
-    assert!(
-        out.contains("Motivos:") && out.contains("hardlink: 1"),
-        "{out}"
-    );
-    assert!(out.contains("linked.bin"), "{out}");
-
-    // The issue does not touch the npm cache, so its review proceeds.
-    let (code, out, err) = cli(
-        root,
-        &[
+    // Fail-closed: an incomplete analysis refuses --safe and --review alike,
+    // and the refusal lists the reason with an example path.
+    for args in [
+        vec!["clean", "--root", root_arg, "--safe", "--yes"],
+        vec![
             "clean",
             "--root",
             root_arg,
@@ -146,10 +138,27 @@ fn a_real_external_link_still_blocks_and_the_refusal_explains_why() {
             "npm.cache",
             "--yes",
         ],
-    );
-    assert_eq!(code, Some(0), "{out}{err}");
-    assert!(!ordinary.exists());
-    assert!(err.contains("Análise parcial"), "{err}");
+        vec![
+            "clean",
+            "--root",
+            root_arg,
+            "--review",
+            "npm.cache",
+            "--yes",
+            "--permanent",
+        ],
+    ] {
+        let (code, out, err) = cli(root, &args);
+        assert_eq!(code, Some(3), "{args:?}: {out}{err}");
+        assert!(out.contains("Análise incompleta"), "{out}");
+        assert!(
+            out.contains("Motivos:") && out.contains("hardlink: 1"),
+            "{out}"
+        );
+        assert!(out.contains("linked.bin"), "{out}");
+    }
+    assert!(ordinary.exists());
+    assert_eq!(fs::read(&ordinary).unwrap(), b"rebuildable");
     assert_eq!(fs::read(files.join("linked.bin")).unwrap(), b"kept outside");
     assert_eq!(fs::read(root.join("outside.bin")).unwrap(), b"kept outside");
 }

@@ -5,7 +5,7 @@ inodune (0.1.11) stable; urgency=high
   * Group-writable evidence (Ubuntu umask 002) is accepted only for the
     user's private group; o+w and shared groups stay refused.
   * Hardlinks moved together to the Trash no longer block analyses; refusals
-    list their reasons and --review ignores issues outside its target.
+    of incomplete analyses list their reasons and stay fail-closed.
   * Bounded stored reports for very large cleanups; Portuguese dialog
     buttons; readable plan text; man pages.
 
