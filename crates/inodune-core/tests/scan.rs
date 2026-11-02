@@ -657,3 +657,46 @@ fn virtualenv_directories_are_skipped_like_venv() {
         .iter()
         .all(|c| !c.display_path.contains("fw-venv") && !c.display_path.contains("/.venv")));
 }
+
+#[test]
+fn cargo_target_with_only_internal_hardlinks_stays_deletable() {
+    let root = tempfile::tempdir().unwrap();
+    let project = root.path().join("app");
+    fs::create_dir_all(project.join("target/debug/deps")).unwrap();
+    fs::write(
+        project.join("Cargo.toml"),
+        b"[package]\nname=\"app\"\nversion=\"0.0.1\"\n",
+    )
+    .unwrap();
+    let inside = project.join("target/debug/deps/x.wasm");
+    fs::write(&inside, b"wasm-fixture").unwrap();
+    fs::hard_link(&inside, project.join("target/debug/x.wasm")).unwrap();
+    let snapshot = scan(
+        &[ApprovedRoot::open(&project, ScopeKind::Projects).unwrap()],
+        &ScanControl::default(),
+        &ScanLimits::default(),
+        |_| {},
+    )
+    .unwrap();
+    let target = snapshot
+        .candidates
+        .iter()
+        .find(|c| c.detector_id == "rust.target")
+        .unwrap();
+    assert_ne!(
+        target.risk,
+        inodune_core::Risk::Protected,
+        "{}",
+        target.reason
+    );
+    assert!(
+        !target.reason.to_lowercase().contains("symlink"),
+        "{}",
+        target.reason
+    );
+    assert!(!snapshot.issues.iter().any(|issue| issue.code == "hardlink"));
+    assert!(matches!(
+        target.supported_action,
+        inodune_core::SupportedAction::ReviewedCacheContents
+    ));
+}

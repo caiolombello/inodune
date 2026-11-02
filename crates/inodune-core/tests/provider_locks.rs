@@ -63,19 +63,16 @@ fn parent_and_environment_locks_protect_referenced_versions_without_reading_bina
         .collect();
     assert_eq!(providers.len(), 5);
     for c in providers {
-        let unused =
-            c.display_path.contains("null/3.3.0/") || c.display_path.contains("archive/2.8.0/");
-        assert_eq!(
-            c.risk,
-            if unused {
-                Risk::Review
-            } else {
-                Risk::Protected
-            },
-            "{}: {}",
-            c.display_path,
-            c.reason
-        );
+        assert_eq!(c.risk, Risk::Review, "{}: {}", c.display_path, c.reason);
+        let referenced =
+            !(c.display_path.contains("null/3.3.0/") || c.display_path.contains("archive/2.8.0/"));
+        if referenced {
+            assert!(
+                c.reason.contains("terraform init") || c.reason.contains("referenciada por lock"),
+                "{}",
+                c.reason
+            );
+        }
     }
 }
 

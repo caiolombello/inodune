@@ -3,7 +3,9 @@ export function protectionReason(reason: string): string {
   const text = reason.toLocaleLowerCase('pt-BR');
   if (text.includes('sem lock')) return 'sem lock';
   if (text.includes('acima do limite')) return 'acima do limite';
-  if (text.includes('symlink') || text.includes('links')) return 'symlink';
+  if (text.includes('hardlink')) return 'hardlink';
+  if (text.includes('cobertura incompleta')) return 'cobertura incompleta';
+  if (text.includes('symlink')) return 'symlink';
   if (text.includes('credencia')) return 'credenciais';
   if (text.includes('agente') || text.includes('sessão'))
     return 'sessão de agente';

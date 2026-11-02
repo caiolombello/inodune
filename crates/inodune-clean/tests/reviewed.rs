@@ -113,7 +113,7 @@ fn selected(snapshot: &inodune_core::scan::ScanSnapshot, detector: &str) -> Vec<
         .collect()
 }
 #[test]
-fn real_scan_partitions_verified_leaves_without_double_counting_and_requires_single_review() {
+fn real_scan_partitions_verified_leaves_without_double_counting_and_allows_a_batch() {
     let f = Fixture::new();
     let snapshot = f.scan();
     assert!(snapshot.complete, "{:?}", snapshot.issues);
@@ -143,12 +143,14 @@ fn real_scan_partitions_verified_leaves_without_double_counting_and_requires_sin
         .find(|c| c.detector_id == "rust.target")
         .unwrap();
     assert_eq!(parent.logical_bytes, 16 + 17); // paired hash + final binary; JSON belongs to its own coverage.
-    assert!(PlanSession::prepare(
+    let plan = PlanSession::prepare(
         snapshot.clone(),
         &[tf[0].clone(), cargo[0].clone()],
-        Action::Trash
+        Action::Trash,
     )
-    .is_err());
+    .unwrap();
+    assert_eq!(plan.view().items.len(), 2);
+    assert!(plan.view().review_required);
     let plan = PlanSession::prepare(snapshot, &tf, Action::Trash).unwrap();
     assert!(plan.view().review_required);
     f.preserved();

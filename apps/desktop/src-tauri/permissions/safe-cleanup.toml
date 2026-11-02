@@ -1,0 +1,4 @@
+[[permission]]
+identifier = "allow-safe-cleanup"
+description = "Prepare a one-click cleanup from the snapshot id only. The renderer cannot pass filesystem paths."
+commands.allow = ["prepare_safe_cleanup"]

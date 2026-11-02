@@ -67,6 +67,13 @@ pub fn scan_discovered(
     };
     snapshot.complete &= discovered.complete;
     snapshot.cancelled |= control.is_cancelled();
+    for issue in &discovered.issues {
+        *snapshot
+            .stats
+            .skip_reasons
+            .entry(issue.code.clone())
+            .or_default() += 1;
+    }
     snapshot.stats.skipped = snapshot
         .stats
         .skipped

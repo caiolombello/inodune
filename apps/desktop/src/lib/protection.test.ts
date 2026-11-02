@@ -6,6 +6,11 @@ describe('motivo curto de proteção', () => {
     ['sem lock relevante dentro da raiz Git/análise', 'sem lock'],
     ['Provider acima do limite de 2 GiB por arquivo', 'acima do limite'],
     ['symlink ou arquivo inacessível', 'symlink'],
+    ['Cobertura incompleta (hardlink): protegido.', 'hardlink'],
+    [
+      'Cobertura incompleta (cobertura incompleta): protegido.',
+      'cobertura incompleta',
+    ],
     ['Repositório Git preservado', 'repo git'],
     ['Estado, locks, credenciais ou instruções não são cache.', 'credenciais'],
     [

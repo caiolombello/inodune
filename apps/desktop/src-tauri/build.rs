@@ -13,6 +13,7 @@ fn main() {
             "poll_scan",
             "control_scan",
             "prepare_cleanup",
+            "prepare_safe_cleanup",
             "begin_cleanup",
             "poll_cleanup",
             "cancel_cleanup",

@@ -262,6 +262,26 @@ impl ApprovedRoot {
                 | ResolveFlags::NO_XDEV,
         )
     }
+    /// Stat the final component without following it. Ancestors still cannot be symlinks or cross a mount.
+    pub fn lstat_relative(&self, path: &Path) -> Result<Stat, Errno> {
+        if path.as_os_str().is_empty() || path == Path::new(".") {
+            return fs::fstat(&*self.fd);
+        }
+        let name = path.file_name().ok_or(Errno::INVAL)?;
+        let parent = path
+            .parent()
+            .filter(|parent| !parent.as_os_str().is_empty())
+            .unwrap_or(Path::new("."));
+        let parent_fd = self.open_relative(parent, OFlags::RDONLY | OFlags::DIRECTORY)?;
+        let fd = fs::openat2(
+            &parent_fd,
+            name,
+            OFlags::PATH | OFlags::NOFOLLOW | OFlags::CLOEXEC,
+            Mode::empty(),
+            ResolveFlags::BENEATH | ResolveFlags::NO_MAGICLINKS | ResolveFlags::NO_XDEV,
+        )?;
+        fs::fstat(&fd)
+    }
     pub fn volume(&self) -> Result<VolumeInfo, String> {
         let st = fs::fstatvfs(&*self.fd).map_err(|e| e.to_string())?;
         Ok(VolumeInfo {
@@ -307,6 +327,9 @@ pub struct ScanStats {
     pub visited: u64,
     pub skipped: u64,
     pub elapsed_ms: u64,
+    /// Entries left out of a candidate. Internal symlinks of a deletable item are not counted.
+    #[serde(default)]
+    pub skip_reasons: std::collections::BTreeMap<String, u64>,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ScanProgress {
@@ -497,9 +520,18 @@ impl<F: FnMut(ScanProgress)> Walker<'_, F> {
                 .collect(),
         }
     }
+    fn count_skip(&mut self, code: &str) {
+        self.out.stats.skipped += 1;
+        *self
+            .out
+            .stats
+            .skip_reasons
+            .entry(code.to_owned())
+            .or_default() += 1;
+    }
     fn issue(&mut self, path: &Path, code: &str, message: &str) {
         self.out.complete = false;
-        self.out.stats.skipped += 1;
+        self.count_skip(code);
         if self.out.issues.len() < self.limits.max_issues {
             self.out.issues.push(ScanIssue {
                 display_path: path.to_string_lossy().into(),
@@ -560,7 +592,7 @@ impl<F: FnMut(ScanProgress)> Walker<'_, F> {
             self.progress();
             let child = rel.join(OsString::from(std::ffi::OsStr::from_bytes(name)));
             if root.is_excluded(&child) {
-                self.out.stats.skipped += 1;
+                self.count_skip("policy_excluded");
                 if self.out.issues.len() < self.limits.max_issues {
                     self.out.issues.push(ScanIssue {
                         display_path: root.path.join(&child).to_string_lossy().into(),
@@ -618,13 +650,20 @@ impl<F: FnMut(ScanProgress)> Walker<'_, F> {
         &mut self,
         root: &ApprovedRoot,
         rel: &Path,
-    ) -> (u64, u64, bool, Vec<(PathBuf, Fingerprint)>) {
+    ) -> (u64, u64, bool, Vec<(PathBuf, Fingerprint)>, Vec<String>) {
         let mut pending = vec![(rel.to_path_buf(), 0usize)];
         let mut logical = 0u64;
         let mut allocated = 0u64;
         let mut complete = true;
         let mut files = Vec::new();
         let mut seen = HashSet::new();
+        let mut hardlinks: HashMap<(u64, u64), (u64, u64)> = HashMap::new();
+        let mut blocks: Vec<String> = Vec::new();
+        let note = |blocks: &mut Vec<String>, code: &str| {
+            if !blocks.iter().any(|item| item == code) {
+                blocks.push(code.to_owned());
+            }
+        };
         while let Some((path, depth)) = pending.pop() {
             if !self.allowed() {
                 complete = false;
@@ -639,9 +678,31 @@ impl<F: FnMut(ScanProgress)> Walker<'_, F> {
                 complete = false;
                 continue;
             }
-            let Some(st) = self.metadata(root, &path) else {
-                complete = false;
-                continue;
+            let st = match root.lstat_relative(&path) {
+                Ok(st) if st.st_uid == rustix::process::getuid().as_raw() => st,
+                Ok(_) => {
+                    self.issue(
+                        &root.path.join(&path),
+                        "owner",
+                        "Outro proprietário; preservado.",
+                    );
+                    note(&mut blocks, "owner");
+                    complete = false;
+                    continue;
+                }
+                Err(e) => {
+                    let code = if e == Errno::XDEV {
+                        "mount"
+                    } else if e == Errno::LOOP {
+                        "symlink"
+                    } else {
+                        "inaccessible"
+                    };
+                    self.issue(&root.path.join(&path), code, &e.to_string());
+                    note(&mut blocks, code);
+                    complete = false;
+                    continue;
+                }
             };
             if is_protected_agent_path(&root.path.join(&path))
                 || path.file_name().is_some_and(|n| {
@@ -676,13 +737,15 @@ impl<F: FnMut(ScanProgress)> Walker<'_, F> {
                     {
                         complete = false;
                     }
-                    if st.st_nlink != 1 {
-                        self.issue(
-                            &root.path.join(&path),
-                            "hardlink",
-                            "Hardlink: ganho e propriedade do conteúdo incertos.",
-                        );
-                        complete = false;
+                    if st.st_nlink > 1 {
+                        let slot = hardlinks
+                            .entry((st.st_dev, st.st_ino))
+                            .or_insert((st.st_nlink, 0));
+                        if slot.0 != st.st_nlink {
+                            note(&mut blocks, "hardlink");
+                            complete = false;
+                        }
+                        slot.1 += 1;
                     }
                     if seen.insert((st.st_dev, st.st_ino))
                         && self.identities.insert((st.st_dev, st.st_ino))
@@ -710,17 +773,33 @@ impl<F: FnMut(ScanProgress)> Walker<'_, F> {
                     }
                     files.push((path, Fingerprint::from_stat(&st)));
                 }
+                FileType::Symlink => {
+                    // The link itself can be removed later. Never follow it and do not count it as skipped.
+                    files.push((path, Fingerprint::from_stat(&st)));
+                }
                 _ => {
                     self.issue(
                         &root.path.join(&path),
-                        "symlink_or_special",
-                        "Link ou arquivo especial preservado; conteúdo não seguido.",
+                        "special",
+                        "Arquivo especial preservado; conteúdo não seguido.",
                     );
+                    note(&mut blocks, "special");
                     complete = false;
                 }
             }
         }
-        (logical, allocated, complete, files)
+        for (nlink, seen_here) in hardlinks.values() {
+            if *seen_here != *nlink {
+                self.issue(
+                    &root.path.join(rel),
+                    "hardlink",
+                    "Hardlink com elo fora deste item; preservado.",
+                );
+                note(&mut blocks, "hardlink");
+                complete = false;
+            }
+        }
+        (logical, allocated, complete, files, blocks)
     }
     fn candidate(
         &mut self,
@@ -739,7 +818,7 @@ impl<F: FnMut(ScanProgress)> Walker<'_, F> {
         let Some(st) = self.metadata(root, rel) else {
             return;
         };
-        let (logical, allocated, mut complete, files) = self.measure(root, rel);
+        let (logical, allocated, mut complete, files, blocks) = self.measure(root, rel);
         if root.intersects_exclusion(rel) {
             complete = false;
         }
@@ -784,7 +863,7 @@ impl<F: FnMut(ScanProgress)> Walker<'_, F> {
             complete = false;
         }
         let risk = if complete { risk } else { Risk::Protected };
-        let uv_managed = reason.contains("uv cache prune");
+        let uv_managed = reason.contains("uv cache clean");
         let rebuildable = matches!(
             detector,
             "python.pip-cache"
@@ -822,9 +901,9 @@ impl<F: FnMut(ScanProgress)> Walker<'_, F> {
         self.out.candidates.push(Candidate{
             id, title:title.into(),display_path:root.path.join(rel).to_string_lossy().into(),detector_id:detector.into(),detector_version:"1".into(),scope_id:root.display_path(),category:category.into(),project:project.into(),
             selected_by_default:risk==Risk::Low,risk,logical_bytes:logical,allocated_bytes_estimate:Some(allocated),identity:Some(Identity{dev:st.st_dev,ino:st.st_ino,mtime_unix:st.st_mtime}),coverage_key:(ancestor_refusal.is_none() && coverage_complete && stable).then(||format!("{}:{}",st.st_dev,st.st_ino)),
-            reason:if let Some(why)=ancestor_refusal{format!("{reason} {why}")}else if complete{reason.into()}else{format!("{reason} Cobertura incompleta, links, conteúdo desconhecido ou hardlinks: protegido.")},
+            reason:if let Some(why)=ancestor_refusal{format!("{reason} {why}")}else if complete{reason.into()}else{format!("{reason} Cobertura incompleta ({}): protegido.", if blocks.is_empty(){"cobertura incompleta".to_owned()}else{blocks.join(", ")})},
             impact:if py||thumbs {"O aplicativo recriará o cache; a primeira abertura pode ser mais lenta.".into()}else{"Pode conter dados de trabalho ou exigir reconstrução/download. Inventário não autoriza remoção.".into()},
-            rebuild_hint:if uv_managed{"use `uv cache prune`".into()}else if detector=="python.pip-cache" {"Equivalente oficial: pip cache purge (apenas informativo).".into()}else if detector=="npm.cache" {"Equivalente oficial: npm cache clean --force (apenas informativo).".into()}else if detector=="rust.target" {"Equivalente oficial: cargo clean (apenas informativo).".into()}else if rebuildable {"A ferramenta recria o cache; pode exigir download/recompilação.".into()}else if py {"Bytecode recriado ao importar o módulo.".into()}else if thumbs{"Miniaturas recriadas pelo aplicativo.".into()}else{"Custo não medido; revisão necessária.".into()},
+            rebuild_hint:if uv_managed{"use `uv cache clean`".into()}else if detector=="python.pip-cache" {"Equivalente oficial: pip cache purge (apenas informativo).".into()}else if detector=="npm.cache" {"Equivalente oficial: npm cache clean --force (apenas informativo).".into()}else if detector=="rust.target" {"Equivalente oficial: cargo clean (apenas informativo).".into()}else if rebuildable {"A ferramenta recria o cache; pode exigir download/recompilação.".into()}else if py {"Bytecode recriado ao importar o módulo.".into()}else if thumbs{"Miniaturas recriadas pelo aplicativo.".into()}else{"Custo não medido; revisão necessária.".into()},
             preserved:"Código, estado, configuração, credenciais, sessões e memória nunca entram em remoção genérica.".into(),evidence:vec!["root-approved".into(),"openat2-no-symlinks-no-xdev".into(),if complete{"coverage-complete"}else{"coverage-incomplete"}.into()],activity:format!("mtime Unix {} (metadado; não comprova desuso)",st.st_mtime),supported_action:if low_cache{SupportedAction::CacheContents}else if reviewed_cache{SupportedAction::ReviewedCacheContents}else{SupportedAction::None},
         });
     }
@@ -1124,9 +1203,199 @@ impl<F: FnMut(ScanProgress)> Walker<'_, F> {
             self.out.candidates.push(Candidate{id,title:"Worktree / repositório Git".into(),display_path:path.to_string_lossy().into(),detector_id:"git.worktree".into(),detector_version:"f3-v1".into(),scope_id:root.display_path(),category:"Git Worktrees".into(),project:project.into(),risk:Risk::Protected,logical_bytes:0,allocated_bytes_estimate:None,identity:None,coverage_key:None,selected_by_default:false,reason:if reasons.is_empty(){"Atividade e publicação remota atuais não comprovadas. Worktree preservada.".into()}else{reasons.join(" ")},impact:"Remoção Git opcional permanece indisponível quando atividade/publicação são incertas.".into(),rebuild_hint:"Commits locais, conteúdo ignorado e sessões não têm garantia de recriação.".into(),preserved:"Worktree, arquivos ignorados, registro Git e metadados completos.".into(),evidence,activity:"Somente refs locais; não há fetch, inferência por idade nem teste sobre repositório do usuário.".into(),supported_action:SupportedAction::None});
         }
     }
+    fn scan_trash(&mut self, root: &ApprovedRoot, rel: &Path) {
+        let files_rel = rel.join("files");
+        let info_rel = rel.join("info");
+        let Some(names) = self.names(root, &files_rel) else {
+            return;
+        };
+        let uid = rustix::process::getuid().as_raw();
+        for name in names {
+            if !self.allowed() {
+                break;
+            }
+            let entry = files_rel.join(&name);
+            let mut deletable = Vec::new();
+            let mut sensitive = Vec::new();
+            self.collect_trash(root, &entry, false, &mut deletable, &mut sensitive);
+            if !sensitive.is_empty() {
+                for (path, fp) in &sensitive {
+                    if !self.allowed() {
+                        break;
+                    }
+                    let id = format!("{}-{}", self.out.id, self.out.candidates.len());
+                    self.out.candidates.push(Candidate {
+                        id,
+                        title: "Item protegido na Lixeira".into(),
+                        display_path: root.path.join(path).to_string_lossy().into_owned(),
+                        detector_id: "protected.state".into(),
+                        detector_version: "1".into(),
+                        scope_id: root.display_path(),
+                        category: "Lixeira".into(),
+                        project: "Lixeira".into(),
+                        risk: Risk::Protected,
+                        logical_bytes: fp.size,
+                        allocated_bytes_estimate: Some(fp.blocks.saturating_mul(512)),
+                        identity: Some(Identity {
+                            dev: fp.dev,
+                            ino: fp.ino,
+                            mtime_unix: fp.mtime,
+                        }),
+                        coverage_key: None,
+                        selected_by_default: false,
+                        reason: "Credencial, .env, tfstate ou tfvars na Lixeira; somente análise."
+                            .into(),
+                        impact: "Este arquivo permanece. O restante da entrada pode ser esvaziado."
+                            .into(),
+                        rebuild_hint: "Restaure manualmente se ainda precisar do arquivo.".into(),
+                        preserved: "Credenciais, estado Terraform e arquivos de outro dono.".into(),
+                        evidence: vec!["trash-sensitive".into()],
+                        activity: "Metadado; não comprova desuso.".into(),
+                        supported_action: SupportedAction::None,
+                    });
+                }
+            }
+            if deletable.is_empty() {
+                continue;
+            }
+            if sensitive.is_empty() {
+                let info = info_rel.join(format!("{}.trashinfo", name.to_string_lossy()));
+                if let Ok(st) = root.lstat_relative(&info) {
+                    if FileType::from_raw_mode(st.st_mode) == FileType::RegularFile
+                        && st.st_uid == uid
+                        && st.st_nlink == 1
+                    {
+                        deletable.push((info, Fingerprint::from_stat(&st)));
+                    }
+                }
+            }
+            let Ok(st) = root.lstat_relative(&entry) else {
+                continue;
+            };
+            if st.st_uid != uid || FileType::from_raw_mode(st.st_mode) != FileType::Directory {
+                continue;
+            }
+            let id = format!("{}-{}", self.out.id, self.out.candidates.len());
+            let logical = deletable.iter().map(|(_, fp)| fp.size).sum();
+            let allocated = deletable
+                .iter()
+                .map(|(_, fp)| fp.blocks.saturating_mul(512))
+                .sum();
+            self.out.targets.insert(
+                id.clone(),
+                ScannedTarget {
+                    root: root.clone(),
+                    relative: entry.clone(),
+                    fingerprint: Fingerprint::from_stat(&st),
+                    files: deletable,
+                    witnesses: Vec::new(),
+                    complete: true,
+                },
+            );
+            self.out.candidates.push(Candidate {
+                id,
+                title: "Lixeira".into(),
+                display_path: root.path.join(&entry).to_string_lossy().into_owned(),
+                detector_id: "trash.entry".into(),
+                detector_version: "1".into(),
+                scope_id: root.display_path(),
+                category: "Lixeira".into(),
+                project: "Lixeira".into(),
+                risk: Risk::Low,
+                logical_bytes: logical,
+                allocated_bytes_estimate: Some(allocated),
+                identity: Some(Identity { dev: st.st_dev, ino: st.st_ino, mtime_unix: st.st_mtime }),
+                coverage_key: Some(format!("{}:{}", st.st_dev, st.st_ino)),
+                selected_by_default: false,
+                reason: "Entrada da Lixeira do próprio usuário. Esvaziar apaga direto; credenciais e tfstate ficam de fora.".into(),
+                impact: "A exclusão da Lixeira é permanente e libera espaço.".into(),
+                rebuild_hint: "Não há reconstrução. Confira o resumo antes de confirmar.".into(),
+                preserved: "Credenciais, .env, tfstate, tfvars e itens de outro dono.".into(),
+                evidence: vec!["trash-owner-nofollow".into()],
+                activity: "Metadado; não comprova desuso.".into(),
+                supported_action: SupportedAction::CacheContents,
+            });
+        }
+    }
+    fn collect_trash(
+        &mut self,
+        root: &ApprovedRoot,
+        rel: &Path,
+        inherited: bool,
+        deletable: &mut Vec<(PathBuf, Fingerprint)>,
+        sensitive: &mut Vec<(PathBuf, Fingerprint)>,
+    ) {
+        let uid = rustix::process::getuid().as_raw();
+        let st = match root.lstat_relative(rel) {
+            Ok(st) if st.st_uid == uid => st,
+            Ok(_) => {
+                self.issue(
+                    &root.path.join(rel),
+                    "owner",
+                    "Outro proprietário na Lixeira; preservado.",
+                );
+                return;
+            }
+            Err(e) => {
+                let code = if e == Errno::XDEV {
+                    "mount"
+                } else {
+                    "inaccessible"
+                };
+                self.issue(&root.path.join(rel), code, &e.to_string());
+                return;
+            }
+        };
+        let name_sensitive = rel
+            .file_name()
+            .is_some_and(|name| protected_name(name) || name == ".ssh" || name == ".gnupg");
+        let sensitive_here = inherited || name_sensitive;
+        match FileType::from_raw_mode(st.st_mode) {
+            FileType::Directory => {
+                let Some(names) = self.names(root, rel) else {
+                    return;
+                };
+                for name in names {
+                    if !self.allowed() {
+                        return;
+                    }
+                    self.collect_trash(root, &rel.join(name), sensitive_here, deletable, sensitive);
+                }
+            }
+            FileType::RegularFile | FileType::Symlink => {
+                let fp = Fingerprint::from_stat(&st);
+                if sensitive_here {
+                    sensitive.push((rel.to_path_buf(), fp));
+                } else if FileType::from_raw_mode(st.st_mode) == FileType::RegularFile
+                    && st.st_nlink > 1
+                {
+                    self.issue(
+                        &root.path.join(rel),
+                        "hardlink",
+                        "Hardlink na Lixeira; preservado.",
+                    );
+                } else if deletable.len() < 100_000 {
+                    deletable.push((rel.to_path_buf(), fp));
+                } else {
+                    self.issue(
+                        &root.path.join(rel),
+                        "manifest_limit",
+                        "Entrada da Lixeira excede o manifesto.",
+                    );
+                }
+            }
+            _ => {
+                self.issue(
+                    &root.path.join(rel),
+                    "special",
+                    "Arquivo especial na Lixeira; preservado.",
+                );
+            }
+        }
+    }
     fn walk_root(&mut self, root: &ApprovedRoot) {
         if root.is_excluded(Path::new(".")) {
-            self.out.stats.skipped += 1;
+            self.count_skip("policy_excluded");
             if self.out.issues.len() < self.limits.max_issues {
                 self.out.issues.push(ScanIssue {
                     display_path: root.display_path(),
@@ -1228,7 +1497,18 @@ impl<F: FnMut(ScanProgress)> Walker<'_, F> {
                     continue;
                 }
                 let n = name.to_string_lossy();
-                if ["node_modules", ".venv", "venv", ".ssh", ".gnupg"].contains(&n.as_ref())
+                if is_user_trash(&root.path.join(&path)) {
+                    self.scan_trash(root, &path);
+                    continue;
+                }
+                if n == "node_modules" {
+                    self.candidate(root,&path,&project,CandidatePolicy{detector:"node.modules",title:"Dependências Node",category:"Desenvolvimento",risk:Risk::Low,reason:"node_modules recriável pelo gerenciador do projeto. Fora da limpeza de 1 clique."});
+                    if let Some(item) = self.out.candidates.last_mut() {
+                        item.selected_by_default = false;
+                    }
+                    continue;
+                }
+                if [".venv", "venv", ".ssh", ".gnupg"].contains(&n.as_ref())
                     || directory_has_pyvenv_cfg(root, &path)
                 {
                     continue;
@@ -1271,7 +1551,7 @@ impl<F: FnMut(ScanProgress)> Walker<'_, F> {
                 }
                 if n == "__pycache__" {
                     if under_uv_cache(&root.path.join(&path)) {
-                        self.candidate(root,&path,&project,CandidatePolicy{detector:"python.pycache",title:"Bytecode Python do uv",category:"Desenvolvimento",risk:Risk::Protected,reason:"Cache gerenciado pelo uv. Não remova com o inodune; use `uv cache prune`."});
+                        self.candidate(root,&path,&project,CandidatePolicy{detector:"python.pycache",title:"Bytecode Python do uv",category:"Desenvolvimento",risk:Risk::Protected,reason:"Cache gerenciado pelo uv. Não remova arquivo a arquivo; use `uv cache clean`."});
                         continue;
                     }
                     let source = names
@@ -1447,7 +1727,39 @@ fn protected_name(name: &std::ffi::OsStr) -> bool {
         || n.ends_with(".tfplan")
         || n == ".terraform.lock.hcl"
         || n == ".env"
+        || n.starts_with(".env.")
+        || n.ends_with(".ovpn")
+        || n.ends_with(".pem")
+        || n == "credentials"
         || ["AGENTS.md", "CLAUDE.md", "auth.json", "credentials.json"].contains(&n.as_ref())
+}
+pub fn user_trash_dir() -> Option<PathBuf> {
+    let data = std::env::var_os("XDG_DATA_HOME")
+        .filter(|value| Path::new(value).is_absolute())
+        .map(PathBuf::from)
+        .or_else(|| {
+            std::env::var_os("HOME")
+                .filter(|value| Path::new(value).is_absolute())
+                .map(|home| PathBuf::from(home).join(".local/share"))
+        })?;
+    Some(data.join("Trash"))
+}
+fn is_user_trash(path: &Path) -> bool {
+    user_trash_dir().is_some_and(|trash| path == trash)
+}
+/// `files/<name>` pairs with `info/<name>.trashinfo` in the same trash directory.
+pub fn paired_trashinfo(relative: &Path) -> Option<PathBuf> {
+    let name = relative.file_name()?;
+    let files = relative.parent()?;
+    if files.file_name()? != "files" {
+        return None;
+    }
+    let trash = files.parent()?;
+    Some(
+        trash
+            .join("info")
+            .join(format!("{}.trashinfo", name.to_string_lossy())),
+    )
 }
 
 pub fn scan(
@@ -1626,8 +1938,8 @@ mod uv_cache_tests {
             .find(|c| c.detector_id == "python.pycache")
             .unwrap();
         assert_eq!(candidate.risk, Risk::Protected);
-        assert!(candidate.reason.contains("use `uv cache prune`"));
-        assert_eq!(candidate.rebuild_hint, "use `uv cache prune`");
+        assert!(candidate.reason.contains("use `uv cache clean`"));
+        assert_eq!(candidate.rebuild_hint, "use `uv cache clean`");
         assert!(matches!(candidate.supported_action, SupportedAction::None));
     }
 }

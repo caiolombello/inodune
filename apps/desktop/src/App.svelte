@@ -184,12 +184,6 @@
   );
   const available = $derived(candidates.filter((c) => c.risk !== 'protected'));
   const locallyEligible = $derived(candidates.filter(isLocallyEligible));
-  const selectedReview = $derived(
-    candidates.find(
-      (candidate) =>
-        selected.includes(candidate.id) && candidate.risk === 'review',
-    ),
-  );
   const potential = $derived(
     available.reduce((n, c) => n + c.logical_bytes, 0),
   );
@@ -569,25 +563,39 @@
   function toggle(item: Candidate) {
     if (source === 'local' && !isLocallyEligible(item)) return;
     if (!scanBusy && !executing && !preparingCleanup && !localScanStale) {
-      const alreadySelected = selected.includes(item.id);
-      if (
-        source === 'local' &&
-        !alreadySelected &&
-        item.risk !== 'review' &&
-        selectedReview
-      ) {
-        status = 'Remova o item em revisão antes de selecionar outro item.';
-        return;
-      }
-      const hadSelection = selected.length > 0;
       selected = toggleSelection(selected, item, candidates);
-      if (source === 'local' && item.risk === 'review' && !alreadySelected) {
-        status = hadSelection
-          ? 'O item em revisão foi selecionado individualmente; os demais itens foram desmarcados.'
-          : 'O item em revisão foi selecionado individualmente.';
-      } else {
-        status = '';
-      }
+      status = '';
+    }
+  }
+  function selectAllDeletable() {
+    if (scanBusy || executing || preparingCleanup || localScanStale) return;
+    selected = locallyEligible.map((item) => item.id);
+    status = '';
+  }
+  async function cleanSafe() {
+    if (
+      source !== 'local' ||
+      !nativeResult?.scan_id ||
+      scanBusy ||
+      executing ||
+      preparingCleanup ||
+      localScanStale
+    )
+      return;
+    preparingCleanup = true;
+    cleanupError = '';
+    try {
+      cleanupPlan = await native.prepareSafeCleanup(
+        nativeResult.scan_id,
+        policy,
+        language.value,
+      );
+      cleanupBatchIds = cleanupPlan.items.map((item) => item.candidate_id);
+      consent = true;
+      await beginLocalCleanup();
+    } catch (e) {
+      cleanupError = String(e);
+      preparingCleanup = false;
     }
   }
   async function copyPath(path: string) {
@@ -1058,9 +1066,15 @@
               <p>
                 {formatNumber(nativeResult.stats.skipped)}
                 {t(
-                  'entradas ignoradas. Itens incertos permanecem protegidos; não há seleção automática para um scan parcial.',
+                  'entradas ignoradas no scan e na descoberta. Symlinks internos de um item apagável não entram nesta conta. Itens incertos permanecem protegidos.',
                 )}
               </p>
+              {#if nativeResult.stats.skip_reasons}<ul>
+                  {#each Object.entries(nativeResult.stats.skip_reasons) as [code, count] (code)}<li
+                    >
+                      {code}: {formatNumber(count)}
+                    </li>{/each}
+                </ul>{/if}
               <details>
                 <summary>{t('Ver motivos e caminhos')}</summary
                 >{#each nativeResult.issues as issue, index (index)}<p>
@@ -1406,16 +1420,6 @@
                 )}</span
               >
             </p>{/if}
-          {#if source === 'local' && selectedReview}<p
-              class="notice"
-              role="status"
-            >
-              <CircleAlert size={18} /><span
-                >{t(
-                  'Este candidato exige revisão individual. Remova-o antes de selecionar outro item; confira impacto e como recriar antes de preparar a limpeza.',
-                )}</span
-              >
-            </p>{/if}
           <ItemList
             items={filtered}
             disabled={scanBusy ||
@@ -1452,6 +1456,21 @@
                   preparingCleanup ||
                   localScanStale}>{t('Desmarcar todos')}</button
               ><button
+                class="button"
+                onclick={selectAllDeletable}
+                disabled={!locallyEligible.length ||
+                  scanBusy ||
+                  executing ||
+                  preparingCleanup ||
+                  localScanStale}>{t('Selecionar todos')}</button
+              >{#if source === 'local'}<button
+                  class="button"
+                  onclick={() => void cleanSafe()}
+                  disabled={scanBusy ||
+                    executing ||
+                    preparingCleanup ||
+                    localScanStale}>{t('Limpar com 1 clique')}</button
+                >{/if}<button
                 class="button primary"
                 onclick={() => go('impact')}
                 disabled={!selected.length ||
@@ -1945,9 +1964,9 @@
               bind:value={source}
               onchange={changeSource}
               disabled={!isDesktop || scanBusy || executing || preparingCleanup}
-              ><option value="local">{t('Meu computador')}</option><option
-                value="demo">{t('Demonstração')}</option
-              ></select
+              ><option value="local">{t('Meu computador')}</option
+              >{#if !isDesktop}<option value="demo">{t('Demonstração')}</option
+                >{/if}</select
             ></label
           >
           <p>

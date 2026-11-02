@@ -184,6 +184,8 @@ fn run_clean(args: &[String], control: &ScanControl) -> Result<(String, bool), S
     let mut dry_run = false;
     let mut review: Option<String> = None;
     let mut action = inodune_clean::plan::Action::Trash;
+    let mut safe = false;
+    let mut yes = false;
     let mut index = 1;
     while index < args.len() {
         match args[index].as_str() {
@@ -224,12 +226,20 @@ fn run_clean(args: &[String], control: &ScanControl) -> Result<(String, bool), S
                 }
             }
             "--permanent" => action = inodune_clean::plan::Action::Permanent,
+            "--safe" => safe = true,
+            "--yes" => yes = true,
             _ => return Err(usage()),
         }
         index += 1;
     }
+    if safe && !dry_run {
+        apply = true;
+    }
     if apply && dry_run {
         return Err("--apply e --dry-run são opções incompatíveis.".into());
+    }
+    if yes && !apply {
+        return Err("--yes só vale junto de uma limpeza real (--safe ou --apply).".into());
     }
     validate_root_count(paths.len())?;
     let roots = paths
@@ -249,7 +259,18 @@ fn run_clean(args: &[String], control: &ScanControl) -> Result<(String, bool), S
         return Ok((output, true));
     }
 
-    let selected = if let Some(detector) = &review {
+    let selected = if safe {
+        snapshot
+            .candidates
+            .iter()
+            .filter(|candidate| {
+                is_safe_detector(&candidate.detector_id)
+                    && candidate.risk != Risk::Protected
+                    && !matches!(candidate.supported_action, SupportedAction::None)
+            })
+            .map(|candidate| candidate.id.clone())
+            .collect::<Vec<_>>()
+    } else if let Some(detector) = &review {
         let eligible = snapshot
             .candidates
             .iter()
@@ -336,7 +357,9 @@ fn run_clean(args: &[String], control: &ScanControl) -> Result<(String, bool), S
 
     let options = inodune_clean::executor::ExecutionOptions::local()?;
     inodune_clean::executor::preflight(&options, action)?;
-    confirm_plan(&plan_view)?;
+    if !yes {
+        confirm_plan(&plan_view)?;
+    }
     let authorized = session.consume(&plan_view.hash)?;
     let report = inodune_clean::executor::execute(authorized, &options, control, |_| {});
     let partial = !report.complete || report.cancelled;
@@ -376,6 +399,24 @@ fn run_clean(args: &[String], control: &ScanControl) -> Result<(String, bool), S
         text
     };
     Ok((output, partial))
+}
+
+fn is_safe_detector(id: &str) -> bool {
+    matches!(
+        id,
+        "python.pycache"
+            | "thumbnails"
+            | "python.pip-cache"
+            | "npm.cache"
+            | "next.cache"
+            | "python.mypy-cache"
+            | "python.ruff-cache"
+            | "uv.cache"
+            | "trash.entry"
+            | "rust.target"
+            | "cargo.fingerprint-json"
+            | "terraform.provider-package"
+    )
 }
 
 fn confirm_plan(plan: &inodune_clean::plan::PlanView) -> Result<(), String> {
@@ -508,7 +549,7 @@ fn present_apps(inventory: &inodune_apps::Inventory, json: bool) -> Result<(Stri
 }
 
 fn usage() -> String {
-    "Uso: inodune apps list [--json]\n     inodune-cli [--help|-h] [--version|-V]\n     inodune-cli scan --auto [--json]\n     inodune-cli scan --root ABS [--root ABS] [--exclude REL]... [--scope projects|thumbnails|protected] [--json]\n     inodune-cli clean --root ABS [--root ABS] [--exclude REL]... [--scope projects|thumbnails|protected] [--dry-run|--apply] [--review DETECTOR] [--permanent] [--json]\nDemonstração: scan --demo --json | clean --demo --dry-run. --exclude aceita caminhos relativos literais; '.' exclui a root inteira. --review seleciona um único candidato verificado e não aplica a limpeza; por padrão, apenas itens de baixo risco entram no plano. A limpeza real começa em simulação; --apply exige confirmação interativa e digitação exata. Exit 2: erro; exit 3: cobertura ou execução parcial.".into()
+    "Uso: inodune apps list [--json]\n     inodune-cli [--help|-h] [--version|-V]\n     inodune-cli scan --auto [--json]\n     inodune-cli scan --root ABS [--root ABS] [--exclude REL]... [--scope projects|thumbnails|protected] [--json]\n     inodune-cli clean --root ABS [--root ABS] [--exclude REL]... [--scope projects|thumbnails|protected] [--dry-run|--apply] [--safe] [--yes] [--review DETECTOR] [--permanent] [--json]\nDemonstração: scan --demo --json | clean --demo --dry-run. --exclude aceita caminhos relativos literais; '.' exclui a root inteira. --safe escolhe caches recriáveis, a Lixeira, providers e builds e executa de verdade. --yes não pergunta. --apply executa a seleção normal. --dry-run só mostra o plano. --permanent apaga direto. Exit 2: erro; exit 3: cobertura ou execução parcial.".into()
 }
 
 #[cfg(test)]

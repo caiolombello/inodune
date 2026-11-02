@@ -44,6 +44,7 @@ fn main() {
             backend::poll_scan,
             backend::control_scan,
             cleanup::prepare_cleanup,
+            cleanup::prepare_safe_cleanup,
             cleanup::begin_cleanup,
             cleanup::poll_cleanup,
             cleanup::cancel_cleanup,

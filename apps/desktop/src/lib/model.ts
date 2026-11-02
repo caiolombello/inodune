@@ -161,27 +161,10 @@ export function selectLocalDefaults(items: Candidate[]): string[] {
     )
     .map((item) => item.id);
 }
-export function toggleSelection(
-  ids: string[],
-  item: Candidate,
-  items: Candidate[] = [],
-): string[] {
+export function toggleSelection(ids: string[], item: Candidate): string[] {
   if (item.risk === 'protected') return ids;
   if (ids.includes(item.id)) return ids.filter((id) => id !== item.id);
-  if (
-    item.risk === 'review' &&
-    item.supported_action === 'reviewed_cache_contents'
-  )
-    return [item.id];
-  const hasReview = ids.some((id) =>
-    items.some(
-      (candidate) =>
-        candidate.id === id &&
-        candidate.risk === 'review' &&
-        candidate.supported_action === 'reviewed_cache_contents',
-    ),
-  );
-  return hasReview ? ids : [...ids, item.id];
+  return [...ids, item.id];
 }
 export function simulateBudget(
   items: Candidate[],

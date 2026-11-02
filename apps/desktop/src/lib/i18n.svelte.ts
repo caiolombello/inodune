@@ -348,6 +348,10 @@ const catalog: Record<string, string> = {
     'This scan predates the last cleanup attempt. Scan again before selecting new items.',
   'Este candidato exige revisão individual. Remova-o antes de selecionar outro item; confira impacto e como recriar antes de preparar a limpeza.':
     'This candidate requires individual review. Deselect it before choosing another item; check the impact and rebuild guidance before preparing cleanup.',
+  'Selecionar todos': 'Select all',
+  'Limpar com 1 clique': 'Clean in one click',
+  'entradas ignoradas no scan e na descoberta. Symlinks internos de um item apagável não entram nesta conta. Itens incertos permanecem protegidos.':
+    'entries skipped by the scan and discovery. Internal symlinks of a deletable item are not included. Uncertain items stay protected.',
   'O estado da limpeza ainda não foi confirmado. A origem, os escopos e novas análises permanecem bloqueados até a consulta responder.':
     'Cleanup status has not been confirmed. Changing the source, scopes, or starting a new scan stays blocked until the status check responds.',
   'Variações observadas não são atribuídas à limpeza. Arquivos enviados à Lixeira não são contabilizados como espaço liberado.':

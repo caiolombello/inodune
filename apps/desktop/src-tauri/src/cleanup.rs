@@ -123,6 +123,47 @@ pub fn prepare_cleanup(
     );
     Ok(view)
 }
+fn safe_candidate(candidate: &inodune_core::Candidate) -> bool {
+    candidate.risk != inodune_core::Risk::Protected
+        && !matches!(
+            candidate.supported_action,
+            inodune_core::SupportedAction::None
+        )
+        && matches!(
+            candidate.detector_id.as_str(),
+            "python.pycache"
+                | "thumbnails"
+                | "python.pip-cache"
+                | "npm.cache"
+                | "next.cache"
+                | "python.mypy-cache"
+                | "python.ruff-cache"
+                | "uv.cache"
+                | "trash.entry"
+                | "rust.target"
+                | "cargo.fingerprint-json"
+                | "terraform.provider-package"
+        )
+}
+#[tauri::command]
+pub fn prepare_safe_cleanup(
+    state: State<'_, Backend>,
+    scan_id: String,
+    action: RequestedAction,
+    locale: Option<PromptLocale>,
+) -> Result<PlanView, String> {
+    let snapshot = state.snapshot(&scan_id)?;
+    let ids = snapshot
+        .candidates
+        .iter()
+        .filter(|candidate| safe_candidate(candidate))
+        .map(|candidate| candidate.id.clone())
+        .collect::<Vec<_>>();
+    if ids.is_empty() {
+        return Err("Nenhum item seguro para limpar.".into());
+    }
+    prepare_cleanup(state, scan_id, ids, action, locale)
+}
 #[tauri::command]
 pub async fn begin_cleanup(
     app: AppHandle,
@@ -211,14 +252,40 @@ async fn begin_authorized(
                 "terraform.provider-package"=>"No relevant lock selects this version. Terraform may need to download it again. State, backend and locks are preserved. Current use, publisher signature and future availability are unverified.",
                 _=>"Rebuild cost is unmeasured; preserve uncertain data.",
             };
-            format!("• {}\n  Risk: {}\n  {impact}",i.display_path,if i.risk==inodune_core::Risk::Review{"individual review"}else{"low"})
-        } else {format!("• {}\n  Risco: {}\n  {}\n  {}",i.display_path,if i.risk==inodune_core::Risk::Review{"revisão individual"}else{"baixo"},i.impact,i.rebuild_hint)}
+            format!("• {}\n  Risk: {}\n  {impact}",i.display_path,if i.risk==inodune_core::Risk::Review{"review"}else{"low"})
+        } else {format!("• {}\n  Risco: {}\n  {}\n  {}",i.display_path,if i.risk==inodune_core::Risk::Review{"revisar"}else{"baixo"},i.impact,i.rebuild_hint)}
     }).collect::<Vec<_>>().join("\n");
-    let action=match (english,view.action) {
-        (true,Action::Trash)=>"Move selected cache files to Trash. They will continue to occupy space.",
-        (true,Action::Permanent)=>"PERMANENTLY REMOVE the selected cache files. There is no undo or secure-erasure guarantee.",
-        (false,Action::Trash)=>"Mover arquivos de cache à Lixeira. Eles continuarão ocupando espaço.",
-        (false,Action::Permanent)=>"REMOVER PERMANENTEMENTE os arquivos de cache selecionados. Não há desfazer nem garantia de apagamento seguro.",
+    let mut direct = 0usize;
+    let mut trashed = 0usize;
+    let mut groups: std::collections::BTreeMap<String, (usize, u64)> =
+        std::collections::BTreeMap::new();
+    for item in &view.items {
+        let candidate = snapshot
+            .candidates
+            .iter()
+            .find(|c| c.id == item.candidate_id);
+        let detector = candidate.map(|c| c.detector_id.as_str()).unwrap_or("");
+        let title = candidate.map(|c| c.title.as_str()).unwrap_or("Item");
+        let deletes_now =
+            view.action == Action::Permanent || inodune_clean::tools::direct_delete(detector);
+        if deletes_now {
+            direct += 1;
+        } else {
+            trashed += 1;
+        }
+        let entry = groups.entry(title.to_owned()).or_insert((0, 0));
+        entry.0 += 1;
+        entry.1 = entry.1.saturating_add(item.logical_bytes);
+    }
+    let summary = groups
+        .iter()
+        .map(|(title, (count, bytes))| format!("• {title}: {count} · {bytes}"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let action = if english {
+        format!("Recreatable caches and Trash entries are deleted immediately ({direct}). Other selected items move to Trash and keep using space ({trashed}). Terraform providers referenced by a lock are downloaded again on init. There is no secure-erasure guarantee.\n{summary}")
+    } else {
+        format!("Caches recriáveis e entradas da Lixeira são apagados direto ({direct}). O restante da seleção vai para a Lixeira e continua ocupando espaço ({trashed}). Providers Terraform citados no lock voltam no terraform init. Não há garantia de apagamento seguro.\n{summary}")
     };
     let coverage = if view.inventory_complete {
         ""

@@ -24,7 +24,12 @@ export interface NativeResult {
   scan_id: string;
   candidates: Candidate[];
   issues: NativeIssue[];
-  stats: { visited: number; skipped: number; elapsed_ms: number };
+  stats: {
+    visited: number;
+    skipped: number;
+    elapsed_ms: number;
+    skip_reasons?: Record<string, number>;
+  };
   complete: boolean;
   cancelled: boolean;
   volumes: NativeVolume[];
@@ -135,6 +140,16 @@ export const native = {
     invoke<CleanupPlan>('prepare_cleanup', {
       scanId,
       candidateIds,
+      action,
+      locale,
+    }),
+  prepareSafeCleanup: (
+    scanId: string,
+    action: 'trash' | 'permanent',
+    locale?: 'pt-BR' | 'en-US',
+  ) =>
+    invoke<CleanupPlan>('prepare_safe_cleanup', {
+      scanId,
       action,
       locale,
     }),

@@ -4,6 +4,7 @@ pub mod executor;
 pub mod history;
 pub mod plan;
 pub mod storage;
+pub mod tools;
 use inodune_core::{prepare_simulation, Candidate, Plan};
 pub fn dry_run(items: &[Candidate], ids: &[String]) -> Result<Plan, &'static str> {
     prepare_simulation(items, ids)

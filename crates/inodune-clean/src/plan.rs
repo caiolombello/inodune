@@ -18,7 +18,7 @@ use std::{
 
 const PLAN_TTL: Duration = Duration::from_secs(120);
 const PLAN_RULE_VERSION: &[u8] = b"inodune-cache-plan-v3";
-const MAX_PLAN_ITEMS: usize = 1000;
+const MAX_PLAN_ITEMS: usize = 5000;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -132,25 +132,21 @@ impl PlanSession {
                 continue;
             }
             if ids.len() >= MAX_PLAN_ITEMS {
-                return Err("O plano excede o limite de 1.000 itens.".into());
+                return Err("O plano excede o limite de 5.000 itens.".into());
             }
             let candidate = by_id
                 .get(id.as_str())
                 .ok_or_else(|| "O item não pertence à análise atual.".to_owned())?;
-            let low = candidate.risk == Risk::Low
-                && matches!(candidate.supported_action, SupportedAction::CacheContents)
-                && matches!(
-                    candidate.detector_id.as_str(),
-                    "python.pycache" | "thumbnails"
-                );
-            let reviewed = candidate.risk == Risk::Review
+            let approved = candidate.risk != Risk::Protected
                 && matches!(
                     candidate.supported_action,
-                    SupportedAction::ReviewedCacheContents
+                    SupportedAction::CacheContents | SupportedAction::ReviewedCacheContents
                 )
                 && matches!(
                     candidate.detector_id.as_str(),
-                    "cargo.fingerprint-json"
+                    "python.pycache"
+                        | "thumbnails"
+                        | "cargo.fingerprint-json"
                         | "terraform.provider-package"
                         | "python.pytest-nodeids"
                         | "rust.target"
@@ -159,11 +155,14 @@ impl PlanSession {
                         | "next.cache"
                         | "python.mypy-cache"
                         | "python.ruff-cache"
+                        | "trash.entry"
+                        | "node.modules"
+                        | "uv.cache"
                 );
-            if !low && !reviewed {
+            if !approved {
                 return Err("O item está protegido ou ainda não tem uma ação aprovada.".into());
             }
-            review_required |= reviewed;
+            review_required |= candidate.risk == Risk::Review;
             let coverage = candidate
                 .coverage_key
                 .as_deref()
@@ -189,8 +188,8 @@ impl PlanSession {
             total_files = total_files
                 .checked_add(target.files.len())
                 .ok_or("Manifesto excede o limite")?;
-            if total_files > 10_000 {
-                return Err("Plano excede 10.000 arquivos; limite de execução deste MVP.".into());
+            if total_files > 100_000 {
+                return Err("Plano excede 100.000 arquivos; reduza a seleção.".into());
             }
             for (path, _) in &target.witnesses {
                 validate_relative(path)?;
@@ -206,17 +205,18 @@ impl PlanSession {
             for (path, _) in &target.files {
                 total_path_bytes = total_path_bytes
                     .saturating_add(target.root.path().join(path).as_os_str().as_bytes().len());
-                if total_path_bytes > 2 * 1024 * 1024 {
-                    return Err("Caminhos do plano excedem 2 MiB; reduza a seleção para manter relatório e journal limitados.".into());
+                if total_path_bytes > 32 * 1024 * 1024 {
+                    return Err("Caminhos do plano excedem 32 MiB; reduza a seleção para manter relatório e journal limitados.".into());
                 }
                 validate_relative(path)?;
                 let leaf_target = target.files.len() == 1
                     && path == &target.relative
                     && rustix::fs::FileType::from_raw_mode(target.fingerprint.mode)
                         == rustix::fs::FileType::RegularFile;
-                if path.strip_prefix(&target.relative).is_err()
-                    || (path == &target.relative && !leaf_target)
-                {
+                let inside = path.starts_with(&target.relative) && path != &target.relative;
+                let trashinfo = inodune_core::scan::paired_trashinfo(&target.relative)
+                    .is_some_and(|info| path == &info);
+                if !leaf_target && !inside && !trashinfo {
                     return Err("O manifesto contém um caminho fora do cache aprovado.".into());
                 }
                 if path.to_str().is_none() || target.root.path().join(path).to_str().is_none() {
@@ -237,15 +237,12 @@ impl PlanSession {
                     .filter(|(p, _)| p.file_name().is_some_and(|n| n == ".terraform.lock.hcl"))
                     .collect();
                 if !check.eligible || locks != target.witnesses {
-                    return Err("Locks mudaram desde o scan".into());
+                    return Err(if check.eligible {
+                        "Locks mudaram desde o scan".into()
+                    } else {
+                        check.reason
+                    });
                 }
-
-                inodune_core::terraform::verify_unused_provider(
-                    &target.root,
-                    &target.relative,
-                    &target.files,
-                    &Default::default(),
-                )?;
             }
             ids.push(id.clone());
         }
@@ -253,9 +250,6 @@ impl PlanSession {
             return Err("Selecione ao menos um item elegível.".into());
         }
 
-        if review_required && ids.len() != 1 {
-            return Err("Itens que exigem revisão devem ser confirmados individualmente, sem misturar outros itens.".into());
-        }
         let mut items = Vec::with_capacity(ids.len());
         let mut logical_bytes_estimate = 0u64;
         let mut allocated_total = Some(0u64);

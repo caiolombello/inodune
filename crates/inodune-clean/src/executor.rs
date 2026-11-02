@@ -1,4 +1,4 @@
-//! Leaf-only mutation after backend authorization. No recursive deletion, no shell.
+//! Authorized deletion of a scanned manifest. No shell. Symlinks are unlinked, never followed.
 //!
 //! Linux has no compare-inode-and-unlink syscall. We capture a leaf into a private
 //! directory, check its identity again, then act there. This resists ordinary cache
@@ -15,6 +15,7 @@ use rustix::{
 use serde::{Deserialize, Serialize};
 use std::{
     collections::HashSet,
+    os::unix::ffi::OsStrExt,
     path::{Path, PathBuf},
 };
 
@@ -111,7 +112,8 @@ impl CacheKind {
             "terraform.provider-package" => Self::TerraformProvider,
             "python.pytest-nodeids" => Self::PytestNodeIds,
             "rust.target" | "python.pip-cache" | "npm.cache" | "next.cache"
-            | "python.mypy-cache" | "python.ruff-cache" => Self::Rebuildable,
+            | "python.mypy-cache" | "python.ruff-cache" | "trash.entry" | "node.modules"
+            | "uv.cache" => Self::Rebuildable,
             _ => return None,
         })
     }
@@ -221,12 +223,20 @@ fn execute_inner(
             report.warnings.push("Manifesto ausente".into());
             continue;
         };
-        let kind = plan
+        let detector_id = plan
             .snapshot
             .candidates
             .iter()
             .find(|c| c.id == id)
-            .and_then(|c| CacheKind::detector(&c.detector_id));
+            .map(|c| c.detector_id.clone())
+            .unwrap_or_default();
+        let kind = CacheKind::detector(&detector_id);
+        let action =
+            if plan.action == Action::Permanent || crate::tools::direct_delete(&detector_id) {
+                Action::Permanent
+            } else {
+                plan.action
+            };
         let mut item = ItemResult {
             candidate_id: id,
             files: vec![],
@@ -240,6 +250,9 @@ fn execute_inner(
             validate_target(target)
                 .and_then(|_| validate_policy(target, kind, control))
                 .and_then(|_| {
+                    if action != Action::Trash {
+                        return Ok(());
+                    }
                     trash.as_ref().map_err(Clone::clone).and_then(|t| {
                         if let Some(t) = t {
                             t.revalidate(target.fingerprint.dev)
@@ -277,7 +290,42 @@ fn execute_inner(
                         ));
                     }
                     Ok(stage) => {
+                        let official = if action == Action::Permanent {
+                            match crate::tools::purge(&detector_id, target) {
+                                Ok(ran) => ran,
+                                Err(error) => {
+                                    report.warnings.push(format!(
+                                        "{detector_id}: comando oficial falhou; remoção interna. {error}"
+                                    ));
+                                    false
+                                }
+                            }
+                        } else {
+                            false
+                        };
                         for (relative, expected) in &target.files {
+                            if official
+                                && matches!(
+                                    target.root.open_relative(relative, OFlags::PATH),
+                                    Err(rustix::io::Errno::NOENT)
+                                )
+                            {
+                                let path = target.root.path().join(relative);
+                                let result = outcome(
+                                    &path,
+                                    FileStatus::Removed,
+                                    expected.size,
+                                    "Removido pelo comando oficial.",
+                                    None,
+                                );
+                                report.logical_bytes_processed = report
+                                    .logical_bytes_processed
+                                    .saturating_add(result.logical_bytes);
+                                item.files.push(result);
+                                progress.completed_files += 1;
+                                on_progress(progress.clone());
+                                continue;
+                            }
                             let path = target.root.path().join(relative);
                             if journal_error.is_none() {
                                 if let Ok(j) = &mut journal {
@@ -310,7 +358,7 @@ fn execute_inner(
                                     },
                                     &stage,
                                     trash.as_ref().ok().and_then(|t| t.as_ref()),
-                                    plan.action,
+                                    action,
                                     &mut hook,
                                     journal,
                                 )
@@ -342,6 +390,7 @@ fn execute_inner(
                             progress.completed_files += 1;
                             on_progress(progress.clone());
                         }
+                        remove_empty_dirs(target);
                         match remaining_cache_entries(target) {
                             Ok(true) => {
                                 item.complete = false;
@@ -459,16 +508,17 @@ fn validate_target(target: &ScannedTarget) -> Result<(), String> {
     if !target.complete || fp != target.fingerprint {
         return Err("Cache alterado desde a análise; refaça o scan.".into());
     }
-    // Phase 2 operates only on flat cache leaves. A later detector cannot silently
-    // turn this into a recursive executor.
     if target.files.iter().any(|(p, _)| {
         if leaf_target {
             target.files.len() != 1 || p != &target.relative
         } else {
-            p.parent() != Some(target.relative.as_path())
+            let inside = p.starts_with(&target.relative) && p != &target.relative;
+            let trashinfo = inodune_core::scan::paired_trashinfo(&target.relative)
+                .is_some_and(|info| p == &info);
+            !inside && !trashinfo
         }
     }) {
-        return Err("Manifesto não é um cache plano verificado.".into());
+        return Err("O manifesto contém um caminho fora do item aprovado.".into());
     }
     validate_witnesses(target)
 }
@@ -513,12 +563,15 @@ fn validate_policy(
             }
         }
         CacheKind::TerraformProvider => {
-            inodune_core::terraform::verify_unused_provider(
+            let check = inodune_core::terraform::assess_provider(
                 &target.root,
                 &target.relative,
                 &target.files,
-                control,
-            )?;
+            );
+            if !check.eligible {
+                return Err(check.reason);
+            }
+            let _ = control;
         }
         CacheKind::PytestNodeIds => {
             if inodune_core::cache_rules::validate_pytest_nodeids_leaf(
@@ -631,6 +684,76 @@ struct Leaf<'a> {
     expected: &'a Fingerprint,
     kind: CacheKind,
 }
+
+fn lstat_child(parent: &OwnedFd, name: &std::ffi::OsStr) -> Result<rustix::fs::Stat, String> {
+    let file = fs::openat2(
+        parent,
+        name,
+        OFlags::PATH | OFlags::NOFOLLOW | OFlags::CLOEXEC,
+        Mode::empty(),
+        fs::ResolveFlags::BENEATH | fs::ResolveFlags::NO_MAGICLINKS | fs::ResolveFlags::NO_XDEV,
+    )
+    .map_err(|e| e.to_string())?;
+    fs::fstat(file).map_err(|e| e.to_string())
+}
+fn links_inside(target: &ScannedTarget, dev: u64, ino: u64, nlink: u64) -> bool {
+    count_inode(&target.root, &target.relative, dev, ino).is_ok_and(|count| count == nlink)
+}
+fn count_inode(root: &ApprovedRoot, relative: &Path, dev: u64, ino: u64) -> Result<u64, String> {
+    let mut pending = vec![relative.to_path_buf()];
+    let mut seen = 0u64;
+    let mut walked = 0usize;
+    while let Some(path) = pending.pop() {
+        walked += 1;
+        if walked > 100_000 {
+            return Err("contagem de hardlink excedeu o limite".into());
+        }
+        let st = root.lstat_relative(&path).map_err(|e| e.to_string())?;
+        if st.st_dev == dev && st.st_ino == ino {
+            seen += 1;
+        }
+        if FileType::from_raw_mode(st.st_mode) != FileType::Directory {
+            continue;
+        }
+        let fd = root
+            .open_relative(&path, OFlags::RDONLY | OFlags::DIRECTORY | OFlags::NOATIME)
+            .map_err(|e| e.to_string())?;
+        let mut buffer = [std::mem::MaybeUninit::uninit(); 8192];
+        let mut entries = fs::RawDir::new(&fd, &mut buffer);
+        while let Some(entry) = entries.next() {
+            let entry = entry.map_err(|e| e.to_string())?;
+            let name = entry.file_name().to_bytes();
+            if name == b"." || name == b".." {
+                continue;
+            }
+            pending.push(path.join(std::ffi::OsStr::from_bytes(name)));
+        }
+    }
+    Ok(seen)
+}
+fn remove_empty_dirs(target: &ScannedTarget) {
+    let mut dirs: Vec<std::path::PathBuf> = target
+        .files
+        .iter()
+        .filter_map(|(path, _)| path.parent().map(|parent| parent.to_path_buf()))
+        .filter(|path| path.starts_with(&target.relative) && path != &target.relative)
+        .collect();
+    dirs.sort_by_key(|path| std::cmp::Reverse(path.components().count()));
+    dirs.dedup();
+    for dir in dirs {
+        let Some(name) = dir.file_name() else {
+            continue;
+        };
+        let parent = dir.parent().unwrap_or(std::path::Path::new("."));
+        let Ok(parent_fd) = target
+            .root
+            .open_relative(parent, OFlags::RDONLY | OFlags::DIRECTORY)
+        else {
+            continue;
+        };
+        let _ = fs::unlinkat(&parent_fd, name, AtFlags::REMOVEDIR);
+    }
+}
 fn process_file(
     leaf: Leaf<'_>,
     stage: &Stage,
@@ -658,6 +781,59 @@ fn process_file(
         Ok(fd) => fd,
         Err(e) => return fail(&e.to_string()),
     };
+    if let Ok(st) = lstat_child(&parent, name) {
+        if FileType::from_raw_mode(st.st_mode) == FileType::Symlink {
+            let fp = Fingerprint::from_stat(&st);
+            let uid = rustix::process::getuid().as_raw();
+            if fp.dev != expected.dev
+                || fp.ino != expected.ino
+                || fp.uid != uid
+                || fp.mtime != expected.mtime
+            {
+                return fail("Link mudou; preservado.");
+            }
+            if let Err(e) = parent_stable(target, &parent, parent_rel) {
+                return fail(&e);
+            }
+            return match action {
+                Action::Permanent => match fs::unlinkat(&parent, name, AtFlags::empty()) {
+                    Ok(()) => outcome(
+                        &original,
+                        FileStatus::Removed,
+                        expected.size,
+                        "Link removido sem seguir o alvo.",
+                        None,
+                    ),
+                    Err(e) => fail(&e.to_string()),
+                },
+                Action::Trash => {
+                    let Some(trash) = trash else {
+                        return fail("Lixeira indisponível");
+                    };
+                    match trash.reserve(&original).and_then(|reservation| {
+                        fs::renameat_with(
+                            &parent,
+                            name,
+                            &trash.files,
+                            &reservation,
+                            RenameFlags::NOREPLACE,
+                        )
+                        .map_err(|e| e.to_string())?;
+                        Ok(trash.destination(&reservation))
+                    }) {
+                        Ok(dest) => outcome(
+                            &original,
+                            FileStatus::Trashed,
+                            expected.size,
+                            "Link movido à Lixeira sem seguir o alvo.",
+                            Some(dest.to_string_lossy().into()),
+                        ),
+                        Err(e) => fail(&e),
+                    }
+                }
+            };
+        }
+    }
     let pinned = match target.root.open_relative(relative, OFlags::PATH) {
         Ok(fd) => fd,
         Err(e) => return fail(&e.to_string()),
@@ -666,12 +842,21 @@ fn process_file(
         Ok(st) => (Fingerprint::from_stat(&st), st.st_gid),
         Err(e) => return fail(&e.to_string()),
     };
-    if &fp != expected
-        || fp.nlink != 1
-        || fp.uid != rustix::process::getuid().as_raw()
-        || FileType::from_raw_mode(fp.mode) != FileType::RegularFile
-    {
-        return fail("Arquivo mudou ou não é regular de link único.");
+    let uid = rustix::process::getuid().as_raw();
+    let same_file = fp.dev == expected.dev
+        && fp.ino == expected.ino
+        && fp.size == expected.size
+        && fp.mode == expected.mode
+        && fp.uid == expected.uid
+        && fp.mtime == expected.mtime
+        && fp.mtime_nsec == expected.mtime_nsec
+        && fp.nlink >= 1
+        && fp.nlink <= expected.nlink;
+    if !same_file || fp.uid != uid || FileType::from_raw_mode(fp.mode) != FileType::RegularFile {
+        return fail("Arquivo mudou, trocou de dono ou não é regular.");
+    }
+    if fp.nlink > 1 && !links_inside(target, fp.dev, fp.ino, fp.nlink) {
+        return fail("Hardlink com elo fora do item; preservado.");
     }
     let python = matches!(kind, CacheKind::Python);
     let valid = match kind {

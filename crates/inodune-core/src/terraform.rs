@@ -698,8 +698,8 @@ fn assess_locks(root: &ApprovedRoot, pkg: &PackagePath) -> Result<AssessmentResu
         let (map, _) = read_lock(root, &rel)?.ok_or("Lock desapareceu")?;
         if map.get(&address).is_some_and(|r| r.version == pkg.version) {
             return Ok((
-                false,
-                "Versão referenciada por lock relevante; uso não detectado".into(),
+                true,
+                "Versão referenciada por lock; o Terraform volta a baixá-la no init. Estado e locks são preservados.".into(),
                 witnesses,
             ));
         }

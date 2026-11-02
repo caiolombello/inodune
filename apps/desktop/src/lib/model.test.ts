@@ -41,7 +41,7 @@ describe('conservative simulation policy', () => {
       selectLocalDefaults([lowCache, reviewedContents, unsupportedLow]),
     ).toEqual([lowCache.id]);
   });
-  it('keeps reviewed candidates isolated from all other selections', () => {
+  it('selects review items together with other deletable items', () => {
     const low = { ...demo.candidates[0], risk: 'low' as const };
     const reviewed = {
       ...low,
@@ -50,10 +50,12 @@ describe('conservative simulation policy', () => {
       supported_action: 'reviewed_cache_contents' as const,
     };
     expect(toggleSelection([low.id], reviewed, [low, reviewed])).toEqual([
+      low.id,
       reviewed.id,
     ]);
     expect(toggleSelection([reviewed.id], low, [low, reviewed])).toEqual([
       reviewed.id,
+      low.id,
     ]);
     expect(toggleSelection([reviewed.id], reviewed, [low, reviewed])).toEqual(
       [],
