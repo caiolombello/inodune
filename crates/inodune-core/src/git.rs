@@ -839,10 +839,23 @@ fn run_git(
         .arg("-c")
         .arg("core.hooksPath=/dev/null")
         .args(args);
-    let mut child = command
+    let child = command
         .spawn()
         .map_err(|e| format!("Sandbox Git indisponível: {e}"))?;
-    bounded_wait(&mut child, control)
+    let mut guard = ReapOnDrop(child);
+    bounded_wait(&mut guard.0, control)
+}
+
+/// Every spawned Git sandbox is reaped: if a path returns (or panics) before
+/// waiting, the child is killed and waited on drop, so no `<defunct>` is left.
+struct ReapOnDrop(Child);
+impl Drop for ReapOnDrop {
+    fn drop(&mut self) {
+        if matches!(self.0.try_wait(), Ok(None)) {
+            let _ = self.0.kill();
+        }
+        let _ = self.0.wait();
+    }
 }
 
 fn bounded_wait(child: &mut Child, control: &ScanControl) -> Result<Vec<u8>, String> {
@@ -1463,6 +1476,23 @@ mod tests {
             sandbox_block_reason(true, true, true),
             Some("Há um mount abaixo da raiz aprovada; sandbox recusada.")
         );
+    }
+
+    #[test]
+    fn dropped_git_child_is_killed_and_reaped() {
+        if !Path::new("/usr/bin/sleep").exists() {
+            return;
+        }
+        let child = Command::new("/usr/bin/sleep")
+            .arg("30")
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .unwrap();
+        let pid = child.id();
+        drop(ReapOnDrop(child));
+        // Reaped: no /proc entry (and in particular no zombie) remains.
+        assert!(!Path::new(&format!("/proc/{pid}")).exists());
     }
 
     #[test]
