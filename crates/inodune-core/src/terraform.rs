@@ -537,7 +537,10 @@ fn read_lock(root: &ApprovedRoot, relative: &Path) -> Result<Option<ParsedLock>,
         OFlags::RDONLY | OFlags::NOATIME | OFlags::NONBLOCK,
     ) {
         Ok(fd) => fd,
-        Err(rustix::io::Errno::NOENT | rustix::io::Errno::LOOP) => return Ok(None),
+        Err(rustix::io::Errno::NOENT) => return Ok(None),
+        Err(rustix::io::Errno::LOOP) => {
+            return Err("symlink em lock relevante; todas as versões protegidas".into())
+        }
         Err(_) => return Err("Lock relevante inacessível".into()),
     };
     let st = fs::fstat(&fd).map_err(|_| "Metadados do lock indisponíveis")?;

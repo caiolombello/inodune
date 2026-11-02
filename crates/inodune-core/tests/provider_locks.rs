@@ -80,7 +80,7 @@ fn parent_and_environment_locks_protect_referenced_versions_without_reading_bina
 }
 
 #[test]
-fn bounds_lock_search_at_git_and_scan_roots_and_ignores_symlink_locks() {
+fn bounds_lock_search_at_git_and_scan_roots_and_refuses_symlink_locks() {
     use std::os::unix::fs::symlink;
     let temp = tempfile::tempdir().unwrap();
     let repo = temp.path().join("repo");
@@ -159,6 +159,56 @@ fn sparse_provider_is_not_hashed_during_scan_and_new_limit_is_explicit() {
         assert_eq!(c.risk, risk, "{}", c.reason);
         if risk == Risk::Protected {
             assert!(c.reason.contains("acima do limite"));
+        }
+    }
+}
+
+#[test]
+fn symlink_nearest_lock_or_environment_never_grants_a_review_plan() {
+    use std::os::unix::fs::symlink;
+    for environment in [false, true] {
+        let temp = tempfile::tempdir().unwrap();
+        provider(temp.path(), "aws", "6.63.0");
+        provider(temp.path(), "aws", "6.64.0");
+        lock(temp.path(), "infrastructure", &[("aws", "6.64.0")]);
+        let outside = tempfile::tempdir().unwrap();
+        lock(outside.path(), ".", &[("aws", "6.63.0")]);
+        if environment {
+            fs::create_dir_all(temp.path().join("infrastructure/environments")).unwrap();
+            symlink(
+                outside.path(),
+                temp.path().join("infrastructure/environments/dev"),
+            )
+            .unwrap();
+        } else {
+            symlink(
+                outside.path().join(".terraform.lock.hcl"),
+                temp.path()
+                    .join("infrastructure/modules/lambda/.terraform.lock.hcl"),
+            )
+            .unwrap();
+        }
+        let root = ApprovedRoot::open(temp.path(), ScopeKind::Projects).unwrap();
+        let out = scan(
+            &[root],
+            &ScanControl::default(),
+            &ScanLimits::default(),
+            |_| {},
+        )
+        .unwrap();
+        let providers: Vec<_> = out
+            .candidates
+            .iter()
+            .filter(|c| c.detector_id == "terraform.provider-package")
+            .collect();
+        assert_eq!(providers.len(), 2);
+        for c in providers {
+            assert_eq!(c.risk, Risk::Protected, "{}", c.reason);
+            assert!(c.reason.contains("symlink"), "{}", c.reason);
+            assert!(matches!(
+                c.supported_action,
+                inodune_core::SupportedAction::None
+            ));
         }
     }
 }
