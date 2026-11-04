@@ -1,5 +1,84 @@
 # Changelog
 
+## 0.1.14
+
+Polimento visual e de UX, com revisão independente (GPT-6.1 Terra no visual, GPT-6.1 Sol no
+código e na segurança). Backend Rust e protocolo de limpeza inalterados.
+
+### Corrigido
+
+- **Tela em branco com dado inválido:** um resultado de análise fora do contrato (ID duplicado,
+  tamanho fracionário ou acima do inteiro seguro, campo ausente) derrubava a interface inteira.
+  Agora `validateScanResult` recusa o resultado antes de aplicá-lo: "O resultado da análise chegou
+  em formato inesperado (…). Nenhum item foi aplicado e nada foi alterado." Uma seleção que não dá
+  para estimar mostra "estimativa indisponível" (nunca "0 B") e bloqueia a limpeza. Ver ADR 0002.
+- **Botão primário ilegível no hover:** o hover do botão secundário vencia por especificidade e
+  deixava o rótulo com contraste de 1,1:1, inclusive em "Enviar N itens para a Lixeira".
+- **Contraste e tema escuro:** borda de campos e botões com 3:1, texto de aviso de recuperação com
+  `--warning-text`, anel do disco, aviso, contador e marca com cores próprias no escuro (antes o
+  traço da marca quase sumia). Os dois blocos da paleta escura são conferidos por teste.
+- **Histórico:** limpezas canceladas apareciam como "Incompleto". O detalhe mostra o estado lido
+  do próprio relatório.
+- **Paginação do relatório:** o seletor global `nav` deixava os botões de página em coluna.
+- **Ordem de cabeçalhos e landmarks:** `h3` sem `h2` em Programas & Jogos; regiões de arquivos do
+  relatório com o mesmo nome; "Itens protegidos10" como nome acessível.
+- **Movimento reduzido:** o card ainda subia 2 px no hover; o arco parado do scanner parecia
+  progresso determinado. Ambos somem com movimento reduzido.
+
+### Alterado
+
+- **Títulos funcionais:** cada página tem como título o nome da área (Desenvolvimento, Itens
+  protegidos…) e um subtítulo concreto; o `<title>` acompanha. Saíram os eyebrows repetidos e as
+  frases de rodapé.
+- **Navegação:** Visão geral primeiro; Programas & Jogos com ícone próprio; a sidebar mostra o
+  estado da análise (nenhuma, em andamento, concluída, parcial, desatualizada, cancelada, erro).
+  Em janelas estreitas a faixa de áreas indica com seta e esmaecimento o lado que ainda tem itens.
+- **Visão geral:** o anel mostra só ocupado e disponível medidos. "Selecionado para limpar" fica
+  ao lado, como estimativa lógica, com a consequência da política (na Lixeira o espaço continua
+  ocupado) e aviso de análise parcial perto do botão. O aviso de cobertura saiu do topo e virou
+  nota informativa abaixo do painel. Ver ADR 0003.
+- **Cards de categoria e de projeto:** mesma estrutura, título como link da área, barra de
+  composição por risco (baixo risco, revisar, protegido) com legenda em texto. Só somam tamanhos
+  conhecidos e sem sobreposição; desconhecidos aparecem como "Não medido", "≥ X" ou "N itens sem
+  tamanho somado". Projetos ordenados pelo que pode ser limpo.
+- **Lista de revisão:** risco sempre como badge com ícone; "Exige cuidado" vira nota adicional,
+  sem esconder o risco real; grupos usam o risco mais cauteloso dos membros; detalhes com ícone
+  próprio, separado do expandir. A barra de seleção fica fixa no rodapé em janelas ≥960×700.
+- **"Limpar com 1 clique" → "Limpar lote seguro da análise"**, com a explicação de que independe
+  da seleção atual, o destino (Lixeira ou exclusão permanente) e a confirmação do sistema a seguir.
+- **"Por que este item apareceu?"** abre num painel lateral (o mesmo `<dialog>` modal), com
+  tamanho e atividade no topo e motivo, efeito, preservação e recriação nessa ordem.
+- **Simulador:** custos agrupados por detector, com os caminhos de cada grupo; painel de decisão
+  fixo ao rolar em telas largas.
+- **Relatório:** contadores por estado (na Lixeira, removidos, alterados e preservados, em
+  quarentena, falharam, cancelados), itens com problema primeiro, sucessos recolhidos quando há
+  mais de 12 arquivos, uma nota de recuperação por destino real; a variação de volume aparece em
+  cor neutra.
+- **Configurações:** reduzir animações e efeitos sonoros como switches (`role="switch"`).
+- **Tipografia e tokens:** escala `--text-xs…--text-display`; ações e títulos de item em 14 px,
+  metadados em 13 px; tracking dos títulos de −0,035em para −0,02em; tokens de gráfico, borda de
+  controle, desabilitado, raios e easing.
+
+- **Desempenho:** a lista da Visão geral só é montada quando aberta. Antes, milhares de linhas
+  ocultas tornavam a tela lenta; no WebKit, 10.000 itens estouravam o tempo do teste, e 1.000 itens
+  caíram de 18,2 s para 2,2 s.
+- **Foco visível:** um item da lista que recebe foco rola para acima da barra de seleção fixa
+  (WCAG 2.4.11). Só `scroll-padding` deixava até 27 de 56 paradas de foco cobertas no WebKit.
+
+### Testes
+
+- `tests/robustness.spec.ts`: resultados malformados recusados, soma fora do limite aceita mas sem
+  limpeza, seleção sem estimativa bloqueada, protegidos sem tamanho como "Não medido".
+- `tests/focus-not-obscured.spec.ts`: nenhuma parada de Tab termina atrás da barra fixa.
+- `tests/grouped-rows.spec.ts`: fechar e reabrir a lista da Visão geral mantém os grupos
+  expandidos (o estado fica no `App`, já que a lista só é montada quando aberta).
+- O E2E grava capturas e amostras em `test-results/evidence`; `INODUNE_EVIDENCE=1` regenera
+  `docs/evidence`. O nome do screenshot do relatório de limpeza segue o navegador.
+- `scripts/native-automatic-e2e.py` atualizado para a interface e as fixtures atuais (já estava
+  desatualizado na 0.1.13), com `INODUNE_EVIDENCE_DIR` para execuções de verificação.
+- `model.test.ts`: contrato IPC completo, `trySimulateBudget`, `measuredSum`; `tokens.test.ts`:
+  paletas escuras idênticas.
+
 ## 0.1.13
 
 ### Corrigido

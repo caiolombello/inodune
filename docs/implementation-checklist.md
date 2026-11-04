@@ -69,9 +69,9 @@ Evidências e comandos exatos: [Fase 0](evidence/phase0.md). Na F0 não houve de
 - Evidência corrente: [aceite 0.1.2](evidence/launch/acceptance.md). Resultados de versões anteriores não aprovam automaticamente este incremento.
 
 
-## Incremento de polimento visual e UX 0.1.14 (não publicado) — 03/11/2026
+## Incremento de polimento visual e UX 0.1.14 — 03/11/2026
 
-Base `8d960ad` com alterações locais não commitadas. Revisão independente por GPT-6.1 Terra (crítica da proposta mais 3 rodadas de visual e UX) e GPT-6.1 Sol (3 rodadas de código e segurança). Detalhes em [ux-review-0.1.14](ux-review-0.1.14.md), [ADR 0002](adr/0002-ipc-contract-guard.md) e [ADR 0003](adr/0003-measured-visuals.md).
+Commits `aed9455` a `350111f` sobre `8d960ad`; versão trocada em `chore(release): 0.1.14`. Revisão independente por GPT-6.1 Terra (crítica da proposta mais 3 rodadas de visual e UX) e GPT-6.1 Sol (3 rodadas de código e segurança). Detalhes em [ux-review-0.1.14](ux-review-0.1.14.md), [ADR 0002](adr/0002-ipc-contract-guard.md) e [ADR 0003](adr/0003-measured-visuals.md).
 
 - [x] Contrato IPC validado antes de aplicar o resultado; estimativa inválida bloqueia a limpeza; nenhuma exceção de dado inválido deixa a tela vazia.
 - [x] Contraste: hover do primário, bordas de controle, aviso de recuperação, anel, marca e tema escuro. Escala tipográfica com ações em 14 px.

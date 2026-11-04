@@ -45,9 +45,9 @@ Permanece obrigatório manter `Protection Ledger`, explicabilidade por item, est
 
 Atualização 0.1.2: [aceite corrente](evidence/launch/acceptance.md) registra scanner visual/áudio opt-in, proteções persistentes, leitor de journals UNKNOWN e ciclo testado do instalador. Instalação/atualização/remoção têm testes locais verdes; o gate remoto continua pendente. A revisão humana e os testes de usabilidade não foram realizados. A cobertura de limpeza ampliou apenas o índice conhecido de pytest; a utilidade em ambientes reais permanece não medida.
 
-## Snapshot 0.1.14 (não publicada) — 03/11/2026
+## Snapshot 0.1.14 — 03/11/2026, versão trocada em 04/11/2026
 
-Base `8d960ad` com alterações locais não commitadas (polimento de UI e UX). O backend Rust e o protocolo de limpeza não mudaram.
+Commits `aed9455` a `350111f` sobre `8d960ad` (polimento de UI e UX), mais `chore(release): 0.1.14`. Os testes abaixo rodaram na árvore de trabalho antes dos commits; o diff commitado foi conferido byte a byte contra ela. O backend Rust e o protocolo de limpeza não mudaram.
 
 | Gate | Estado neste snapshot |
 | --- | --- |
@@ -57,5 +57,4 @@ Base `8d960ad` com alterações locais não commitadas (polimento de UI e UX). O
 | Acessibilidade | Axe na linha de base; correções de contraste, nomes, cabeçalhos e landmarks; foco nunca atrás da barra fixa (teste E2E). Leitor de tela real e zoom de 200% em sessão interativa continuam ABERTOS. |
 | CI remoto, assinatura, publicação, participantes, Wayland/GNOME/KDE, revisão humana | ABERTOS, sem mudança. |
 
-Versão dos pacotes: os metadados continuam em 0.1.13; a 0.1.14 está só no CHANGELOG como não publicada. A troca de versão e a geração de pacotes ficam para a etapa de release.
-
+Versão 0.1.14 nos metadados (Cargo, npm, Tauri, changelog Debian e man pages). Publicação local, sem tag, sem remote, sem assinatura. Os pacotes DEB/RPM/tarball desta versão não foram gerados neste snapshot. Depois da troca de versão rodaram de novo: lockfile do Cargo (`--locked`), typecheck, lint, format, 50 unitários, build do frontend e os 7 testes de metadados de pacote; `cargo test` e os E2E não foram repetidos, porque o código não mudou.

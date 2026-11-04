@@ -1,3 +1,20 @@
+inodune (0.1.14) stable; urgency=medium
+
+  * Desktop: scan results outside the IPC contract are refused and an
+    invalid estimate blocks cleanup instead of blanking the interface.
+  * The disk ring shows only measured space; the selection is an estimate
+    beside it, and unknown sizes are never shown as 0 B.
+  * Contrast fixes in both themes, a text size scale and page titles
+    that name the current area.
+  * Scan state in the sidebar, narrow navigation with arrows, item
+    details in a side drawer, grouped simulator costs and report
+    counters per state; cancelled cleanups shown as cancelled.
+  * "Limpar com 1 clique" renamed "Limpar lote seguro da análise".
+  * Keyboard focus kept above the sticky selection bar; faster overview
+    list in WebKit. Backend and cleanup protocol unchanged.
+
+ -- Caio Barbieri <70986039+caiolombello@users.noreply.github.com>  Wed, 04 Nov 2026 11:53:52 +0000
+
 inodune (0.1.13) stable; urgency=high
 
   * Security: Trash entries without a valid .trashinfo, or whose original
