@@ -34,12 +34,15 @@ jobs:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           persist-credentials: false
+      # libglib2.0-dev: inodune-apps links gio/glib (glib-sys, gobject-sys,
+      # gio-sys), and inodune-cli depends on it. The rest builds Bubblewrap.
+      - name: Install native build dependencies in disposable CI runner
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y pkg-config libglib2.0-dev libcap-dev meson ninja-build
       - name: Build pinned Bubblewrap for Git sandbox tests
         run: |
           set -euo pipefail
-          sudo apt-get update
-          sudo apt-get install -y libcap-dev meson ninja-build
-
           archive="$RUNNER_TEMP/bubblewrap-0.13.1.tar.xz"
           curl --fail --location --retry 3 \
             https://github.com/containers/bubblewrap/releases/download/v0.13.1/bubblewrap-0.13.1.tar.xz \
@@ -83,7 +86,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev libdbus-1-dev
-      - run: rustup toolchain install 1.93.0 --profile minimal
+      - run: rustup toolchain install 1.93.0 --profile minimal --component clippy
       - run: npm ci
       - run: npm run build
       - run: cargo +1.93.0 build --locked -p inodune-desktop
