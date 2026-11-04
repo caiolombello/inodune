@@ -15,6 +15,6 @@ tempfile = "3.27.0"
 
 # Já presentes no lockfile por meio do Tauri; licenças MIT.
 gio = "=0.18.4"
-glib = "=0.18.5"
+glib = "=0.22.10"
 getrandom = "0.3"
 libloading = "=0.7.4" # ISC; já presente no lockfile.
