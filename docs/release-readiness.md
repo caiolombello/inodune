@@ -47,7 +47,7 @@ Atualização 0.1.2: [aceite corrente](evidence/launch/acceptance.md) registra s
 
 ## Snapshot 0.1.14 — 03/11/2026, versão trocada em 04/11/2026
 
-Commits `aed9455` a `350111f` sobre `8d960ad` (polimento de UI e UX), mais `chore(release): 0.1.14`. Os testes abaixo rodaram na árvore de trabalho antes dos commits; o diff commitado foi conferido byte a byte contra ela. O backend Rust e o protocolo de limpeza não mudaram.
+Quatro commits sobre `chore(release): 0.1.13` (modelo, interface, harness nativo e docs), mais `chore(release): 0.1.14`. Os testes abaixo rodaram na árvore de trabalho antes dos commits; o diff commitado foi conferido byte a byte contra ela. O backend Rust e o protocolo de limpeza não mudaram.
 
 | Gate | Estado neste snapshot |
 | --- | --- |

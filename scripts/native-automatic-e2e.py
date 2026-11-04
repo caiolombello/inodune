@@ -101,7 +101,8 @@ with tempfile.TemporaryDirectory(prefix='inodune-driver-') as temp:
             assert 'Estado / configuração protegida' in text and 'Sessões e memória de agentes' in text
             (out/'review-debug.json').write_text(json.dumps({'text':text,'checkboxes':script("return Array.from(document.querySelectorAll('input[type=checkbox]')).map(b=>({label:b.getAttribute('aria-label'),checked:b.checked}))")},indent=2))
             # Thumbnails, Terraform provider and two Cargo items (fingerprint JSON and, since
-            # e2871d2, the reviewed target/ cache) are selectable; everything else is protected.
+            # "allow reviewed recreatable tool caches", the reviewed target/ cache) are
+            # selectable; everything else is protected.
             assert script("return document.querySelectorAll('input[type=checkbox]:not(:disabled)').length") == 4
             screenshot('local-review.png')
             def invoke(command,args):return request('POST',prefix+'/execute/async',{'script':"const done=arguments[arguments.length-1];window.__TAURI_INTERNALS__.invoke(arguments[0],arguments[1]).then(v=>done({ok:true,value:v})).catch(e=>done({ok:false,error:String(e)}));",'args':[command,args]})

@@ -51,7 +51,7 @@
   - o destino das evidências (`tests/evidence.ts`) em `journey`, `cleanup`, `scan-experience`, `virtual-list` e `virtual-list-f4`.
 
   Nenhuma verificação de segurança foi removida. O revisor técnico conferiu isso e comparou as 33 asserções do harness nativo antes e depois.
-- Jornada nativa WebKitGTK com fixtures: PASS, e o harness foi atualizado. Já antes desta versão ele esperava 3 itens selecionáveis (o `target/` do Cargo passou a ser revisável em `e2871d2`), procurava um botão que só existe na demonstração e usava um título antigo de fixture.
+- Jornada nativa WebKitGTK com fixtures: PASS, e o harness foi atualizado. Já antes desta versão ele esperava 3 itens selecionáveis (o `target/` do Cargo passou a ser revisável em `feat(clean): allow reviewed recreatable tool caches`), procurava um botão que só existe na demonstração e usava um título antigo de fixture.
 
 ## Limites
 
