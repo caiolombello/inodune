@@ -15,6 +15,9 @@ import {
   cleanupBatchWarning,
   protectedOnlyLabel,
   CLEANUP_BATCH_LIMIT,
+  validateScanResult,
+  trySimulateBudget,
+  measuredSum,
 } from './model';
 describe('conservative simulation policy', () => {
   it('formats signed observed volume deltas by magnitude', () => {
@@ -225,4 +228,175 @@ it('a new scan result replaces the previous rows instead of merging', () => {
       true,
     ).selected,
   ).toEqual([]);
+});
+
+describe('IPC contract guard', () => {
+  const base = demo.candidates[0];
+  const result = (candidates: unknown[]) => ({
+    scan_id: 'scan',
+    candidates,
+    issues: [],
+    stats: { visited: 1, skipped: 0, elapsed_ms: 1 },
+    complete: true,
+    cancelled: false,
+    volumes: [],
+  });
+  it('accepts a well-formed scan result', () => {
+    expect(validateScanResult(result(demo.candidates))).toBeNull();
+  });
+  it('rejects duplicate IDs, fractional or unsafe sizes and unknown risks', () => {
+    expect(validateScanResult(result([base, base]))).toMatch(/duplicad/);
+    expect(
+      validateScanResult(result([{ ...base, logical_bytes: 1.5 }])),
+    ).toMatch(/tamanho/);
+    expect(
+      validateScanResult(result([{ ...base, logical_bytes: -1 }])),
+    ).toMatch(/tamanho/);
+    expect(
+      validateScanResult(
+        result([{ ...base, logical_bytes: Number.MAX_SAFE_INTEGER + 2 }]),
+      ),
+    ).toMatch(/tamanho/);
+    expect(validateScanResult(result([{ ...base, risk: 'unknown' }]))).toMatch(
+      /risco/,
+    );
+    expect(validateScanResult({ candidates: 'x' })).not.toBeNull();
+    expect(validateScanResult(null)).not.toBeNull();
+  });
+  it('turns budget failures into an explicit error state instead of throwing', () => {
+    const ok = trySimulateBudget(demo.candidates, ['thumbs'], 'trash');
+    expect(ok.ok).toBe(true);
+    const failed = trySimulateBudget(demo.candidates, ['ai'], 'trash');
+    expect(failed.ok).toBe(false);
+    if (!failed.ok) expect(failed.error).toMatch(/protegido/);
+  });
+});
+
+describe('measured totals', () => {
+  const [a, b] = demo.candidates;
+  it('adds known sizes once and counts unknown coverage apart', () => {
+    expect(measuredSum([a, b])).toEqual({
+      bytes: a.logical_bytes + b.logical_bytes,
+      unknown: 0,
+    });
+    expect(measuredSum([a, { ...b, coverage_key: a.coverage_key }]).bytes).toBe(
+      a.logical_bytes,
+    );
+    expect(measuredSum([a, { ...b, coverage_key: null }])).toEqual({
+      bytes: a.logical_bytes,
+      unknown: 1,
+    });
+    expect(measuredSum([])).toEqual({ bytes: 0, unknown: 0 });
+  });
+});
+
+describe('IPC contract guard covers every consumed field', () => {
+  const base = demo.candidates[0];
+  const ok = {
+    scan_id: 'scan',
+    candidates: [base],
+    issues: [],
+    stats: { visited: 1, skipped: 0, elapsed_ms: 1 },
+    complete: true,
+    cancelled: false,
+    volumes: [],
+  };
+  it('accepts the complete native shape', () => {
+    expect(validateScanResult(ok)).toBeNull();
+  });
+  it('rejects candidates missing text the UI reads', () => {
+    for (const field of [
+      'reason',
+      'impact',
+      'rebuild_hint',
+      'preserved',
+      'activity',
+      'project',
+      'category',
+      'detector_id',
+    ]) {
+      const broken = { ...base } as Record<string, unknown>;
+      delete broken[field];
+      expect(
+        validateScanResult({ ...ok, candidates: [broken] }),
+        field,
+      ).not.toBeNull();
+    }
+    expect(
+      validateScanResult({ ...ok, candidates: [{ ...base, evidence: null }] }),
+    ).not.toBeNull();
+    expect(
+      validateScanResult({ ...ok, candidates: [{ ...base, coverage_key: 7 }] }),
+    ).not.toBeNull();
+  });
+  it('rejects a result without issues, volumes or flags', () => {
+    expect(validateScanResult({ ...ok, issues: undefined })).not.toBeNull();
+    expect(validateScanResult({ ...ok, volumes: null })).not.toBeNull();
+    expect(validateScanResult({ ...ok, complete: 'yes' })).not.toBeNull();
+    expect(validateScanResult({ ...ok, scan_id: 3 })).not.toBeNull();
+    expect(
+      validateScanResult({
+        ...ok,
+        volumes: [{ scope_path: '/', device: 1, total_bytes: 1.5 }],
+      }),
+    ).not.toBeNull();
+  });
+  it('does not refuse a large inventory only because of its total', () => {
+    const big = Number.MAX_SAFE_INTEGER - 1;
+    expect(
+      validateScanResult({
+        ...ok,
+        candidates: [
+          { ...base, id: 'a', logical_bytes: big },
+          { ...base, id: 'b', logical_bytes: big },
+        ],
+      }),
+    ).toBeNull();
+  });
+});
+
+describe('IPC contract guard: statistics and volumes', () => {
+  const base = demo.candidates[0];
+  const ok = {
+    scan_id: 'scan',
+    candidates: [base],
+    issues: [],
+    stats: { visited: 1, skipped: 0, elapsed_ms: 1, skip_reasons: { a: 2 } },
+    complete: true,
+    cancelled: false,
+    volumes: [],
+  };
+  it('rejects malformed skip reasons but accepts them absent', () => {
+    expect(validateScanResult(ok)).toBeNull();
+    const { skip_reasons: _omit, ...without } = ok.stats;
+    void _omit;
+    expect(validateScanResult({ ...ok, stats: without })).toBeNull();
+    for (const bad of ['x', [1], { a: 'many' }, { a: -1 }, null])
+      expect(
+        validateScanResult({
+          ...ok,
+          stats: { ...ok.stats, skip_reasons: bad },
+        }),
+        JSON.stringify(bad),
+      ).not.toBeNull();
+  });
+  it('shows a huge volume instead of refusing the whole analysis', () => {
+    const huge = 2 ** 60;
+    expect(
+      validateScanResult({
+        ...ok,
+        volumes: [
+          { scope_path: '/', device: 1, total_bytes: huge, available_bytes: 1 },
+        ],
+      }),
+    ).toBeNull();
+    expect(
+      validateScanResult({
+        ...ok,
+        volumes: [
+          { scope_path: '/', device: 1, total_bytes: -1, available_bytes: 1 },
+        ],
+      }),
+    ).not.toBeNull();
+  });
 });

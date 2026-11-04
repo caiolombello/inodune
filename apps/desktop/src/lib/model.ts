@@ -207,6 +207,152 @@ export function simulateBudget(
     reviewCount: picked.filter((c) => c.risk === 'review').length,
   };
 }
+/**
+ * Sum for display: only sizes with a known coverage key, each coverage once
+ * (nested or repeated paths are not added twice). Unknown sizes are counted,
+ * never treated as zero.
+ */
+export function measuredSum(items: Candidate[]): {
+  bytes: number;
+  unknown: number;
+} {
+  const seen = new Set<string>();
+  let bytes = 0;
+  let unknown = 0;
+  for (const item of items) {
+    if (item.coverage_key === null) {
+      unknown += 1;
+      continue;
+    }
+    if (seen.has(item.coverage_key)) continue;
+    seen.add(item.coverage_key);
+    bytes += item.logical_bytes;
+  }
+  return { bytes, unknown };
+}
+export type Budget = ReturnType<typeof simulateBudget>;
+export type BudgetResult =
+  ({ ok: true } & Budget) | { ok: false; error: string };
+/**
+ * Same checks as simulateBudget, as data: a bad selection or inventory becomes an
+ * explicit error state for the UI (no estimate shown) instead of a render crash.
+ */
+export function trySimulateBudget(
+  items: Candidate[],
+  ids: string[],
+  policy: Policy,
+): BudgetResult {
+  try {
+    return { ok: true, ...simulateBudget(items, ids, policy) };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : String(e) };
+  }
+}
+
+const RISKS: readonly string[] = ['low', 'review', 'protected'];
+const ACTIONS: readonly string[] = [
+  'none',
+  'cache_contents',
+  'reviewed_cache_contents',
+];
+const isText = (value: unknown) => typeof value === 'string';
+const isBytes = (value: unknown) =>
+  typeof value === 'number' && Number.isSafeInteger(value) && value >= 0;
+// Volume sizes are only displayed: a huge volume is shown approximately
+// instead of refusing the whole analysis.
+const isMeasure = (value: unknown) =>
+  typeof value === 'number' && Number.isFinite(value) && value >= 0;
+const TEXT_FIELDS = [
+  'title',
+  'display_path',
+  'detector_id',
+  'detector_version',
+  'scope_id',
+  'category',
+  'project',
+  'reason',
+  'impact',
+  'rebuild_hint',
+  'preserved',
+  'activity',
+] as const;
+/**
+ * IPC contract guard for a finished scan: every field the interface reads is
+ * checked before the result is applied. Returns a Portuguese reason when the
+ * result cannot be shown safely (it is then never applied), or null.
+ * Each size must be a safe integer; totals are not limited here (the
+ * selection estimate checks its own sum).
+ */
+export function validateScanResult(result: unknown): string | null {
+  if (!result || typeof result !== 'object')
+    return 'resultado ausente ou inválido';
+  const r = result as Record<string, unknown>;
+  if (!isText(r.scan_id)) return 'resultado sem identificador';
+  if (typeof r.complete !== 'boolean' || typeof r.cancelled !== 'boolean')
+    return 'estado da análise ausente';
+  if (!Array.isArray(r.issues)) return 'lista de avisos ausente';
+  for (const issue of r.issues as Record<string, unknown>[])
+    if (
+      !issue ||
+      !isText(issue.display_path) ||
+      !isText(issue.code) ||
+      !isText(issue.message)
+    )
+      return 'aviso da análise inválido';
+  if (!Array.isArray(r.volumes)) return 'lista de volumes ausente';
+  for (const volume of r.volumes as Record<string, unknown>[])
+    if (
+      !volume ||
+      !isText(volume.scope_path) ||
+      typeof volume.device !== 'number' ||
+      !isMeasure(volume.total_bytes) ||
+      !isMeasure(volume.available_bytes)
+    )
+      return 'volume inválido';
+  const stats = r.stats as Record<string, unknown> | undefined;
+  if (!stats || !isMeasure(stats.visited) || !isMeasure(stats.skipped))
+    return 'estatísticas da análise ausentes';
+  // skip_reasons has a serde default; when present it is a map of counts.
+  const reasons = stats.skip_reasons;
+  if (
+    reasons !== undefined &&
+    (!reasons ||
+      typeof reasons !== 'object' ||
+      Array.isArray(reasons) ||
+      !Object.values(reasons).every(isMeasure))
+  )
+    return 'motivos de exclusão inválidos';
+  const candidates = r.candidates;
+  if (!Array.isArray(candidates)) return 'lista de itens ausente';
+  const ids = new Set<string>();
+  for (const item of candidates as Record<string, unknown>[]) {
+    if (!item || !isText(item.id) || !item.id) return 'item sem identificador';
+    if (ids.has(item.id as string)) return 'identificadores duplicados';
+    ids.add(item.id as string);
+    if (!isBytes(item.logical_bytes)) return 'tamanho de item inválido';
+    if (
+      item.allocated_bytes_estimate !== null &&
+      !isBytes(item.allocated_bytes_estimate)
+    )
+      return 'tamanho de item inválido';
+    if (!isText(item.risk) || !RISKS.includes(item.risk as string))
+      return 'nível de risco desconhecido';
+    if (
+      !isText(item.supported_action) ||
+      !ACTIONS.includes(item.supported_action as string)
+    )
+      return 'ação de limpeza desconhecida';
+    for (const field of TEXT_FIELDS)
+      if (!isText(item[field])) return 'item sem nome, caminho ou explicação';
+    if (item.coverage_key !== null && !isText(item.coverage_key))
+      return 'cobertura de item inválida';
+    if (typeof item.selected_by_default !== 'boolean')
+      return 'item sem seleção padrão definida';
+    if (!Array.isArray(item.evidence) || !item.evidence.every(isText))
+      return 'evidências de item inválidas';
+  }
+  return null;
+}
 export function executeDemo(
   id: string,
   scenario: Scenario,
