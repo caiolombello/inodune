@@ -3,6 +3,7 @@ import { mkdir } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { readFileSync } from 'node:fs';
 import type { Candidate } from '../src/lib/model';
+import { EVIDENCE } from './evidence';
 
 const corpus = JSON.parse(
   readFileSync(
@@ -255,7 +256,7 @@ test('local cleanup reports every fixture file and never attributes volume delta
   await expect(page.getByText('/fixture/history/report.json')).toBeVisible();
   const path = resolve(
     process.cwd(),
-    '../../docs/evidence/automatic/renderer/screenshots/chromium-cleanup-report.png',
+    `${EVIDENCE}/automatic/renderer/screenshots/${test.info().project.name}-cleanup-report.png`,
   );
   await mkdir(resolve(path, '..'), { recursive: true });
   await page.screenshot({ path, fullPage: true, animations: 'disabled' });
@@ -266,7 +267,11 @@ test('local cleanup reports every fixture file and never attributes volume delta
     )
     .toBe(true);
   await page.screenshot({
-    path: resolve(path, '..', 'chromium-cleanup-report-narrow.png'),
+    path: resolve(
+      path,
+      '..',
+      `${test.info().project.name}-cleanup-report-narrow.png`,
+    ),
     fullPage: true,
     animations: 'disabled',
   });

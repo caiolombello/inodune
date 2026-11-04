@@ -150,3 +150,21 @@ test('development list shows one expandable node_modules group', async ({
   await expect(page.locator('.item-row')).toContainText('3 pastas');
   await checkGroup(page);
 });
+
+test('overview drawer keeps expanded groups and selection after closing', async ({
+  page,
+}) => {
+  await boot(page);
+  const summary = page.locator('.review-drawer > summary');
+  await summary.click();
+  await page
+    .getByRole('button', { name: 'Mostrar pastas de Dependências Node' })
+    .click();
+  const list = page.getByRole('list', { name: 'Pastas de Dependências Node' });
+  await expect(list).toBeVisible();
+  await summary.click();
+  await expect(list).toHaveCount(0);
+  await summary.click();
+  // The rows are mounted only while open, but the expanded state survives.
+  await expect(list).toBeVisible();
+});

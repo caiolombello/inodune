@@ -2,6 +2,7 @@ import { expect, test } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
 import { mkdir } from 'node:fs/promises';
 import { writeFile } from 'node:fs/promises';
+import { EVIDENCE } from './evidence';
 
 test.use({ video: { mode: 'on', size: { width: 1440, height: 1000 } } });
 
@@ -10,9 +11,7 @@ test.afterEach(async ({ page }, info) => {
   const video = page.video();
   await page.close();
   if (video)
-    await video.saveAs(
-      '../../docs/evidence/launch/scanner/fixture-motion.webm',
-    );
+    await video.saveAs(`${EVIDENCE}/launch/scanner/fixture-motion.webm`);
 });
 
 test.beforeEach(async ({ page }) => {
@@ -120,7 +119,7 @@ test('keeps audio opt-in and waits for a confirmed backend result before playing
   await page
     .getByRole('button', { name: 'Configurações', exact: true })
     .click();
-  const enabled = page.getByRole('checkbox', { name: /Efeitos sonoros/ });
+  const enabled = page.getByRole('switch', { name: /Efeitos sonoros/ });
   await expect(enabled).not.toBeChecked();
   const snapshot = () =>
     page.evaluate(
@@ -242,7 +241,7 @@ test('keeps motion optional, reflows at 390px and respects the operating system'
 test('captures local scanner motion states without scanning any user data', async ({
   page,
 }) => {
-  await mkdir('../../docs/evidence/launch/scanner', { recursive: true });
+  await mkdir(`${EVIDENCE}/launch/scanner`, { recursive: true });
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.goto('/');
   await page
@@ -257,25 +256,25 @@ test('captures local scanner motion states without scanning any user data', asyn
     true,
   );
   await page.screenshot({
-    path: '../../docs/evidence/launch/scanner/light-running.png',
+    path: `${EVIDENCE}/launch/scanner/light-running.png`,
     fullPage: true,
     animations: 'disabled',
   });
   await page.getByRole('button', { name: 'Alternar tema' }).click();
   await page.screenshot({
-    path: '../../docs/evidence/launch/scanner/dark-running.png',
+    path: `${EVIDENCE}/launch/scanner/dark-running.png`,
     fullPage: true,
     animations: 'disabled',
   });
   await page.getByRole('button', { name: 'Pausar', exact: true }).click();
   await page.screenshot({
-    path: '../../docs/evidence/launch/scanner/dark-paused.png',
+    path: `${EVIDENCE}/launch/scanner/dark-paused.png`,
     fullPage: true,
     animations: 'disabled',
   });
   await page.setViewportSize({ width: 390, height: 844 });
   await page.screenshot({
-    path: '../../docs/evidence/launch/scanner/narrow-paused.png',
+    path: `${EVIDENCE}/launch/scanner/narrow-paused.png`,
     fullPage: true,
     animations: 'disabled',
   });
@@ -284,7 +283,7 @@ test('captures local scanner motion states without scanning any user data', asyn
 test('records scanner motion and its reduced alternative with only fixture IPC', async ({
   page,
 }) => {
-  await mkdir('../../docs/evidence/launch/scanner', { recursive: true });
+  await mkdir(`${EVIDENCE}/launch/scanner`, { recursive: true });
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.goto('/');
   await page
@@ -333,11 +332,11 @@ test('records scanner motion and its reduced alternative with only fixture IPC',
     ),
   ).toBe(0);
   await page.screenshot({
-    path: '../../docs/evidence/launch/scanner/reduced-running.png',
+    path: `${EVIDENCE}/launch/scanner/reduced-running.png`,
     animations: 'disabled',
   });
   await writeFile(
-    '../../docs/evidence/launch/scanner/frame-sample.json',
+    `${EVIDENCE}/launch/scanner/frame-sample.json`,
     JSON.stringify(
       {
         environment:

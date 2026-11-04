@@ -251,7 +251,9 @@ test('overview pre-selects low risk, explains coverage in Portuguese and hides i
     .locator('aside')
     .getByRole('button', { name: /^Itens protegidos/ })
     .click();
-  await expect(page.getByText('REGISTRO DE PROTEÇÕES')).toBeVisible();
+  await expect(
+    page.getByRole('heading', { level: 1, name: 'Itens protegidos' }),
+  ).toBeVisible();
   // (d): coverage banner stays on the overview, not on every page.
   await expect(
     page.getByText('Algumas áreas ficaram fora da análise'),

@@ -865,6 +865,141 @@ const catalog: Record<string, string> = {
     'Transaction completed by the package manager.',
   'Confirmação aberta no Steam. O inodune não confirma a remoção.':
     'Confirmation opened in Steam. Inodune does not confirm the removal.',
+  'O resultado da análise chegou em formato inesperado':
+    'The analysis result arrived in an unexpected format',
+  'Nenhum item foi aplicado e nada foi alterado. Analise novamente.':
+    'No item was applied and nothing was changed. Analyze again.',
+  'resultado ausente ou inválido': 'missing or invalid result',
+  'lista de itens ausente': 'missing item list',
+  'item sem identificador': 'item without an identifier',
+  'identificadores duplicados': 'duplicate identifiers',
+  'tamanho de item inválido': 'invalid item size',
+  'soma de tamanhos fora do limite': 'size total out of range',
+  'nível de risco desconhecido': 'unknown risk level',
+  'ação de limpeza desconhecida': 'unknown cleanup action',
+  'item sem nome ou caminho': 'item without a name or path',
+  'estimativa indisponível': 'estimate unavailable',
+  'Não foi possível estimar a seleção. Nenhuma ação foi executada e a limpeza fica bloqueada até uma nova análise.':
+    'The selection could not be estimated. No action ran, and cleanup stays blocked until a new analysis.',
+  'IDs duplicados': 'Duplicate IDs',
+  'Item desconhecido': 'Unknown item',
+  'Cobertura incerta ou sobreposta': 'Uncertain or overlapping coverage',
+  'Estimativa fora do limite': 'Estimate out of range',
+  'Todos os itens': 'All items',
+  'Catálogo de componentes': 'Component catalog',
+  'Simulador de impacto': 'Impact simulator',
+  'Relatório da limpeza': 'Cleanup report',
+  'Artefatos, custos e proteções agrupados por projeto.':
+    'Artifacts, costs and protections grouped by project.',
+  'Builds, dependências e caches de ferramentas de desenvolvimento.':
+    'Builds, dependencies and developer tool caches.',
+  'Worktrees e repositórios ficam em inventário: código e branches são preservados.':
+    'Worktrees and repositories stay in inventory: code and branches are preserved.',
+  'Sessões, memória e modelos de agentes ficam protegidos.':
+    'Agent sessions, memory and models stay protected.',
+  'Miniaturas, Lixeira e caches do seu usuário.':
+    'Thumbnails, Trash and your user caches.',
+  'Todos os itens encontrados, com o risco e o motivo de cada um.':
+    'Every item found, with the risk and reason for each one.',
+  'Relatórios das limpezas anteriores, salvos só neste computador.':
+    'Reports of previous cleanups, stored only on this computer.',
+  'Componentes e estados do sistema visual.':
+    'Components and states of the visual system.',
+  'O resultado de cada item, com o que foi medido e o que não foi.':
+    'The outcome of each item, with what was measured and what was not.',
+  'Limpeza em andamento': 'Cleanup in progress',
+  'Acompanhe no relatório.': 'Follow it in the report.',
+  'Nada foi alterado.': 'Nothing was changed.',
+  'Analisando…': 'Analyzing…',
+  'A análise não terminou': 'The analysis did not finish',
+  'Análise concluída': 'Analysis complete',
+  protegido: 'protected',
+  'Nenhuma análise ainda': 'No analysis yet',
+  'Somente leitura até você confirmar.': 'Read-only until you confirm.',
+  'Sem conta. Sem telemetria. Nada sai deste computador.':
+    'No account. No telemetry. Nothing leaves this computer.',
+  'Arquivos de': 'Files of',
+  'Seu disco agora': 'Your disk now',
+  'Selecionado para limpar': 'Selected for cleanup',
+  estimativa: 'estimate',
+  Disponível: 'Available',
+  'selecionados (estimativa)': 'selected (estimate)',
+  ocupados: 'used',
+  'Itens enviados à Lixeira continuam ocupando espaço até ela ser esvaziada.':
+    'Items sent to the Trash keep using space until it is emptied.',
+  'SELECIONADO PARA LIMPAR': 'SELECTED FOR CLEANUP',
+  em: 'across',
+  'A estimativa aparece depois da análise.':
+    'The estimate appears after the analysis.',
+  'fora da limpeza · ver motivos': 'excluded from cleanup \u00b7 see why',
+  estimado: 'estimated',
+  'Nada encontrado nesta categoria.': 'Nothing found in this category.',
+  Risco: 'Risk',
+  Detalhes: 'Details',
+  grupo: 'group',
+  grupos: 'groups',
+  'ordenados pelo que pode ser limpo': 'sorted by what can be cleaned',
+  'Somente itens protegidos': 'Protected items only',
+  'Revisar projeto': 'Review project',
+  'Antes · última análise': 'Before · last analysis',
+  'Nenhum item selecionado.': 'No item selected.',
+  'Resultado por estado': 'Outcome by state',
+  'Na Lixeira': 'In Trash',
+  Removidos: 'Removed',
+  'Alterados e preservados': 'Changed and preserved',
+  'Em quarentena': 'Quarantined',
+  Falharam: 'Failed',
+  Cancelados: 'Cancelled',
+  'Itens na Lixeira podem ser restaurados pela Lixeira do sistema e continuam ocupando espaço até ela ser esvaziada.':
+    'Items in the Trash can be restored from the system Trash and keep using space until it is emptied.',
+  'Arquivos removidos permanentemente não podem ser restaurados pelo Inodune. A variação de espaço aparece separada, sem atribuição.':
+    'Permanently removed files cannot be restored by Inodune. The space change is shown separately, without attribution.',
+  'linha omitida': 'line omitted',
+  'linhas omitidas': 'lines omitted',
+  'do relatório salvo para mantê-lo limitado.':
+    'from the stored report to keep it bounded.',
+  'Durabilidade não confirmada: confira este arquivo.':
+    'Durability not confirmed: check this file.',
+  Abrir: 'Open',
+  'Selecione um relatório à esquerda para ver o que aconteceu com cada arquivo.':
+    'Select a report on the left to see what happened to each file.',
+  'item sem tamanho somado': 'item without a summed size',
+  'itens sem tamanho somado': 'items without a summed size',
+  'Estimativa lógica. Na Lixeira, os itens continuam ocupando espaço até ela ser esvaziada.':
+    'Logical estimate. In the Trash, items keep using space until it is emptied.',
+  'Estimativa lógica. O espaço realmente liberado só aparece depois, medido no relatório.':
+    'Logical estimate. Space actually freed only appears later, measured in the report.',
+  'Análise parcial: algumas áreas ficaram fora. Veja abaixo.':
+    'Partial analysis: some areas were left out. See below.',
+  'Independe da seleção atual; a confirmação do sistema vem a seguir.':
+    'Independent of the current selection; the system confirmation comes next.',
+  'Limpar lote seguro da análise': 'Clean the analysis safe batch',
+  'Lote seguro: caches de baixo risco aceitos pelo executor, independente da seleção atual. Destino: Lixeira. A confirmação do sistema vem a seguir.':
+    'Safe batch: low-risk caches the executor accepts, independent of the current selection. Destination: Trash. The system confirmation comes next.',
+  'Lote seguro: caches de baixo risco aceitos pelo executor, independente da seleção atual. Destino: exclusão permanente. A confirmação do sistema vem a seguir.':
+    'Safe batch: low-risk caches the executor accepts, independent of the current selection. Destination: permanent deletion. The system confirmation comes next.',
+  Ver: 'Show',
+  'Análise desatualizada': 'Analysis out of date',
+  'Analise novamente antes de uma nova limpeza.':
+    'Analyze again before another cleanup.',
+  'Análise parcial': 'Partial analysis',
+  'algumas áreas ficaram fora': 'some areas were left out',
+  'Selecione um relatório para ver o que aconteceu com cada arquivo.':
+    'Select a report to see what happened to each file.',
+  'tamanho não somado': 'size not summed',
+  'resultado sem identificador': 'result without an identifier',
+  'estado da análise ausente': 'missing analysis state',
+  'lista de avisos ausente': 'missing issue list',
+  'aviso da análise inválido': 'invalid analysis issue',
+  'lista de volumes ausente': 'missing volume list',
+  'volume inválido': 'invalid volume',
+  'estatísticas da análise ausentes': 'missing analysis statistics',
+  'item sem nome, caminho ou explicação':
+    'item without a name, path or explanation',
+  'cobertura de item inválida': 'invalid item coverage',
+  'item sem seleção padrão definida': 'item without a default selection',
+  'evidências de item inválidas': 'invalid item evidence',
+  'motivos de exclusão inválidos': 'invalid exclusion reasons',
   arquivo: 'file',
   processados: 'processed',
   selecionado: 'selected',

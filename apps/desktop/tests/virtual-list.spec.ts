@@ -8,6 +8,7 @@ const corpus = JSON.parse(
   ),
 ) as { candidates: Candidate[] };
 import { writeFile, mkdir } from 'node:fs/promises';
+import { EVIDENCE } from './evidence';
 for (const count of [100, 1000, 10000]) {
   test(`renderer keeps ${count} synthetic IPC candidates bounded and keyboard reachable`, async ({
     page,
@@ -120,9 +121,9 @@ for (const count of [100, 1000, 10000]) {
         exact: true,
       }),
     ).toBeVisible();
-    await mkdir('../../docs/evidence/automatic/renderer', { recursive: true });
+    await mkdir(`${EVIDENCE}/automatic/renderer`, { recursive: true });
     await writeFile(
-      `../../docs/evidence/automatic/renderer/${info.project.name}-renderer-${count}.json`,
+      `${EVIDENCE}/automatic/renderer/${info.project.name}-renderer-${count}.json`,
       JSON.stringify(
         {
           count,

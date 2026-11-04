@@ -1,10 +1,5 @@
 <script lang="ts">
-  import {
-    Folder,
-    ChevronDown,
-    ChevronRight,
-    LockKeyhole,
-  } from '@lucide/svelte';
+  import { Folder, ChevronDown, Info, LockKeyhole, Hand } from '@lucide/svelte';
   import {
     formatBytes,
     isCarefulItem,
@@ -86,8 +81,8 @@
 <div class="item-list">
   <div class="list-header">
     <span>{t('Item / origem')}</span><span>{t('Tamanho lógico')}</span><span
-      >{t('Política')}</span
-    ><span></span>
+      >{t('Risco')}</span
+    ><span><span class="sr-only">{t('Detalhes')}</span></span>
   </div>
   {#if items.length}<VirtualList items={grouping.rows}
       >{#snippet children(item)}
@@ -127,12 +122,16 @@
                 : t('Não somado')}</strong
             >
             <div>
-              {#if isCarefulItem(item)}<span class="badge neutral"
-                  >{t('Exige cuidado')}</span
-                >
-              {:else}<RiskBadge risk={item.risk} />{/if}
-              {#if !isCarefulItem(item) && !eligible.length}<small
-                  class="item-policy-note">{t('Somente análise')}</small
+              <RiskBadge
+                risk={members.some((m) => m.risk === 'review')
+                  ? 'review'
+                  : item.risk}
+              />
+              {#if members.some(isCarefulItem)}<small
+                  class="item-policy-note careful"
+                  ><Hand size={12} /> {t('Exige cuidado')}</small
+                >{:else if !eligible.length}<small class="item-policy-note"
+                  >{t('Somente análise')}</small
                 >{/if}
             </div>
             <button
@@ -169,8 +168,7 @@
                       aria-label={t('Por que apareceu:') +
                         ' ' +
                         displayPath(m.display_path)}
-                      onclick={() => ondetail(m)}
-                      ><ChevronRight size={15} /></button
+                      onclick={() => ondetail(m)}><Info size={16} /></button
                     >
                   </li>{/each}
               </ul>{/if}
@@ -207,18 +205,18 @@
                 : t('Não somado')}</strong
             >
             <div>
-              {#if isCarefulItem(item)}<span class="badge neutral"
-                  >{t('Exige cuidado')}</span
-                >
-              {:else}<RiskBadge risk={item.risk} />{/if}
-              {#if item.risk !== 'protected' && !isCarefulItem(item) && !isSelectable(item)}<small
+              <RiskBadge risk={item.risk} />
+              {#if isCarefulItem(item)}<small class="item-policy-note careful"
+                  ><Hand size={12} /> {t('Exige cuidado')}</small
+                >{:else if item.risk !== 'protected' && !isSelectable(item)}<small
                   class="item-policy-note">{t('Somente análise')}</small
                 >{/if}
             </div>
             <button
               class="icon-button detail-trigger"
               aria-label={t('Por que apareceu:') + ' ' + t(item.title)}
-              onclick={() => ondetail(item)}><ChevronRight size={17} /></button
+              title={t('Por que este item apareceu?')}
+              onclick={() => ondetail(item)}><Info size={17} /></button
             >
           </div>
         {/if}
@@ -241,7 +239,7 @@
     list-style: none;
     margin: 0 0 0 30px;
     padding: 0;
-    font-size: 12px;
+    font-size: var(--text-sm);
   }
   .group-paths li {
     display: grid;
@@ -266,9 +264,7 @@
   .group-row :global(.flipped) {
     transform: rotate(180deg);
   }
-  @media (prefers-reduced-motion: no-preference) {
-    .group-row .detail-trigger :global(svg) {
-      transition: transform 160ms ease;
-    }
+  .group-row .detail-trigger :global(svg) {
+    transition: transform var(--motion-fast) var(--ease-standard);
   }
 </style>

@@ -7,11 +7,14 @@
     onclose,
     children,
     wide = false,
+    drawer = false,
   }: {
     title: string;
     onclose: () => void;
     children: Snippet;
     wide?: boolean;
+    /** Side sheet: keeps the list in view while explaining one item. */
+    drawer?: boolean;
   } = $props();
   let dialog: HTMLDialogElement;
   onMount(() => {
@@ -20,7 +23,7 @@
   });
 </script>
 
-<dialog bind:this={dialog} class:wide {onclose} aria-label={title}>
+<dialog bind:this={dialog} class:wide class:drawer {onclose} aria-label={title}>
   <div class="dialog-head">
     <h2>{title}</h2>
     <button

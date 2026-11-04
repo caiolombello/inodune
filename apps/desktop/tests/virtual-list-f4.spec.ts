@@ -2,6 +2,7 @@ import { test, expect } from '@playwright/test';
 import { readFileSync } from 'node:fs';
 import { mkdir, writeFile } from 'node:fs/promises';
 import type { Candidate } from '../src/lib/model';
+import { EVIDENCE } from './evidence';
 
 const corpus = JSON.parse(
   readFileSync(
@@ -10,7 +11,7 @@ const corpus = JSON.parse(
   ),
 ) as { candidates: Candidate[] };
 
-const evidenceDirectory = '../../docs/evidence/automatic/renderer';
+const evidenceDirectory = `${EVIDENCE}/automatic/renderer`;
 
 for (const count of [100, 1_000, 10_000]) {
   test(`F4 UI synthetic IPC list ${count}: bounded DOM, reflow, keyboard and frame sample`, async ({

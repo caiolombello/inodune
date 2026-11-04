@@ -58,32 +58,38 @@
 </section>
 
 <style>
+  /* Partial coverage is normal for an automatic scan: an informative note,
+     not an alarm. The amber edge and icon keep it noticeable. */
   .coverage-notice {
     display: flex;
     gap: 12px;
     align-items: flex-start;
-    background: var(--warning-bg);
-    color: var(--warning-text);
+    background: var(--surface);
+    color: var(--secondary-text);
     border: 1px solid var(--stroke);
-    border-radius: var(--radius-control);
+    border-left: 3px solid var(--warning);
+    border-radius: var(--radius-inner);
     padding: 14px 16px;
     margin-bottom: 20px;
   }
   .coverage-notice > :global(svg) {
     flex-shrink: 0;
-    margin-top: 2px;
+    margin-top: 1px;
+    color: var(--warning-text);
   }
   .coverage-body {
     min-width: 0;
     flex: 1;
   }
   h2 {
-    font-size: 14px;
-    margin: 0 0 4px;
+    font-size: var(--text-md);
+    color: var(--text);
+    margin: 0 0 2px;
+    letter-spacing: 0;
   }
   p {
     margin: 0;
-    font-size: 13px;
+    font-size: var(--text-sm);
     line-height: 1.5;
   }
   .coverage-reasons {
@@ -98,14 +104,22 @@
     display: inline-flex;
     gap: 8px;
     align-items: baseline;
-    font-size: 12px;
-    padding: 4px 8px;
-    border-radius: 6px;
-    background: color-mix(in srgb, var(--surface) 55%, transparent);
+    font-size: var(--text-xs);
+    padding: 3px 8px;
+    border-radius: var(--radius-badge);
+    background: var(--subtle);
+    color: var(--secondary-text);
+  }
+  .coverage-reasons strong {
+    color: var(--text);
+    font-variant-numeric: tabular-nums;
   }
   details {
-    margin-top: 10px;
-    font-size: 12px;
+    margin-top: 8px;
+    font-size: var(--text-sm);
+    border: 0;
+    padding: 0;
+    background: none;
   }
   summary {
     cursor: pointer;
@@ -113,6 +127,8 @@
     gap: 6px;
     align-items: center;
     font-weight: 600;
+    color: var(--accent);
+    min-height: 28px;
   }
   details[open] summary :global(svg) {
     transform: rotate(180deg);

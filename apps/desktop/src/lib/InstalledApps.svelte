@@ -453,13 +453,13 @@
         {/each}
       </ul>{:else}<div class="empty-state">
         <Package size={28} />
-        <h3>
+        <h2>
           {t(
             all.length
               ? 'Nenhum programa com esses filtros'
               : 'Nenhum programa encontrado',
           )}
-        </h3>
+        </h2>
         <p>
           {t(
             all.length
@@ -473,7 +473,7 @@
       </div>{/if}
   {:else if isDesktop && !loading}<div class="empty-state">
       <Package size={28} />
-      <h3>{t('Veja o que está instalado')}</h3>
+      <h2>{t('Veja o que está instalado')}</h2>
       <p>
         {t(
           'A consulta é somente leitura: APT/RPM, Flatpak, Snap e Steam. Nada é removido sem um plano confirmado.',
@@ -651,7 +651,7 @@
     color: var(--secondary-text);
   }
   .source-status li.muted {
-    opacity: 0.75;
+    border-style: dashed;
   }
   .source-status li.warn {
     border-color: var(--warning);

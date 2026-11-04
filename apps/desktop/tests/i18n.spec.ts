@@ -68,13 +68,13 @@ test('English keyboard journey translates the interface and preserves visual pre
   await expect(
     page.getByRole('heading', {
       level: 1,
-      name: 'Every project has its own space.',
+      name: 'Projects',
     }),
   ).toBeVisible();
   await page.getByRole('button', { name: 'Protected items' }).first().focus();
   await page.keyboard.press('Enter');
   await expect(
-    page.getByRole('heading', { level: 1, name: 'Keep what matters.' }),
+    page.getByRole('heading', { level: 1, name: 'Protected items' }),
   ).toBeVisible();
 
   await page.getByRole('button', { name: 'Overview', exact: true }).focus();
@@ -82,7 +82,7 @@ test('English keyboard journey translates the interface and preserves visual pre
   await expect(
     page.getByRole('heading', {
       level: 1,
-      name: 'Your space, in perspective.',
+      name: 'Overview',
     }),
   ).toBeFocused();
   await expect(
@@ -91,14 +91,14 @@ test('English keyboard journey translates the interface and preserves visual pre
   await page.getByRole('button', { name: 'Review candidates' }).focus();
   await page.keyboard.press('Enter');
   await expect(
-    page.getByRole('heading', { level: 1, name: 'Review with confidence.' }),
+    page.getByRole('heading', { level: 1, name: 'All items' }),
   ).toBeFocused();
   await page.getByRole('button', { name: 'Review impact' }).focus();
   await page.keyboard.press('Enter');
   await expect(
     page.getByRole('heading', {
       level: 1,
-      name: 'Understand before you decide.',
+      name: 'Impact simulator',
     }),
   ).toBeFocused();
   await page.getByRole('button', { name: 'Review confirmation' }).focus();

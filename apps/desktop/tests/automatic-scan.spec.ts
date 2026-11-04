@@ -67,7 +67,7 @@ test('starts an automatic local scan without choosing folders and refreshes disc
   await page.getByRole('button', { name: 'Analisar computador' }).click();
 
   await expect(
-    page.getByRole('heading', { name: 'Seu espaço, em perspectiva.' }),
+    page.getByRole('heading', { level: 1, name: 'Visão geral' }),
   ).toBeVisible();
   await expect(
     page.getByRole('button', { name: 'Analisar novamente' }),

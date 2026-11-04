@@ -1,5 +1,6 @@
 import { test, expect, type Page } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
+import { EVIDENCE } from './evidence';
 async function scan(page: Page) {
   await page.goto('/');
   await page.getByRole('button', { name: 'Continuar', exact: true }).click();
@@ -61,13 +62,13 @@ test('pause and cancel never suggests incomplete results', async ({ page }) => {
     page.getByRole('heading', { name: 'Análise pausada' }),
   ).toBeVisible();
   await page.screenshot({
-    path: `../../docs/evidence/automatic/renderer/screenshots/${test.info().project.name}-scan-paused.png`,
+    path: `${EVIDENCE}/automatic/renderer/screenshots/${test.info().project.name}-scan-paused.png`,
     fullPage: true,
     animations: 'disabled',
   });
   await page.getByRole('button', { name: 'Cancelar', exact: true }).click();
   await expect(
-    page.getByText('Análise cancelada', { exact: true }),
+    page.locator('main').getByText('Análise cancelada', { exact: true }),
   ).toBeVisible();
   await page
     .getByRole('button', { name: 'Desenvolvimento', exact: true })
@@ -109,7 +110,7 @@ test('partial execution preserves failures and changed items', async ({
   await expect(page.getByText('Pulado · item alterado')).toBeVisible();
   expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
   await page.screenshot({
-    path: `../../docs/evidence/automatic/renderer/screenshots/${test.info().project.name}-report-partial.png`,
+    path: `${EVIDENCE}/automatic/renderer/screenshots/${test.info().project.name}-report-partial.png`,
     fullPage: true,
     animations: 'disabled',
   });
@@ -132,7 +133,7 @@ test('empty and error states remain truthful across innovation screens', async (
       await expect(page.getByRole('alert')).toContainText('Permissão negada');
       expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
       await page.screenshot({
-        path: `../../docs/evidence/automatic/renderer/screenshots/${test.info().project.name}-scan-error.png`,
+        path: `${EVIDENCE}/automatic/renderer/screenshots/${test.info().project.name}-scan-error.png`,
         fullPage: true,
         animations: 'disabled',
       });
@@ -157,21 +158,21 @@ test('screenshots, contrast, reflow, keyboard and reduced motion', async ({
   await page.setViewportSize({ width: 1440, height: 1000 });
   await scan(page);
   await page.screenshot({
-    path: `../../docs/evidence/automatic/renderer/screenshots/${info.project.name}-overview-light.png`,
+    path: `${EVIDENCE}/automatic/renderer/screenshots/${info.project.name}-overview-light.png`,
     fullPage: true,
     animations: 'disabled',
   });
   expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
   await page.getByRole('button', { name: 'Alternar tema' }).click();
   await page.screenshot({
-    path: `../../docs/evidence/automatic/renderer/screenshots/${info.project.name}-overview-dark.png`,
+    path: `${EVIDENCE}/automatic/renderer/screenshots/${info.project.name}-overview-dark.png`,
     fullPage: true,
     animations: 'disabled',
   });
   expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
   await page.setViewportSize({ width: 390, height: 844 });
   await page.screenshot({
-    path: `../../docs/evidence/automatic/renderer/screenshots/${info.project.name}-narrow-dark.png`,
+    path: `${EVIDENCE}/automatic/renderer/screenshots/${info.project.name}-narrow-dark.png`,
     fullPage: true,
     animations: 'disabled',
   });
@@ -200,7 +201,7 @@ test('screenshots, contrast, reflow, keyboard and reduced motion', async ({
     await page.evaluate(() => document.documentElement.dataset.motion),
   ).toBe('reduce');
   await page.screenshot({
-    path: `../../docs/evidence/automatic/renderer/screenshots/${info.project.name}-settings-narrow.png`,
+    path: `${EVIDENCE}/automatic/renderer/screenshots/${info.project.name}-settings-narrow.png`,
     fullPage: true,
     animations: 'disabled',
   });

@@ -30,6 +30,8 @@
     </span>
     <input
       type="checkbox"
+      class="switch"
+      role="switch"
       checked={enabled}
       onchange={(event) => onchange(event.currentTarget.checked)}
     />

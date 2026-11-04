@@ -139,8 +139,8 @@
     display: grid;
     gap: 0.5rem;
     border: 1px solid var(--stroke);
-    border-radius: var(--radius-md, 12px);
-    background: var(--surface-raised, var(--surface));
+    border-radius: var(--radius-inner);
+    background: var(--surface);
     padding: 0.9rem 1rem;
   }
 
@@ -166,7 +166,7 @@
 
   .attention-copy,
   .warning {
-    color: var(--warning);
+    color: var(--warning-text);
   }
 
   .location {

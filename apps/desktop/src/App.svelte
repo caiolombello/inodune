@@ -23,12 +23,14 @@
     Moon,
     ShieldCheck,
     ChevronRight,
+    ChevronLeft,
     FlaskConical,
     CircleDashed,
+    Package,
   } from '@lucide/svelte';
-  import logo from '../../../assets/brand/inodune-logo.svg';
   import icon from '../../../assets/brand/inodune-icon.svg';
   import InstalledApps from './lib/InstalledApps.svelte';
+  import BrandMark from './lib/BrandMark.svelte';
   import RiskBadge from './lib/RiskBadge.svelte';
   import ItemList from './lib/ItemList.svelte';
   import Modal from './lib/Modal.svelte';
@@ -70,7 +72,9 @@
     applyScanResult,
     isLocallyEligible,
     toggleSelection,
-    simulateBudget,
+    trySimulateBudget,
+    validateScanResult,
+    measuredSum,
     cleanupBatches,
     cleanupBatchWarning,
     protectedOnlyLabel,
@@ -99,7 +103,6 @@
     | 'impact'
     | 'report';
   const nav = [
-    { id: 'apps' as Page, label: 'Programas & Jogos', icon: HardDrive },
     { id: 'overview' as Page, label: 'Visão geral', icon: House },
     { id: 'projects' as Page, label: 'Projetos', icon: Layers },
     { id: 'development' as Page, label: 'Desenvolvimento', icon: Code },
@@ -107,21 +110,39 @@
     { id: 'ai' as Page, label: 'IA & Agentes', icon: Bot },
     { id: 'system' as Page, label: 'Sistema', icon: HardDrive },
   ];
+  // Headings name the area; the subtitle says what it holds.
   const pageNames: Record<Page, string> = {
     apps: 'Programas & Jogos',
-    overview: 'Seu espaço, em perspectiva.',
-    projects: 'Cada projeto tem seu espaço.',
-    development: 'Construa. Revise. Recomece.',
-    git: 'Código merece cuidado.',
-    ai: 'Contexto que vale preservar.',
-    system: 'Leveza no dia a dia.',
-    review: 'Revise com tranquilidade.',
-    protected: 'O essencial fica.',
-    history: 'Cada decisão, às claras.',
-    settings: 'Do seu jeito.',
-    catalog: 'Um sistema, todos os estados.',
-    impact: 'Antes de decidir, entenda.',
-    report: 'O resultado, sem atalhos.',
+    overview: 'Visão geral',
+    projects: 'Projetos',
+    development: 'Desenvolvimento',
+    git: 'Git Worktrees',
+    ai: 'IA & Agentes',
+    system: 'Sistema',
+    review: 'Todos os itens',
+    protected: 'Itens protegidos',
+    history: 'Histórico',
+    settings: 'Configurações',
+    catalog: 'Catálogo de componentes',
+    impact: 'Simulador de impacto',
+    report: 'Relatório da limpeza',
+  };
+  const pageSubtitles: Record<Page, string> = {
+    apps: 'Encontre, filtre e remova programas com um plano revisável.',
+    overview: 'Liberte espaço. Preserve o essencial.',
+    projects: 'Artefatos, custos e proteções agrupados por projeto.',
+    development:
+      'Builds, dependências e caches de ferramentas de desenvolvimento.',
+    git: 'Worktrees e repositórios ficam em inventário: código e branches são preservados.',
+    ai: 'Sessões, memória e modelos de agentes ficam protegidos.',
+    system: 'Miniaturas, Lixeira e caches do seu usuário.',
+    review: 'Todos os itens encontrados, com o risco e o motivo de cada um.',
+    protected: 'Veja o que preservamos e entenda cada motivo.',
+    history: 'Relatórios das limpezas anteriores, salvos só neste computador.',
+    settings: 'Idioma, aparência e como a análise funciona.',
+    catalog: 'Componentes e estados do sistema visual.',
+    impact: 'Uma estimativa para revisar. Nenhuma operação será executada.',
+    report: 'O resultado de cada item, com o que foi medido e o que não foi.',
   };
   let page = $state<Page>('overview');
   // Release builds have no demo corpus, so they always start in local mode.
@@ -193,17 +214,157 @@
   let heading: HTMLHeadingElement;
   let executionIndex = 0;
 
-  const budget = $derived(simulateBudget(candidates, selected, policy));
+  // A malformed selection or inventory becomes an explicit error (no estimate,
+  // destructive actions blocked) instead of an exception that blanks the UI.
+  const budgetResult = $derived(
+    trySimulateBudget(candidates, selected, policy),
+  );
+  const budgetError = $derived(budgetResult.ok ? '' : budgetResult.error);
+  const budgetBytesLabel = $derived(
+    budgetResult.ok
+      ? formatBytes(budgetResult.logicalBytes)
+      : t('estimativa indisponível'),
+  );
+  const budget = $derived(
+    budgetResult.ok
+      ? budgetResult
+      : {
+          picked: [] as Candidate[],
+          logicalBytes: 0,
+          physicalPotential: null,
+          measuredFreedBytes: null,
+          reviewCount: 0,
+        },
+  );
   const protectedItems = $derived(
     candidates.filter((c) => c.risk === 'protected'),
   );
   const available = $derived(candidates.filter((c) => c.risk !== 'protected'));
   const locallyEligible = $derived(candidates.filter(isLocallyEligible));
-  const potential = $derived(
-    available.reduce((n, c) => n + c.logical_bytes, 0),
-  );
+  // Totals only add sizes that can be summed (known, non-overlapping coverage).
+  const potentialInfo = $derived(measuredSum(available));
+  const potential = $derived(potentialInfo.bytes);
   const batchWarning = $derived(cleanupBatchWarning(selected.length));
+  // Report: counts per outcome, problems first, long runs of successes folded.
+  const reportFiles = $derived(
+    cleanupReport ? cleanupReport.items.flatMap((item) => item.files) : [],
+  );
+  const reportSummary = $derived.by(() => {
+    const kinds = [
+      { key: 'trashed', label: 'Na Lixeira', tone: 'done' },
+      { key: 'removed', label: 'Removidos', tone: 'done' },
+      {
+        key: 'skipped_changed',
+        label: 'Alterados e preservados',
+        tone: 'warn',
+      },
+      { key: 'quarantined', label: 'Em quarentena', tone: 'warn' },
+      { key: 'failed', label: 'Falharam', tone: 'error' },
+      { key: 'cancelled', label: 'Cancelados', tone: 'neutral' },
+    ];
+    return kinds
+      .map((kind) => {
+        const files = reportFiles.filter((file) => file.status === kind.key);
+        return {
+          ...kind,
+          count: files.length,
+          bytes: files.reduce((n, file) => n + file.logical_bytes, 0),
+        };
+      })
+      .filter((kind) => kind.count > 0);
+  });
+  const reportItems = $derived.by(() => {
+    if (!cleanupReport) return [];
+    const many = reportFiles.length > 12;
+    return cleanupReport.items
+      .map((item) => {
+        const candidate = candidates.find((c) => c.id === item.candidate_id);
+        const clean =
+          item.complete &&
+          item.files.every(
+            (file) => file.status === 'trashed' || file.status === 'removed',
+          );
+        return {
+          item,
+          title: candidate?.title ?? item.candidate_id,
+          bytes: item.files.reduce((n, file) => n + file.logical_bytes, 0),
+          clean,
+          collapse: many && clean,
+        };
+      })
+      .sort((a, b) => Number(a.clean) - Number(b.clean));
+  });
+  // Rebuild costs per detector: five "Bytecode Python" rows become one line.
+  const costGroups = $derived.by(() => {
+    const groups: {
+      key: string;
+      title: string;
+      hint: string;
+      count: number;
+      bytes: number;
+      paths: string[];
+    }[] = [];
+    for (const item of budget.picked) {
+      const key = `${item.detector_id}::${item.title}::${item.rebuild_hint}`;
+      const found = groups.find((g) => g.key === key);
+      if (found) {
+        found.count += 1;
+        found.bytes += item.logical_bytes;
+        found.paths.push(item.display_path);
+      } else
+        groups.push({
+          key,
+          title: item.title,
+          hint: item.rebuild_hint,
+          count: 1,
+          bytes: item.logical_bytes,
+          paths: [item.display_path],
+        });
+    }
+    return groups.sort((a, b) => b.bytes - a.bytes);
+  });
   const projects = $derived([...new Set(candidates.map((c) => c.project))]);
+  // Bytes per risk for composition bars: summable sizes only, each once.
+  const riskMix = (items: Candidate[]) =>
+    (
+      [
+        { key: 'low', label: 'Baixo risco' },
+        { key: 'review', label: 'Revisar' },
+        { key: 'protected', label: 'Protegido' },
+      ] as const
+    )
+      .map((part) => ({
+        ...part,
+        bytes: measuredSum(items.filter((c) => c.risk === part.key)).bytes,
+      }))
+      .filter((part) => part.bytes > 0);
+  // Projects ordered by what could be cleaned; protected bytes shown apart.
+  const projectSummaries = $derived(
+    projects
+      .map((project) => {
+        const items = candidates.filter((c) => c.project === project);
+        const eligible = measuredSum(
+          items.filter((c) => c.risk !== 'protected'),
+        );
+        return {
+          project,
+          items,
+          eligibleBytes: eligible.bytes,
+          eligibleUnknown: eligible.unknown,
+          eligibleCount: items.filter((c) => c.risk !== 'protected').length,
+          protectedCount: items.filter((c) => c.risk === 'protected').length,
+          mix: riskMix(items),
+        };
+      })
+      // Comparable estimates first; projects with no summable size go last.
+      .sort(
+        (a, b) =>
+          Number(a.eligibleCount > 0 && !a.eligibleBytes) -
+            Number(b.eligibleCount > 0 && !b.eligibleBytes) ||
+          b.eligibleBytes - a.eligibleBytes ||
+          a.project.localeCompare(b.project, 'pt-BR'),
+      ),
+  );
   const filtered = $derived(
     candidates
       .filter((c) => {
@@ -234,6 +395,97 @@
       ),
   );
   const scanBusy = $derived(scanState === 'scanning' || scanState === 'paused');
+  // Sidebar status: what the last analysis established, in one line.
+  const scanSummary = $derived.by(() => {
+    if (executing)
+      return {
+        tone: 'busy',
+        title: 'Limpeza em andamento',
+        detail: t('Acompanhe no relatório.'),
+      };
+    if (scanState === 'paused')
+      return {
+        tone: 'idle',
+        title: 'Análise pausada',
+        detail: t('Nada foi alterado.'),
+      };
+    if (scanState === 'scanning')
+      return {
+        tone: 'busy',
+        title: 'Analisando…',
+        detail: `${formatNumber(source === 'local' ? nativeProgress.visited : candidates.length)} ${t('entradas inspecionadas')}`,
+      };
+    if (scanState === 'error')
+      return {
+        tone: 'warning',
+        title: 'A análise não terminou',
+        detail: t('Nada foi alterado.'),
+      };
+    if (scanState === 'complete' && source === 'local' && localScanStale)
+      return {
+        tone: 'warning',
+        title: 'Análise desatualizada',
+        detail: t('Analise novamente antes de uma nova limpeza.'),
+      };
+    if (
+      scanState === 'complete' &&
+      source === 'local' &&
+      nativeResult &&
+      (!nativeResult.complete || nativeResult.issues.length > 0)
+    )
+      return {
+        tone: 'ok',
+        title: 'Análise parcial',
+        detail: `${countLabel(available.length, 'candidato', 'candidatos')} · ${t('algumas áreas ficaram fora')}`,
+      };
+    if (scanState === 'complete' || scanState === 'cancelled')
+      return {
+        tone: scanState === 'complete' ? 'ok' : 'idle',
+        title:
+          scanState === 'complete' ? 'Análise concluída' : 'Análise cancelada',
+        detail: `${countLabel(available.length, 'candidato', 'candidatos')} · ${countLabel(protectedItems.length, 'protegido', 'protegidos')}`,
+      };
+    return {
+      tone: 'idle',
+      title: 'Nenhuma análise ainda',
+      detail: t('Somente leitura até você confirmar.'),
+    };
+  });
+  let overviewReviewOpen = $state(false);
+  let overviewExpanded = $state<string[]>([]);
+  let navElement = $state<HTMLElement>();
+  let navAtStart = $state(true);
+  let navAtEnd = $state(true);
+  // The strip shows an arrow and a fade only on the side with more areas.
+  function updateNavEdges() {
+    const el = navElement;
+    if (!el) return;
+    navAtStart = el.scrollLeft <= 2;
+    navAtEnd = el.scrollLeft + el.clientWidth >= el.scrollWidth - 2;
+  }
+  function scrollNav(direction: 1 | -1) {
+    navElement?.scrollBy({
+      left: direction * navElement.clientWidth * 0.7,
+      behavior: reduced ? 'auto' : 'smooth',
+    });
+  }
+  $effect(() => {
+    if (!navElement) return;
+    updateNavEdges();
+    const observer = new ResizeObserver(updateNavEdges);
+    observer.observe(navElement);
+    return () => observer.disconnect();
+  });
+  // Narrow layouts scroll the navigation strip; keep the current area visible.
+  $effect(() => {
+    void page;
+    const active = navElement?.querySelector<HTMLElement>(
+      '[aria-current="page"]',
+    );
+    if (active && navElement && navElement.scrollWidth > navElement.clientWidth)
+      active.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+    updateNavEdges();
+  });
   const categories = [
     {
       label: 'Desenvolvimento',
@@ -500,6 +752,15 @@
         return;
       }
       if (result.result) {
+        const invalid = validateScanResult(result.result);
+        if (invalid) {
+          // Never apply a result the UI cannot show safely; nothing was changed.
+          nativeError = `${t('O resultado da análise chegou em formato inesperado')} (${t(invalid)}). ${t('Nenhum item foi aplicado e nada foi alterado. Analise novamente.')}`;
+          scanState = 'error';
+          nativeJob = null;
+          sound.play('attention');
+          return;
+        }
         nativeResult = result.result;
         const next = applyScanResult(result.result, scanMode === 'automatic');
         candidates = next.candidates;
@@ -578,6 +839,7 @@
   async function askClean(ids: string[]) {
     if (
       !ids.length ||
+      budgetError ||
       scanBusy ||
       executing ||
       preparingCleanup ||
@@ -632,6 +894,19 @@
     reportAvailable = true;
     processItem();
   }
+  // WCAG 2.4.11: a row that receives focus must not end up under the sticky
+  // selection bar (scroll-padding alone is not honoured by every engine).
+  function keepFocusAboveBar(event: FocusEvent) {
+    const bar = document.querySelector<HTMLElement>('.selection-bar');
+    const target = event.target as HTMLElement | null;
+    if (!bar || !target || bar.contains(target)) return;
+    if (getComputedStyle(bar).position !== 'sticky') return;
+    const overlap =
+      target.getBoundingClientRect().bottom -
+      bar.getBoundingClientRect().top +
+      12;
+    if (overlap > 0) window.scrollBy({ top: overlap, behavior: 'auto' });
+  }
   function toggle(item: Candidate) {
     if (source === 'local' && !isLocallyEligible(item)) return;
     if (!scanBusy && !executing && !preparingCleanup && !localScanStale) {
@@ -648,6 +923,7 @@
     if (
       source !== 'local' ||
       !nativeResult?.scan_id ||
+      budgetError ||
       scanBusy ||
       executing ||
       preparingCleanup ||
@@ -681,7 +957,8 @@
     }
   }
   async function startExecution() {
-    if (!consent || !budget.picked.length || executing) return;
+    if (!consent || !budgetResult.ok || !budget.picked.length || executing)
+      return;
     void sound.unlock();
     if (source === 'local') {
       await beginLocalCleanup();
@@ -710,6 +987,7 @@
       (!nativeResult.complete && scanMode !== 'automatic') ||
       !nativeResult.scan_id ||
       !selected.length ||
+      !budgetResult.ok ||
       selected.some((id) => !locallyEligible.some((item) => item.id === id)) ||
       preparingCleanup ||
       executing
@@ -861,15 +1139,10 @@
 </script>
 
 <svelte:head
-  ><title
-    >Inodune · {t(
-      page === 'overview'
-        ? 'Visão geral'
-        : page === 'report'
-          ? 'Relatório'
-          : 'Seu espaço, sob seu controle',
-    )}</title
-  ><link rel="icon" href={icon} /></svelte:head
+  ><title>Inodune · {t(pageNames[page])}</title><link
+    rel="icon"
+    href={icon}
+  /></svelte:head
 >
 <a class="skip-link" href="#main">{t('Pular para conteúdo')}</a>
 <div class="app-shell">
@@ -881,75 +1154,94 @@
         e.preventDefault();
         void go('overview');
       }}
-      ><img src={icon} alt="" /><span
+      ><BrandMark size={34} /><span
         >{t('Inodune')}<span class="brand-dot">.</span></span
       ></a
     >
-    <div class="workspace-label">{t('ESPAÇO DE TRABALHO')}</div>
-    <nav aria-label={t('Áreas do aplicativo')}>
-      {#each nav as item (item.id)}<button
-          class:active={page === item.id}
-          aria-current={page === item.id ? 'page' : undefined}
-          onclick={() => go(item.id)}
-          ><item.icon size={19} /><span>{t(item.label)}</span
-          >{#if page === item.id}<span class="nav-marker"></span>{/if}</button
-        >{/each}
-      <div class="nav-divider"></div>
+    <div class="nav-strip" class:at-start={navAtStart} class:at-end={navAtEnd}>
+      <!-- Pointer shortcut only: keyboard users reach every area with Tab. -->
       <button
-        class:active={page === 'protected'}
-        aria-current={page === 'protected' ? 'page' : undefined}
-        onclick={() => go('protected')}
-        ><Shield size={19} /><span>{t('Itens protegidos')}</span
-        >{#if candidates.length}<span class="nav-count"
-            >{protectedItems.length}</span
-          >{/if}</button
+        class="nav-scroll prev"
+        tabindex="-1"
+        aria-hidden="true"
+        onclick={() => scrollNav(-1)}><ChevronLeft size={16} /></button
       >
+      <nav
+        aria-label={t('Áreas do aplicativo')}
+        bind:this={navElement}
+        onscroll={updateNavEdges}
+      >
+        {#each nav as item (item.id)}<button
+            class:active={page === item.id}
+            aria-current={page === item.id ? 'page' : undefined}
+            onclick={() => go(item.id)}
+            ><item.icon size={19} /><span>{t(item.label)}</span
+            >{#if page === item.id}<span class="nav-marker"></span>{/if}</button
+          >{/each}
+        <div class="nav-divider" role="separator"></div>
+        <button
+          class:active={page === 'apps'}
+          aria-current={page === 'apps' ? 'page' : undefined}
+          onclick={() => go('apps')}
+          ><Package size={19} /><span>{t('Programas & Jogos')}</span
+          >{#if page === 'apps'}<span class="nav-marker"></span>{/if}</button
+        >
+        <button
+          class:active={page === 'protected'}
+          aria-current={page === 'protected' ? 'page' : undefined}
+          onclick={() => go('protected')}
+          ><Shield size={19} /><span>{t('Itens protegidos')}</span
+          >{#if candidates.length}<span class="sr-only">: </span><span
+              class="nav-count">{formatNumber(protectedItems.length)}</span
+            >{/if}</button
+        >
+        <button
+          class:active={page === 'history'}
+          aria-current={page === 'history' ? 'page' : undefined}
+          onclick={() => go('history')}
+          ><History size={19} /><span>{t('Histórico')}</span></button
+        >
+        <button
+          class="mobile-settings"
+          class:active={page === 'settings'}
+          onclick={() => go('settings')}
+          ><Settings size={18} /> {t('Configurações')}</button
+        >
+      </nav>
       <button
-        class:active={page === 'history'}
-        aria-current={page === 'history' ? 'page' : undefined}
-        onclick={() => go('history')}
-        ><History size={19} /><span>{t('Histórico')}</span></button
+        class="nav-scroll next"
+        tabindex="-1"
+        aria-hidden="true"
+        onclick={() => scrollNav(1)}><ChevronRight size={16} /></button
       >
-      <button
-        class="mobile-settings"
-        class:active={page === 'settings'}
-        onclick={() => go('settings')}
-        ><Settings size={18} /> {t('Configurações')}</button
-      >
-    </nav>
+    </div>
     <div class="sidebar-bottom">
-      <div class="local-note">
-        <span class="status-dot"></span><span
-          >{t('Local por natureza')}<small
-            >{t('Sem conta. Sem telemetria.')}</small
+      <div class="scan-state" data-state={scanSummary.tone}>
+        <span class="status-dot" aria-hidden="true"></span><span
+          ><strong>{t(scanSummary.title)}</strong><small
+            >{scanSummary.detail}</small
           ></span
         >
       </div>
-      <button class:active={page === 'settings'} onclick={() => go('settings')}
+      <button
+        class:active={page === 'settings'}
+        aria-current={page === 'settings' ? 'page' : undefined}
+        onclick={() => go('settings')}
         ><Settings size={18} /> {t('Configurações')}</button
       >
-      <div class="sidebar-version">
-        <span>{t('INODUNE')}</span><span>{t('Linux desktop')}</span>
-      </div>
     </div>
   </aside>
   <div class="main-shell">
     <header class="topbar">
       <div>
         <span class="device-mark"><HardDrive size={16} /></span>
-        {t(source === 'local' ? 'Meu computador' : 'Ambiente de demonstração')}
-        <span class="topbar-separator">/</span>
-        <strong
+        <span class="device-name"
           >{t(
-            page === 'apps'
-              ? 'Programas e jogos'
-              : source === 'local'
-                ? scanMode === 'automatic'
-                  ? 'Análise automática · limpeza com confirmação'
-                  : 'Escopos aprovados · limpeza com confirmação'
-                : 'Somente dados sintéticos',
-          )}</strong
+            source === 'local' ? 'Meu computador' : 'Ambiente de demonstração',
+          )}</span
         >
+        <span class="topbar-separator" aria-hidden="true">/</span>
+        <strong>{t(pageNames[page])}</strong>
       </div>
       <div class="topbar-actions">
         {#if reportAvailable && page !== 'report'}
@@ -967,61 +1259,21 @@
           >{#if theme === 'dark'}<Sun size={18} />{:else}<Moon
               size={18}
             />{/if}</button
-        ><span class="private-label"
-          ><ShieldCheck size={15} /> {t('100% local')}</span
+        ><span
+          class="private-label"
+          title={t('Sem conta. Sem telemetria. Nada sai deste computador.')}
+          ><ShieldCheck size={15} />
+          {t('100% local')}<span class="sr-only"
+            >{t('Sem conta. Sem telemetria.')}</span
+          ></span
         >
       </div>
     </header>
     <main id="main" tabindex="-1">
       <div class="page-head">
         <div>
-          <div class="eyebrow">
-            {t(
-              page === 'overview'
-                ? 'VISÃO GERAL'
-                : page === 'impact'
-                  ? 'SIMULADOR DE ESPAÇO'
-                  : page === 'projects'
-                    ? 'LENTE DE PROJETOS'
-                    : page === 'protected'
-                      ? 'REGISTRO DE PROTEÇÕES'
-                      : page === 'apps'
-                        ? 'PROGRAMAS INSTALADOS'
-                        : page === 'settings'
-                          ? 'PREFERÊNCIAS'
-                          : page === 'history'
-                            ? 'HISTÓRICO'
-                            : page === 'report'
-                              ? 'RELATÓRIO'
-                              : [
-                                    'development',
-                                    'git',
-                                    'ai',
-                                    'system',
-                                    'review',
-                                  ].includes(page)
-                                ? 'REVISÃO DE ITENS'
-                                : 'INODUNE',
-            )}
-          </div>
           <h1 bind:this={heading} tabindex="-1">{t(pageNames[page])}</h1>
-          <p>
-            {t(
-              page === 'overview'
-                ? 'Liberte espaço. Preserve o essencial.'
-                : page === 'protected'
-                  ? 'Veja o que preservamos e entenda cada motivo.'
-                  : page === 'projects'
-                    ? 'Artefatos, custos e proteções no contexto de cada projeto.'
-                    : page === 'impact'
-                      ? 'Uma estimativa para revisar. Nenhuma operação será executada.'
-                      : page === 'apps'
-                        ? 'Encontre, filtre e remova programas com um plano revisável.'
-                        : page === 'settings'
-                          ? 'Idioma, aparência e como a análise funciona.'
-                          : 'Decisões claras, com você no controle.',
-            )}
-          </p>
+          <p>{t(pageSubtitles[page])}</p>
         </div>
         {#if !['apps', 'settings', 'catalog', 'impact', 'report'].includes(page)}<button
             class="button primary"
@@ -1144,9 +1396,15 @@
             <CircleAlert size={20} />
             <p>{t(nativeError)}</p>
           </div>{/if}
-        {#if source === 'local' && page === 'overview' && !scanBusy && nativeResult && (!nativeResult.complete || nativeResult.issues.length)}<CoverageNotice
-            result={nativeResult}
-          />{/if}
+        {#if budgetError && !scanBusy}<div class="notice error" role="alert">
+            <CircleAlert size={20} />
+            <p>
+              {t(
+                'Não foi possível estimar a seleção. Nenhuma ação foi executada e a limpeza fica bloqueada até uma nova análise.',
+              )}
+              <small>{t(budgetError)}</small>
+            </p>
+          </div>{/if}
       {/if}
       {#if page === 'apps'}
         <InstalledApps />
@@ -1165,10 +1423,19 @@
             scanStatus={scanState}
             onclean={() => askClean(selected)}
             selectedCount={selected.length}
+            selectedLabel={budgetBytesLabel}
+            {policy}
+            partial={!!nativeResult &&
+              (!nativeResult.complete || nativeResult.issues.length > 0)}
+            potentialUncertain={potentialInfo.unknown > 0}
+            onprotected={() => go('protected')}
             cleanLabel={selected.length
-              ? `${t('Limpar')} ${countLabel(selected.length, 'item', 'itens')} · ${formatBytes(budget.logicalBytes)}`
+              ? `${t('Limpar')} ${countLabel(selected.length, 'item', 'itens')} · ${budgetBytesLabel}`
               : t('Limpar')}
-          />{:else if __INODUNE_DEMO__}
+          />
+          {#if !scanBusy && nativeResult && (!nativeResult.complete || nativeResult.issues.length)}<CoverageNotice
+              result={nativeResult}
+            />{/if}{:else if __INODUNE_DEMO__}
           <section class="storage-panel" aria-labelledby="storage-title">
             <div class="volume-summary">
               <div
@@ -1239,25 +1506,32 @@
             {@const chosen = eligible.filter((item) =>
               selected.includes(item.id),
             )}
+            {@const groupMeasure = measuredSum(group)}
+            {@const groupBytes = groupMeasure.bytes}
+            {@const mix = riskMix(group)}
             <article class="category-card">
               <div class="category-top">
-                <span class="category-icon"><cat.icon size={22} /></span
-                ><ArrowUpRight size={17} />
+                <span class="category-icon"><cat.icon size={20} /></span>
+                <h2>
+                  <button
+                    class="card-link"
+                    aria-label={`${t('Abrir')} ${t(cat.label)}`}
+                    onclick={() => go(cat.page)}
+                    >{t(cat.label)}<ArrowUpRight size={16} /></button
+                  >
+                </h2>
               </div>
-              <h2>{t(cat.label)}</h2>
               <div
                 class="category-number"
                 class:protected-summary={protectedOnly}
               >
                 {protectedOnly
-                  ? protectedOnlyLabel(
-                      group.length,
-                      formatBytes(
-                        group.reduce((n, c) => n + c.logical_bytes, 0),
-                      ),
-                    )
+                  ? groupBytes
+                    ? (groupMeasure.unknown ? '≥ ' : '') +
+                      formatBytes(groupBytes)
+                    : t('Não medido')
                   : t(
-                      !candidates.length
+                      !candidates.length || !group.length
                         ? '—'
                         : !measured.length && group.length
                           ? 'Não medido'
@@ -1267,14 +1541,53 @@
                             ),
                     )}
               </div>
-              <p>{t(cat.caption)}</p>
               <span class="category-qualifier"
-                >{t(
-                  eligible.length
-                    ? 'Potencial lógico estimado'
-                    : 'Somente consulta',
-                )}</span
+                >{protectedOnly
+                  ? groupBytes
+                    ? protectedOnlyLabel(
+                        group.length,
+                        (groupMeasure.unknown ? '≥ ' : '') +
+                          formatBytes(groupBytes),
+                      )
+                    : `${countLabel(group.length, 'item protegido', 'itens protegidos')} · ${t('tamanho não somado')}`
+                  : candidates.length && eligible.length
+                    ? `${t('estimado')} · ${countLabel(eligible.length, 'candidato', 'candidatos')}`
+                    : t(
+                        candidates.length && group.length
+                          ? 'Somente consulta'
+                          : cat.caption,
+                      )}</span
               >
+              <!-- Empty means no items; unknown sizes are listed, never zero. -->
+              {#if group.length && (groupBytes > 0 || !protectedOnly)}<div
+                  class="category-mix"
+                >
+                  {#if groupBytes > 0}<div class="mix-bar" aria-hidden="true">
+                      {#each mix as part (part.key)}<span
+                          class={`mix-${part.key}`}
+                          style:flex-grow={part.bytes}
+                        ></span>{/each}
+                    </div>{/if}
+                  <ul class="mix-legend">
+                    {#each mix as part (part.key)}<li>
+                        <i class={`mix-${part.key}`}></i>{t(part.label)}
+                        <strong>{formatBytes(part.bytes)}</strong>
+                      </li>{/each}
+                    {#if groupMeasure.unknown}<li class="mix-unknown">
+                        {countLabel(
+                          groupMeasure.unknown,
+                          'item sem tamanho somado',
+                          'itens sem tamanho somado',
+                        )}
+                      </li>{/if}
+                  </ul>
+                </div>{:else if candidates.length && !group.length}<p
+                  class="category-empty"
+                >
+                  {t('Nada encontrado nesta categoria.')}
+                </p>{:else if !candidates.length}<p class="category-empty">
+                  {t(cat.caption)}
+                </p>{/if}
               <div class="category-footer">
                 <span
                   >{#if eligible.length}{formatNumber(chosen.length)}
@@ -1283,9 +1596,12 @@
                       group.length,
                       'item selecionado',
                       'itens selecionados',
-                    )}<br /><small
-                      >{formatBytes(selectedBytesOf(eligible))}</small
-                    >{:else}{countLabel(group.length, 'item', 'itens')}
+                    )}<small>{formatBytes(selectedBytesOf(eligible))}</small
+                    >{:else if group.length}{countLabel(
+                      group.length,
+                      'item',
+                      'itens',
+                    )}
                     {t('em inventário')}{/if}</span
                 >{#if eligible.length}<button
                     class="button"
@@ -1303,7 +1619,7 @@
                       ? `${t('Limpar')} ${formatNumber(chosen.length)}`
                       : t('Limpar')}</button
                   >{:else if group.length}<span class="tiny-label"
-                    >{t('Protegido')}</span
+                    ><Shield size={13} /> {t('Protegido')}</span
                   >{/if}
               </div>
             </article>
@@ -1325,21 +1641,27 @@
               >{t('Abrir a lista completa')} <ArrowRight size={16} /></button
             >
           </div>
-          {#if candidates.length}<details class="review-drawer">
+          {#if candidates.length}<details
+              class="review-drawer"
+              bind:open={overviewReviewOpen}
+            >
               <summary
                 >{`${t('Revisar itens')} · ${formatNumber(selected.length)} ${t('de')} ${countLabel(available.length, 'item selecionado', 'itens selecionados')}`}</summary
               >
-              <OverviewReview
-                {candidates}
-                {selected}
-                {isSelectable}
-                disabled={scanBusy ||
-                  executing ||
-                  preparingCleanup ||
-                  localScanStale}
-                onsetmany={setMany}
-                ondetail={(item) => (detail = item)}
-              />
+              <!-- Rendered only while open: thousands of hidden rows made the
+                   overview slow, and WebKit slowest. -->
+              {#if overviewReviewOpen}<OverviewReview
+                  {candidates}
+                  {selected}
+                  {isSelectable}
+                  disabled={scanBusy ||
+                    executing ||
+                    preparingCleanup ||
+                    localScanStale}
+                  onsetmany={setMany}
+                  ondetail={(item) => (detail = item)}
+                  bind:expanded={overviewExpanded}
+                />{/if}
             </details>{/if}
           {#if scanState === 'idle'}<div class="empty-state">
               <Folder size={30} />
@@ -1382,53 +1704,73 @@
               </p>
             </div>{/if}
         </section>
-        <div class="trust-footer">
-          <Shield size={17} /><span
-            >{t('Preservar também é cuidar do seu espaço.')}</span
-          ><button class="text-button" onclick={() => go('protected')}
-            >{t('Conheça os itens protegidos')}
-            <ArrowUpRight size={14} /></button
-          >
-        </div>
       {:else if page === 'projects' && !scanBusy}
-        <div class="section-head">
+        <div class="section-head project-head">
           <h2>
             {t(
               source === 'local' ? 'Seus projetos' : 'Seus projetos de exemplo',
             )}
           </h2>
           <span class="muted"
-            >{formatNumber(projects.length)}
-            {t('grupos · tamanhos sem contêineres sobrepostos')}</span
+            >{countLabel(projects.length, 'grupo', 'grupos')} · {t(
+              'ordenados pelo que pode ser limpo',
+            )}</span
           >
         </div>
         <div class="project-grid">
-          {#each projects as project (project)}{@const items =
-              candidates.filter((c) => c.project === project)}<button
+          {#each projectSummaries as summary (summary.project)}<button
               class="project-card"
               onclick={async () => {
                 await go('review');
-                projectFilter = project;
+                projectFilter = summary.project;
               }}
-              ><Folder size={24} />
-              <h2>{project}</h2>
-              <strong
-                >{formatBytes(
-                  items
-                    .filter((c) => c.risk !== 'protected')
-                    .reduce((n, c) => n + c.logical_bytes, 0),
-                )}</strong
+              ><span class="project-title"
+                ><Folder size={20} />
+                <h2>{summary.project}</h2></span
               >
-              <p>{t('potencial lógico estimado')}</p>
-              <div class="category-footer">
-                <span
-                  >{formatNumber(items.length)}
-                  {t('itens')} · {formatNumber(
-                    items.filter((c) => c.risk === 'protected').length,
-                  )}
-                  {t('protegidos')}</span
-                ><ChevronRight size={16} />
-              </div></button
+              <strong
+                >{summary.eligibleUnknown && summary.eligibleBytes
+                  ? '≥ '
+                  : ''}{summary.eligibleCount &&
+                !summary.eligibleBytes &&
+                summary.eligibleUnknown
+                  ? t('Não medido')
+                  : formatBytes(summary.eligibleBytes)}</strong
+              >
+              <p>
+                {summary.eligibleCount
+                  ? `${t('estimado')} · ${countLabel(summary.eligibleCount, 'candidato', 'candidatos')}`
+                  : t('Somente itens protegidos')}
+              </p>
+              {#if summary.mix.length}<span class="mix-bar" aria-hidden="true"
+                  >{#each summary.mix as part (part.key)}<span
+                      class={`mix-${part.key}`}
+                      style:flex-grow={part.bytes}
+                    ></span>{/each}</span
+                ><span class="project-mix"
+                  >{#each summary.mix as part (part.key)}<span
+                      ><i class={`mix-${part.key}`}></i>{t(part.label)}
+                      <strong>{formatBytes(part.bytes)}</strong></span
+                    >{/each}{#if summary.eligibleUnknown}<span
+                      class="mix-unknown"
+                      >{countLabel(
+                        summary.eligibleUnknown,
+                        'item sem tamanho somado',
+                        'itens sem tamanho somado',
+                      )}</span
+                    >{/if}</span
+                >{/if}
+              <span class="category-footer"
+                ><span
+                  >{countLabel(summary.items.length, 'item', 'itens')} · {countLabel(
+                    summary.protectedCount,
+                    'protegido',
+                    'protegidos',
+                  )}</span
+                ><span class="project-cta"
+                  >{t('Revisar projeto')} <ChevronRight size={16} /></span
+                ></span
+              ></button
             >{:else}<div class="empty-state">
               <Layers size={28} />
               <h2>{t('Nenhum projeto analisado')}</h2>
@@ -1463,7 +1805,7 @@
               </p>
             </div>
           </div>{/if}
-        <section class="panel">
+        <section class="panel" onfocusin={keepFocusAboveBar}>
           <div class="section-head">
             <div>
               <h2>
@@ -1484,9 +1826,9 @@
                   ).length,
                   'item exibido',
                   'itens exibidos',
-                )}
-                · {countLabel(selected.length, 'selecionado', 'selecionados')}
-                {t('no total')}
+                )}{#if page !== 'protected'}
+                  · {countLabel(selected.length, 'selecionado', 'selecionados')}
+                  {t('no total')}{/if}
               </p>
             </div>
             <span class="badge neutral"
@@ -1508,17 +1850,17 @@
                 placeholder={t('Buscar item ou caminho…')}
                 bind:value={query}
               /></label
-            ><label
-              ><span class="sr-only">{t('Filtrar por risco')}</span><select
-                aria-label={t('Filtrar por risco')}
-                bind:value={riskFilter}
-                ><option value="all">{t('Todos os riscos')}</option><option
-                  value="low">{t('Baixo risco')}</option
-                ><option value="review">{t('Revisar')}</option><option
-                  value="protected">{t('Protegido')}</option
-                ></select
-              ></label
-            ><label
+            >{#if page !== 'protected'}<label
+                ><span class="sr-only">{t('Filtrar por risco')}</span><select
+                  aria-label={t('Filtrar por risco')}
+                  bind:value={riskFilter}
+                  ><option value="all">{t('Todos os riscos')}</option><option
+                    value="low">{t('Baixo risco')}</option
+                  ><option value="review">{t('Revisar')}</option><option
+                    value="protected">{t('Protegido')}</option
+                  ></select
+                ></label
+              >{/if}<label
               ><span class="sr-only">{t('Ordenar itens')}</span><select
                 aria-label={t('Ordenar itens')}
                 bind:value={sort}
@@ -1563,7 +1905,7 @@
                   'itens selecionados',
                 )}</strong
               ><span
-                >{formatBytes(budget.logicalBytes)} · {t(
+                >{budgetBytesLabel} · {t(
                   'estimativa, sem recuperação medida',
                 )}</span
               >
@@ -1571,9 +1913,19 @@
             {#if batchWarning}<p class="inline-note" role="status">
                 {batchWarning}
               </p>{/if}
+            {#if source === 'local'}<p
+                id="safe-batch-hint"
+                class="safe-batch-hint"
+              >
+                {t(
+                  policy === 'trash'
+                    ? 'Lote seguro: caches de baixo risco aceitos pelo executor, independente da seleção atual. Destino: Lixeira. A confirmação do sistema vem a seguir.'
+                    : 'Lote seguro: caches de baixo risco aceitos pelo executor, independente da seleção atual. Destino: exclusão permanente. A confirmação do sistema vem a seguir.',
+                )}
+              </p>{/if}
             <div class="inline-actions">
               <button
-                class="button"
+                class="text-button"
                 onclick={() => (selected = [])}
                 disabled={!selected.length ||
                   scanBusy ||
@@ -1581,7 +1933,7 @@
                   preparingCleanup ||
                   localScanStale}>{t('Desmarcar todos')}</button
               ><button
-                class="button"
+                class="text-button"
                 onclick={selectAllDeletable}
                 disabled={!locallyEligible.length ||
                   scanBusy ||
@@ -1590,11 +1942,15 @@
                   localScanStale}>{t('Selecionar todos')}</button
               >{#if source === 'local'}<button
                   class="button"
+                  aria-describedby="safe-batch-hint"
+                  title={t(
+                    'Independe da seleção atual; a confirmação do sistema vem a seguir.',
+                  )}
                   onclick={() => void cleanSafe()}
                   disabled={scanBusy ||
                     executing ||
                     preparingCleanup ||
-                    localScanStale}>{t('Limpar com 1 clique')}</button
+                    localScanStale}>{t('Limpar lote seguro da análise')}</button
                 >{/if}<button
                 class="button primary"
                 onclick={() => go('impact')}
@@ -1610,9 +1966,9 @@
           </div>{/if}
       {:else if page === 'impact'}
         <div class="impact-grid">
-          <section class="panel padded">
+          <section class="panel padded impact-selection">
             <span class="eyebrow">{t('SUA SELEÇÃO')}</span>
-            <h2 class="impact-number">{formatBytes(budget.logicalBytes)}</h2>
+            <h2 class="impact-number">{budgetBytesLabel}</h2>
             <p>
               {countLabel(selected.length, 'item', 'itens')} · {t(
                 'tamanho estimado',
@@ -1623,7 +1979,7 @@
                 <span
                   >{t(
                     source === 'local'
-                      ? 'Antes · último scan'
+                      ? 'Antes · última análise'
                       : 'Antes · exemplo',
                   )}</span
                 ><strong
@@ -1659,11 +2015,34 @@
               </p>
             </div>
             <h3>{t('Custos que você deve considerar')}</h3>
-            {#each budget.picked as item (item.id)}<div class="cost-row">
-                <span>{t(item.title)}</span><span>{t(item.rebuild_hint)}</span>
-              </div>{/each}
+            {#each costGroups as cost (cost.key)}<div class="cost-row">
+                <span
+                  ><strong>{t(cost.title)}</strong>{#if cost.count > 1}<small
+                      >× {formatNumber(cost.count)}</small
+                    >{/if}<small>{formatBytes(cost.bytes)}</small
+                  >{#if cost.paths.length > 1}<details class="cost-paths">
+                      <summary
+                        >{t('Ver')}
+                        {countLabel(
+                          cost.paths.length,
+                          'caminho',
+                          'caminhos',
+                        )}</summary
+                      >
+                      <ul>
+                        {#each cost.paths as path, index (index)}<li>
+                            <code>{displayPath(path)}</code>
+                          </li>{/each}
+                      </ul>
+                    </details>{:else}<code class="cost-path"
+                      >{displayPath(cost.paths[0])}</code
+                    >{/if}</span
+                ><span>{t(cost.hint)}</span>
+              </div>{:else}<p class="inline-note">
+                {t('Nenhum item selecionado.')}
+              </p>{/each}
           </section>
-          <section class="panel padded">
+          <section class="panel padded impact-action">
             <h2>
               {source === 'local'
                 ? t('Preparar limpeza')
@@ -1753,7 +2132,7 @@
             >
             {#if cleanupError}<div class="notice error" role="alert">
                 <CircleAlert size={20} />
-                <p>{cleanupError}</p>
+                <p>{t(cleanupError)}</p>
               </div>{/if}
             {#if source === 'local'}<p class="inline-note">
                 {t(
@@ -1805,7 +2184,7 @@
               </div>
               {#if cleanupError}<div class="notice error" role="alert">
                   <CircleAlert size={20} />
-                  <p>{cleanupError}</p>
+                  <p>{t(cleanupError)}</p>
                 </div>{/if}
               {#if cleanupStateUnknown}<div class="notice error" role="alert">
                   <CircleAlert size={20} />
@@ -1871,23 +2250,87 @@
                     >
                   </div>
                 </div>
-                {#each cleanupReport.items as item (item.candidate_id)}
-                  {@const itemCandidate = candidates.find(
-                    (candidate) => candidate.id === item.candidate_id,
-                  )}
-                  <section class="cleanup-report-item">
-                    <h3>
-                      {itemCandidate
-                        ? t(itemCandidate.title)
-                        : item.candidate_id}
-                    </h3>
-                    <span class="badge neutral"
+                {#if reportSummary.length}<ul
+                    class="outcome-summary"
+                    aria-label={t('Resultado por estado')}
+                  >
+                    {#each reportSummary as part (part.key)}<li
+                        class={`outcome-${part.tone}`}
+                      >
+                        <strong>{formatNumber(part.count)}</strong>
+                        <span>{t(part.label)}</span>
+                        <small>{formatBytes(part.bytes)}</small>
+                      </li>{/each}
+                  </ul>{/if}
+                {#if reportSummary.some((part) => part.key === 'trashed')}<p
+                    class="notice report-recovery"
+                  >
+                    <CircleAlert size={18} /><span
                       >{t(
-                        item.complete ? 'Item concluído' : 'Item incompleto',
+                        'Itens na Lixeira podem ser restaurados pela Lixeira do sistema e continuam ocupando espaço até ela ser esvaziada.',
                       )}</span
                     >
-                    <FileOutcomes files={item.files} />
-                  </section>
+                  </p>{/if}
+                {#if reportSummary.some((part) => part.key === 'removed')}<p
+                    class="notice report-recovery"
+                  >
+                    <CircleAlert size={18} /><span
+                      >{t(
+                        'Arquivos removidos permanentemente não podem ser restaurados pelo Inodune. A variação de espaço aparece separada, sem atribuição.',
+                      )}</span
+                    >
+                  </p>{/if}
+                {#each reportItems as entry (entry.item.candidate_id)}
+                  {#if entry.collapse}<details class="cleanup-report-item done">
+                      <summary
+                        ><h3>{t(entry.title)}</h3>
+                        <span class="badge low"
+                          ><Check size={13} /> {t('Item concluído')}</span
+                        ><small
+                          >{countLabel(
+                            entry.item.files.length,
+                            'arquivo',
+                            'arquivos',
+                          )} · {formatBytes(entry.bytes)}</small
+                        ></summary
+                      >
+                      <FileOutcomes
+                        files={entry.item.files}
+                        label={entry.title}
+                        compact
+                      />
+                    </details>{:else}<section
+                      class="cleanup-report-item"
+                      class:attention={!entry.item.complete}
+                    >
+                      <div class="report-item-head">
+                        <h3>{t(entry.title)}</h3>
+                        <span
+                          class="badge {entry.item.complete ? 'low' : 'review'}"
+                          >{#if entry.item.complete}<Check
+                              size={13}
+                            />{:else}<CircleAlert size={13} />{/if}
+                          {t(
+                            entry.item.complete
+                              ? 'Item concluído'
+                              : 'Item incompleto',
+                          )}</span
+                        >
+                      </div>
+                      <FileOutcomes
+                        files={entry.item.files}
+                        label={entry.title}
+                        compact
+                      />
+                      {#if entry.item.omitted_files}<p class="inline-note">
+                          {countLabel(
+                            entry.item.omitted_files,
+                            'linha omitida',
+                            'linhas omitidas',
+                          )}
+                          {t('do relatório salvo para mantê-lo limitado.')}
+                        </p>{/if}
+                    </section>{/if}
                 {/each}
                 {#if cleanupReport.volumes.length}<section
                     class="volume-observations"
@@ -1999,6 +2442,7 @@
               {#each outcomes as outcome (outcome.id)}<div class="outcome-row">
                   <span>{outcome.title}</span><span
                     class:outcome-error={outcome.outcome === 'failed'}
+                    class:outcome-done={outcome.outcome === 'simulated'}
                     class:outcome-warning={[
                       'cancelled',
                       'skipped_changed',
@@ -2074,6 +2518,8 @@
               ></span
             ><input
               type="checkbox"
+              class="switch"
+              role="switch"
               bind:checked={reduced}
               onchange={applyPreferences}
             /></label
@@ -2273,16 +2719,6 @@
           >
         </section>
       {/if}
-      <footer class="page-footer">
-        <span>{t('Feito para abrir espaço. Projetado para preservar.')}</span
-        ><span
-          >{t(
-            source === 'local'
-              ? 'Inodune · dados locais'
-              : 'Prévia de produto · dados sintéticos',
-          )}</span
-        >
-      </footer>
     </main>
   </div>
 </div>
@@ -2299,7 +2735,11 @@
     onclose={() => (onboarding = null)}
     wide
   >
-    <div class="onboarding-brand"><img src={logo} alt="Inodune" /></div>
+    <div class="onboarding-brand">
+      <BrandMark size={44} /><span
+        >{t('Inodune')}<span class="brand-dot">.</span></span
+      >
+    </div>
     <div
       class="onboarding-steps"
       aria-label={`${t('Etapa')} ${formatNumber(onboarding + 1)} ${t('de')} ${formatNumber(3)}`}
@@ -2446,6 +2886,7 @@
 {/if}
 {#if detail}
   <Modal
+    drawer
     title={t('Por que este item apareceu?')}
     onclose={() => {
       detail = null;
@@ -2454,6 +2895,15 @@
   >
     <RiskBadge risk={detail.risk} />
     <h3 class="detail-title">{t(detail.title)}</h3>
+    <p class="detail-meta">
+      <strong
+        >{detail.coverage_key
+          ? formatBytes(detail.logical_bytes)
+          : t('Não contabilizado separadamente')}</strong
+      >{#if detail.coverage_key && detail.allocated_bytes_estimate !== null && detail.allocated_bytes_estimate !== detail.logical_bytes}
+        · {formatBytes(detail.allocated_bytes_estimate)} {t('no disco')}{/if}
+      · {t(detail.activity)}
+    </p>
     <code class="detail-path">{displayPath(detail.display_path)}</code><button
       class="text-button"
       onclick={() => copyPath(displayPath(detail!.display_path))}
@@ -2474,28 +2924,19 @@
       <dd>{t(tidyReason(detail.reason))}</dd>
       <dt>{t('O que pode mudar')}</dt>
       <dd>{t(detail.impact)}</dd>
-      <dt>{t('Como recriar')}</dt>
-      <dd>{t(detail.rebuild_hint)}</dd>
       <dt>{t('O que será preservado')}</dt>
       <dd>{t(detail.preserved)}</dd>
-      <dt>{t('Última atividade')}</dt>
-      <dd>{t(detail.activity)}</dd>
-      <dt>{t('Tamanho')}</dt>
-      <dd>
-        {detail.coverage_key
-          ? formatBytes(detail.logical_bytes)
-          : t(
-              'Não contabilizado separadamente',
-            )}{#if detail.coverage_key && detail.allocated_bytes_estimate !== null && detail.allocated_bytes_estimate !== detail.logical_bytes}
-          · {formatBytes(detail.allocated_bytes_estimate)} {t('no disco')}{/if}
-      </dd>
+      <dt>{t('Como recriar')}</dt>
+      <dd>{t(detail.rebuild_hint)}</dd>
     </dl>
     <details>
       <summary>{t('Detector e evidências técnicas')}</summary><code
         >{detail.detector_id} @ {detail.detector_version}</code
       >
       <ul>
-        {#each detail.evidence as evidence (evidence)}<li>{evidence}</li>{/each}
+        {#each detail.evidence as evidence, index (index)}<li>
+            {evidence}
+          </li>{/each}
       </ul>
       <p>
         {t('Ação suportada:')}
@@ -2642,9 +3083,7 @@
         {t('Demonstração, sem operações reais')}</span
       >
       <p>
-        {countLabel(selected.length, 'item', 'itens')} · {formatBytes(
-          budget.logicalBytes,
-        )}
+        {countLabel(selected.length, 'item', 'itens')} · {budgetBytesLabel}
         {t('estimados')}.
       </p>
     {/if}

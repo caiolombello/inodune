@@ -1,5 +1,12 @@
 <script lang="ts">
   import { invoke } from '@tauri-apps/api/core';
+  import {
+    CircleCheck,
+    CircleAlert,
+    CircleSlash,
+    FileWarning,
+    History as HistoryIcon,
+  } from '@lucide/svelte';
   import { formatDate, language, t } from './i18n.svelte';
   import FileOutcomes from './FileOutcomes.svelte';
   import RecoveryGuide from './RecoveryGuide.svelte';
@@ -89,12 +96,13 @@
         )}
       </p>
     </div>
-    <button onclick={refresh} disabled={loading}
+    <button class="button" onclick={refresh} disabled={loading}
       >{loading ? t('Carregando…') : t('Atualizar')}</button
     >
   </div>
   {#if error}<p class="error" role="alert">{t('Erro')}: {error}</p>{/if}
   {#if !loading && entries.length === 0 && !error}<div class="empty">
+      <HistoryIcon size={26} />
       <h3>{t('Nenhum relatório salvo')}</h3>
       <p>{t('Relatórios finalizados aparecerão aqui.')}</p>
     </div>{/if}
@@ -102,9 +110,29 @@
       <ul class="entries">
         {#each entries as entry (entry.report_id)}<li>
             <button
+              class="entry"
               class:selected={selected?.report_id === entry.report_id}
+              aria-current={selected?.report_id === entry.report_id
+                ? 'true'
+                : undefined}
+              data-state={entry.error
+                ? 'error'
+                : entry.cancelled
+                  ? 'cancelled'
+                  : entry.complete
+                    ? 'complete'
+                    : 'partial'}
               onclick={() => open(entry)}
             >
+              <span class="state-icon" aria-hidden="true"
+                >{#if entry.error}<FileWarning
+                    size={18}
+                  />{:else if entry.cancelled}<CircleSlash
+                    size={18}
+                  />{:else if entry.complete}<CircleCheck
+                    size={18}
+                  />{:else}<CircleAlert size={18} />{/if}</span
+              >
               <span class="date"
                 >{entry.created_unix
                   ? formatDate(entry.created_unix * 1000)
@@ -114,9 +142,11 @@
                 >{:else}<strong
                   >{actionLabel(entry.action).replace(/^./, (c) =>
                     c.toUpperCase(),
-                  )} · {entry.complete
-                    ? t('Concluído')
-                    : t('Incompleto')}</strong
+                  )} · {entry.cancelled
+                    ? t('Cancelado')
+                    : entry.complete
+                      ? t('Concluído')
+                      : t('Incompleto')}</strong
                 >{/if}
               {#if !entry.error}<span
                   >{countLabel(entry.files_count, 'arquivo', 'arquivos')} · {formatBytes(
@@ -134,6 +164,30 @@
         {#if selected && report}
           <header>
             <h3>{t('Detalhes do relatório')}</h3>
+            <!-- State read from the report itself, not from the index row. -->
+            <p
+              class="report-state"
+              data-state={report.cancelled
+                ? 'cancelled'
+                : report.complete
+                  ? 'complete'
+                  : 'partial'}
+            >
+              {#if report.cancelled}<CircleSlash
+                  size={16}
+                />{:else if report.complete}<CircleCheck
+                  size={16}
+                />{:else}<CircleAlert size={16} />{/if}
+              <strong
+                >{actionLabel(report.action).replace(/^./, (c) =>
+                  c.toUpperCase(),
+                )} · {report.cancelled
+                  ? t('Cancelado')
+                  : report.complete
+                    ? t('Concluído')
+                    : t('Incompleto')}</strong
+              >
+            </p>
             <p>{t(report.measurement_note)}</p>
             <details class="technical">
               <summary>{t('Detalhes técnicos')}</summary>
@@ -145,7 +199,11 @@
               cancelled={report.cancelled}
               warnings={report.warnings}
             />
-            <button onclick={exportSelected} disabled={exporting}>
+            <button
+              class="button"
+              onclick={exportSelected}
+              disabled={exporting}
+            >
               {exporting ? t('Exportando…') : t('Exportar JSON local')}
             </button>
             <p>
@@ -174,9 +232,14 @@
             {reportLoading
               ? t('Carregando relatório…')
               : t('Relatório indisponível')}
-          </p>{:else}<p>
-            {t('Selecione um relatório para ver os detalhes.')}
-          </p>{/if}
+          </p>{:else}<div class="detail-empty">
+            <HistoryIcon size={24} />
+            <p>
+              {t(
+                'Selecione um relatório para ver o que aconteceu com cada arquivo.',
+              )}
+            </p>
+          </div>{/if}
       </div>
     </div>{/if}
 </section>
@@ -184,35 +247,29 @@
 <style>
   .history {
     display: grid;
-    gap: 1rem;
+    gap: var(--space-4);
   }
   .heading {
     display: flex;
     justify-content: space-between;
     align-items: start;
-    gap: 1rem;
+    gap: var(--space-4);
   }
-  .heading h2,
+  .heading h2 {
+    margin: 0 0 2px;
+  }
   .heading p {
-    margin: 0.2rem 0;
+    margin: 0;
+    font-size: var(--text-sm);
   }
   .heading p,
-  .entries span {
+  .entry span {
     color: var(--secondary-text);
-  }
-  button {
-    font: inherit;
-    color: var(--text);
-    background: var(--surface-raised, var(--surface));
-    border: 1px solid var(--stroke);
-    border-radius: 10px;
-    padding: 0.65rem 0.8rem;
-    cursor: pointer;
   }
   .layout {
     display: grid;
     grid-template-columns: minmax(16rem, 0.8fr) minmax(0, 1.5fr);
-    gap: 1rem;
+    gap: var(--space-4);
     align-items: start;
   }
   .entries {
@@ -220,45 +277,124 @@
     margin: 0;
     padding: 0;
     display: grid;
-    gap: 0.5rem;
+    gap: var(--space-2);
     max-height: 70vh;
     overflow: auto;
   }
-  .entries button {
+  .entry {
     width: 100%;
     display: grid;
-    gap: 0.25rem;
+    grid-template-columns: 22px minmax(0, 1fr);
+    column-gap: 10px;
+    row-gap: 2px;
     text-align: left;
+    font: inherit;
+    font-size: var(--text-sm);
+    color: var(--text);
+    background: var(--surface);
+    border: 1px solid var(--stroke);
+    border-radius: var(--radius-inner);
+    padding: 12px 14px;
+    cursor: pointer;
+    transition: border-color var(--motion-instant) var(--ease-standard);
   }
-  .entries button.selected {
-    outline: 2px solid var(--accent);
+  .entry > :not(.state-icon) {
+    grid-column: 2;
+  }
+  .entry strong {
+    font-size: var(--text-md);
+    font-weight: 600;
+  }
+  .entry:hover {
+    border-color: var(--accent);
+  }
+  .entry.selected {
+    background: var(--selected);
+    border-color: var(--accent);
+  }
+  .state-icon {
+    grid-row: 1 / span 3;
+    color: var(--muted);
+    padding-top: 1px;
+  }
+  .entry[data-state='complete'] .state-icon {
+    color: var(--safe-text);
+  }
+  .entry[data-state='partial'] .state-icon {
+    color: var(--warning-text);
+  }
+  .entry[data-state='error'] .state-icon {
+    color: var(--danger);
   }
   .date {
-    font-size: 0.85em;
+    font-size: var(--text-xs);
+    font-variant-numeric: tabular-nums;
   }
   .detail {
     min-width: 0;
-    padding: 1rem;
+    padding: var(--space-5);
     border: 1px solid var(--stroke);
-    border-radius: 14px;
+    border-radius: var(--radius-card);
     background: var(--surface);
   }
   .detail header {
-    margin-bottom: 1rem;
+    margin-bottom: var(--space-4);
+    display: grid;
+    gap: var(--space-2);
+    justify-items: start;
   }
   .detail h3 {
-    margin-top: 0;
+    margin: 0;
   }
   .detail p {
     overflow-wrap: anywhere;
+    margin: 0;
+  }
+  .report-state {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: var(--muted);
+  }
+  .report-state strong {
+    color: var(--text);
+  }
+  .report-state[data-state='complete'] {
+    color: var(--safe-text);
+  }
+  .report-state[data-state='partial'] {
+    color: var(--warning-text);
+  }
+  .detail-empty {
+    display: grid;
+    justify-items: center;
+    gap: var(--space-2);
+    padding: var(--space-8) var(--space-4);
+    text-align: center;
+    color: var(--secondary-text);
+  }
+  .detail-empty :global(svg) {
+    color: var(--accent);
   }
   .error {
-    color: var(--danger, var(--text));
+    color: var(--danger);
   }
   .empty {
-    padding: 2rem;
-    border: 1px dashed var(--stroke);
-    border-radius: 14px;
+    display: grid;
+    justify-items: center;
+    gap: var(--space-2);
+    text-align: center;
+    padding: var(--space-8);
+    border: 1px dashed var(--control-border);
+    border-radius: var(--radius-card);
+    color: var(--secondary-text);
+  }
+  .empty :global(svg) {
+    color: var(--accent);
+  }
+  .empty h3 {
+    margin: 0;
+    color: var(--text);
   }
   @media (max-width: 800px) {
     .layout {
@@ -266,12 +402,6 @@
     }
     .entries {
       max-height: 16rem;
-    }
-  }
-  @media (prefers-reduced-motion: reduce) {
-    * {
-      scroll-behavior: auto !important;
-      transition: none !important;
     }
   }
 </style>

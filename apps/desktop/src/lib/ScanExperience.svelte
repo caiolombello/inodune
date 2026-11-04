@@ -353,6 +353,19 @@
   .offscreen .orbit {
     animation-play-state: paused;
   }
+  /* A frozen arc would read as determinate progress: hide it when the
+     activity is not moving (paused or reduced motion). */
+  .paused .orbit {
+    opacity: 0;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .orbit {
+      display: none;
+    }
+  }
+  :global(:root[data-motion='reduce']) .orbit {
+    display: none;
+  }
   .paused .finding,
   .paused.scan-experience {
     animation: none;

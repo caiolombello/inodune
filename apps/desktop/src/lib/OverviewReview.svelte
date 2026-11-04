@@ -1,6 +1,7 @@
 <script lang="ts">
-  import { ChevronDown, ChevronRight, LockKeyhole } from '@lucide/svelte';
+  import { ChevronDown, LockKeyhole, Info, Hand } from '@lucide/svelte';
   import { formatBytes, isCarefulItem, type Candidate } from './model';
+  import RiskBadge from './RiskBadge.svelte';
   import { formatNumber, t } from './i18n.svelte';
   import { countLabel, displayPath, tidyReason } from './present';
 
@@ -11,6 +12,7 @@
     disabled = false,
     onsetmany,
     ondetail,
+    expanded = $bindable([]),
   }: {
     candidates: Candidate[];
     selected: string[];
@@ -18,11 +20,12 @@
     disabled?: boolean;
     onsetmany: (ids: string[], checked: boolean) => void;
     ondetail: (item: Candidate) => void;
+    /** Expanded group keys, kept by the parent: the list unmounts when closed. */
+    expanded?: string[];
   } = $props();
 
   const picked = $derived(new Set(selected));
   // Grouped rows (e.g. several node_modules) expand to list each folder.
-  let expanded = $state<string[]>([]);
   function toggleGroup(key: string) {
     expanded = expanded.includes(key)
       ? expanded.filter((k) => k !== key)
@@ -133,10 +136,12 @@
             >
             <span class="row-size">{formatBytes(bytes(group.items))}</span>
             <span class="row-tags">
-              {#if first.risk === 'review'}<span class="badge review"
-                  >{t('Revisar')}</span
-                >{:else if isCarefulItem(first)}<span class="badge neutral"
-                  >{t('Exige cuidado')}</span
+              <!-- The most cautious risk of the members, never only the first. -->
+              {#if group.items.some((item) => item.risk === 'review')}<RiskBadge
+                  risk="review"
+                />{/if}
+              {#if group.items.some(isCarefulItem)}<span class="badge neutral"
+                  ><Hand size={12} /> {t('Exige cuidado')}</span
                 >{:else if !g.eligible.length}<span class="badge neutral"
                   >{t('Somente análise')}</span
                 >{/if}
@@ -144,8 +149,7 @@
             {#if group.items.length === 1}<button
                 class="icon-button"
                 aria-label={t('Por que apareceu:') + ' ' + t(first.title)}
-                onclick={() => ondetail(first)}
-                ><ChevronRight size={16} /></button
+                onclick={() => ondetail(first)}><Info size={16} /></button
               >{:else}<button
                 class="icon-button"
                 aria-expanded={expanded.includes(group.key)}
@@ -180,8 +184,7 @@
                       aria-label={t('Por que apareceu:') +
                         ' ' +
                         displayPath(item.display_path)}
-                      onclick={() => ondetail(item)}
-                      ><ChevronRight size={14} /></button
+                      onclick={() => ondetail(item)}><Info size={15} /></button
                     >
                   </li>{/each}
               </ul>{/if}

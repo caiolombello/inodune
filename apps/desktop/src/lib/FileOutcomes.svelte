@@ -5,7 +5,16 @@
   import { formatBytes } from './model';
   import { displayPath, systemMessage } from './present';
 
-  let { files }: { files: CleanupFileResult[] } = $props();
+  let {
+    files,
+    label = '',
+    compact = false,
+  }: {
+    files: CleanupFileResult[];
+    label?: string;
+    /** Report view: the page shows one recovery note for Trash/removed. */
+    compact?: boolean;
+  } = $props();
   let page = $state(0);
   const pageSize = 100;
   const pageCount = $derived(Math.max(1, Math.ceil(files.length / pageSize)));
@@ -20,7 +29,12 @@
   };
 </script>
 
-<section class="outcomes" aria-label={t('Arquivos do relatório')}>
+<section
+  class="outcomes"
+  aria-label={label
+    ? `${t('Arquivos de')} ${t(label)}`
+    : t('Arquivos do relatório')}
+>
   {#if files.length === 0}<p class="muted">
       {t('Este relatório não contém linhas de arquivo.')}
     </p>{:else}
@@ -34,17 +48,23 @@
           </div>
           <code class="path">{displayPath(file.display_path)}</code>
           {#if file.message}<p>{systemMessage(file.message)}</p>{/if}
-          <RecoveryGuide action={null} {file} />
+          {#if !compact || (file.status !== 'trashed' && file.status !== 'removed')}<RecoveryGuide
+              action={null}
+              {file}
+            />{/if}
           {#if file.preserved_at && file.status !== 'quarantined'}<p>
               {t('Preservado em')}:
               <code>{displayPath(file.preserved_at)}</code>
             </p>{/if}
-          <small
-            >{t('Durabilidade confirmada')}: {'durability_confirmed' in file &&
-            file.durability_confirmed
-              ? t('Sim')
-              : t('Não')}</small
-          >
+          {#if !compact}<small
+              >{t('Durabilidade confirmada')}: {'durability_confirmed' in
+                file && file.durability_confirmed
+                ? t('Sim')
+                : t('Não')}</small
+            >{:else if !('durability_confirmed' in file && file.durability_confirmed)}<small
+              class="durability-warning"
+              >{t('Durabilidade não confirmada: confira este arquivo.')}</small
+            >{/if}
         </article>
       {/each}
     </div>
@@ -63,27 +83,39 @@
 <style>
   .rows {
     display: grid;
-    gap: 0.65rem;
+    border: 1px solid var(--stroke);
+    border-radius: var(--radius-inner);
+    background: var(--surface);
+    overflow: hidden;
   }
   .row {
-    padding: 0.8rem;
-    border: 1px solid var(--stroke);
-    border-radius: var(--radius-md, 12px);
-    background: var(--surface-raised, var(--surface));
+    padding: 10px 14px;
+    font-size: var(--text-sm);
+  }
+  .row + .row {
+    border-top: 1px solid var(--stroke);
   }
   .row-top {
     display: flex;
     justify-content: space-between;
-    gap: 1rem;
+    gap: 16px;
+  }
+  .row-top strong {
+    font-weight: 600;
+  }
+  .row-top span {
+    font-variant-numeric: tabular-nums;
+    color: var(--secondary-text);
   }
   .row p {
-    margin: 0.45rem 0;
+    margin: 4px 0;
     color: var(--secondary-text);
   }
   .path {
     display: block;
     overflow-wrap: anywhere;
-    margin-top: 0.35rem;
+    margin-top: 2px;
+    font-size: var(--text-sm);
     color: var(--secondary-text);
   }
   small,
@@ -97,14 +129,20 @@
     gap: 1rem;
     padding: 0.8rem;
   }
+  .durability-warning {
+    color: var(--warning-text);
+  }
   .pages button {
     color: var(--text);
-    background: var(--surface-raised, var(--surface));
-    border: 1px solid var(--stroke);
-    border-radius: 8px;
-    padding: 0.4rem 0.7rem;
+    background: var(--surface);
+    border: 1px solid var(--control-border);
+    border-radius: var(--radius-control);
+    padding: 6px 12px;
+    min-height: 32px;
   }
   .pages button:disabled {
-    opacity: 0.5;
+    color: var(--disabled-text);
+    background: var(--disabled-bg);
+    border-color: var(--stroke);
   }
 </style>

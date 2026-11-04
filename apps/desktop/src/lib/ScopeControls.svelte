@@ -117,7 +117,7 @@
     gap: 1rem;
   }
   article {
-    border: 1px solid var(--border, #d5d7dc);
+    border: 1px solid var(--stroke);
     border-radius: 0.75rem;
     padding: 1rem;
     display: grid;
