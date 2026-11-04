@@ -67,3 +67,19 @@ Evidências e comandos exatos: [Fase 0](evidence/phase0.md). Na F0 não houve de
 - [x] Gates adicionais de CI configurados; execução remota não realizada.
 - [ ] Revisão humana de segurança, participantes, sessões físicas GNOME/KDE/Wayland e assinatura/publicação permanecem externos.
 - Evidência corrente: [aceite 0.1.2](evidence/launch/acceptance.md). Resultados de versões anteriores não aprovam automaticamente este incremento.
+
+
+## Incremento de polimento visual e UX 0.1.14 (não publicado) — 03/11/2026
+
+Base `8d960ad` com alterações locais não commitadas. Revisão independente por GPT-6.1 Terra (crítica da proposta mais 3 rodadas de visual e UX) e GPT-6.1 Sol (3 rodadas de código e segurança). Detalhes em [ux-review-0.1.14](ux-review-0.1.14.md), [ADR 0002](adr/0002-ipc-contract-guard.md) e [ADR 0003](adr/0003-measured-visuals.md).
+
+- [x] Contrato IPC validado antes de aplicar o resultado; estimativa inválida bloqueia a limpeza; nenhuma exceção de dado inválido deixa a tela vazia.
+- [x] Contraste: hover do primário, bordas de controle, aviso de recuperação, anel, marca e tema escuro. Escala tipográfica com ações em 14 px.
+- [x] Títulos funcionais, navegação reordenada, estado da análise na sidebar e faixa estreita com indicação de rolagem.
+- [x] Visão geral com gráfico só de valores medidos, cards e projetos com composição por risco somando só tamanhos conhecidos, revisão com risco real e "Exige cuidado" como nota, lote seguro rotulado honestamente, drawer de detalhes, simulador agrupado, relatório por estado e histórico com estado próprio.
+- [x] Foco do teclado nunca atrás da barra de seleção fixa (WCAG 2.4.11), medido em Chromium e WebKit.
+- [x] Lista da Visão geral renderizada só quando aberta: 10.000 itens no WebKit passam (no HEAD esse caso falhava; 1.000 itens caíram de 18,2 s para 2,2 s).
+- [x] Testes do E2E gravam evidências em `test-results/evidence`; `INODUNE_EVIDENCE=1` regenera `docs/evidence` de propósito.
+- [x] Harness nativo `native-automatic-e2e.py` atualizado: ele já estava desatualizado no HEAD (seleção do `target/` Cargo desde `e2871d2`, botão só da demonstração e título antigo de fixture). Ganhou `INODUNE_EVIDENCE_DIR` para execuções de verificação.
+- [x] Verificação local: `cargo fmt`; `clippy -D warnings` dos default-members e do desktop com `fixture-tests`; 246 testes Rust distintos (247 linhas "passed", 3 ignorados), mais 11 + 1 do desktop; typecheck, lint e format; 50 unitários frontend; 45 E2E Chromium; 43 E2E WebKit (MiniBrowser WPE); unittest de `scripts/tests`; `test-user-lifecycle.py`; jornada nativa WebKitGTK/IPC standalone em Xvfb com fixtures temporárias (PASS).
+- [ ] Os mesmos gates externos continuam abertos: sessão interativa Wayland/GNOME/KDE, leitor de tela real, zoom de 200% numa sessão real, participantes, CI remoto (não há remoto configurado), assinatura e publicação, revisão humana de segurança da deleção.

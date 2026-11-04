@@ -44,3 +44,18 @@ Permanece obrigatório manter `Protection Ledger`, explicabilidade por item, est
 
 
 Atualização 0.1.2: [aceite corrente](evidence/launch/acceptance.md) registra scanner visual/áudio opt-in, proteções persistentes, leitor de journals UNKNOWN e ciclo testado do instalador. Instalação/atualização/remoção têm testes locais verdes; o gate remoto continua pendente. A revisão humana e os testes de usabilidade não foram realizados. A cobertura de limpeza ampliou apenas o índice conhecido de pytest; a utilidade em ambientes reais permanece não medida.
+
+## Snapshot 0.1.14 (não publicada) — 03/11/2026
+
+Base `8d960ad` com alterações locais não commitadas (polimento de UI e UX). O backend Rust e o protocolo de limpeza não mudaram.
+
+| Gate | Estado neste snapshot |
+| --- | --- |
+| Builds e testes locais | PASS no escopo: Rust (fmt, clippy, 246 testes distintos + 12 do desktop), frontend (typecheck, lint, format, 50 unitários, build), E2E 45 Chromium e 43 WebKit, scripts Python e ciclo de instalação em prefixo temporário. |
+| Jornada nativa WebKitGTK/IPC | PASS em Xvfb, binário standalone `fixture-tests,custom-protocol`, só fixtures temporárias (`native-automatic-e2e.py`). Xvfb e software rendering não validam GPU, Wayland nem sessão real. |
+| Revisão independente | Três rodadas de revisão por agentes (GPT-6.1 Terra no visual, GPT-6.1 Sol no código e na segurança), até convergir sem achado médio ou alto. O Sol conferiu as invariantes do fluxo de limpeza contra o HEAD (plano, consentimento, confirmação nativa, protegidos, guardas, ordem dos efeitos) e não encontrou regressão. **Isso não substitui a revisão humana exigida acima.** |
+| Acessibilidade | Axe na linha de base; correções de contraste, nomes, cabeçalhos e landmarks; foco nunca atrás da barra fixa (teste E2E). Leitor de tela real e zoom de 200% em sessão interativa continuam ABERTOS. |
+| CI remoto, assinatura, publicação, participantes, Wayland/GNOME/KDE, revisão humana | ABERTOS, sem mudança. |
+
+Versão dos pacotes: os metadados continuam em 0.1.13; a 0.1.14 está só no CHANGELOG como não publicada. A troca de versão e a geração de pacotes ficam para a etapa de release.
+
