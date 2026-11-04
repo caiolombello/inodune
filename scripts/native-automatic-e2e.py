@@ -19,7 +19,8 @@ root=Path(__file__).resolve().parents[1]
 standalone=os.environ.get('INODUNE_NATIVE_STANDALONE')=='1'
 evidence_set=os.environ.get('INODUNE_EVIDENCE_SET','automatic')
 if evidence_set not in {'automatic','launch'}:raise SystemExit('Unknown evidence set')
-out=root/'docs/evidence'/evidence_set/'native'
+# INODUNE_EVIDENCE_DIR keeps a verification run out of the versioned evidence.
+out=Path(os.environ['INODUNE_EVIDENCE_DIR']) if os.environ.get('INODUNE_EVIDENCE_DIR') else root/'docs/evidence'/evidence_set/'native'
 out.mkdir(parents=True,exist_ok=True)
 def port():
     with socket.socket() as s:s.bind(('127.0.0.1',0));return s.getsockname()[1]
@@ -78,7 +79,9 @@ with tempfile.TemporaryDirectory(prefix='inodune-driver-') as temp:
                 element=request('POST',prefix+'/element',{'using':'xpath','value':f"//button[normalize-space(.)='{text}']"})
                 element_id=next(iter(element.values()));request('POST',prefix+'/element/'+element_id+'/click',{})
             def screenshot(name):
-                request('POST',prefix+'/execute/async',{'script':'const done=arguments[arguments.length-1];requestAnimationFrame(()=>requestAnimationFrame(()=>done(true)));','args':[]})
+                # Wait for running enter animations (dialogs fade in for ~300 ms) so a
+                # screenshot never captures a half-transparent frame.
+                request('POST',prefix+'/execute/async',{'script':'const done=arguments[arguments.length-1];Promise.all(document.getAnimations().map(a=>a.finished.catch(()=>null))).then(()=>requestAnimationFrame(()=>requestAnimationFrame(()=>done(true))));','args':[]})
                 data=request('GET',prefix+'/screenshot');(out/name).write_bytes(base64.b64decode(data))
             until(lambda:script("return document.body.innerText.includes('Analisar computador')"))
             assert script('return window.isTauri') is True
@@ -90,20 +93,24 @@ with tempfile.TemporaryDirectory(prefix='inodune-driver-') as temp:
             # Fixture scopes are pre-approved by the feature-gated native harness, never by JS paths.
             click('Analisar computador')
             until(lambda:script("return document.body.innerText.includes('candidatos ·')&&!document.body.innerText.includes('Iniciando análise')"))
-            until(lambda:script("return Array.from(document.querySelectorAll('button')).some(b=>b.textContent.trim()==='Revisar candidatos'&&!b.disabled)"))
+            until(lambda:script("return Array.from(document.querySelectorAll('button')).some(b=>b.textContent.trim()==='Abrir a lista completa'&&!b.disabled)"))
             screenshot('local-results.png')
-            click('Revisar candidatos')
+            click('Abrir a lista completa')
             until(lambda:'Miniaturas XDG' in script('return document.body.innerText'))
             text=script('return document.body.innerText')
             assert 'Estado / configuração protegida' in text and 'Sessões e memória de agentes' in text
             (out/'review-debug.json').write_text(json.dumps({'text':text,'checkboxes':script("return Array.from(document.querySelectorAll('input[type=checkbox]')).map(b=>({label:b.getAttribute('aria-label'),checked:b.checked}))")},indent=2))
-            assert script("return document.querySelectorAll('input[type=checkbox]:not(:disabled)').length") == 3
+            # Thumbnails, Terraform provider and two Cargo items (fingerprint JSON and, since
+            # e2871d2, the reviewed target/ cache) are selectable; everything else is protected.
+            assert script("return document.querySelectorAll('input[type=checkbox]:not(:disabled)').length") == 4
             screenshot('local-review.png')
             def invoke(command,args):return request('POST',prefix+'/execute/async',{'script':"const done=arguments[arguments.length-1];window.__TAURI_INTERNALS__.invoke(arguments[0],arguments[1]).then(v=>done({ok:true,value:v})).catch(e=>done({ok:false,error:String(e)}));",'args':[command,args]})
             cleanup_jobs=[0]
             def css_click(selector):
                 element=request('POST',prefix+'/element',{'using':'css selector','value':selector});request('POST',prefix+'/element/'+next(iter(element.values()))+'/click',{})
             def run_cleanup(title,permanent,name):
+                # Low-risk defaults (thumbnails) start checked; review one item alone.
+                if script("return document.querySelectorAll('input[type=checkbox]:checked').length"):click('Desmarcar todos')
                 css_click('input[aria-label="Selecionar '+title+'"]')
                 assert script("return Array.from(document.querySelectorAll('input[type=checkbox]:checked')).length")==1
                 click('Revisar impacto')
@@ -124,7 +131,7 @@ with tempfile.TemporaryDirectory(prefix='inodune-driver-') as temp:
                 screenshot(name+'-report.png')
                 (out/(name+'-report.json')).write_text(json.dumps(report,indent=2)+'\n')
                 return report
-            provider=run_cleanup('Provider Terraform verificado',False,'provider')
+            provider=run_cleanup('Provider Terraform',False,'provider')
             assert provider['logical_bytes_processed']==77
             first=Path(provider['items'][0]['files'][0]['display_path']);projects=first.parents[8]
             # Derive only from this process's /tmp fixture path, never from caller-provided real data.
@@ -137,8 +144,8 @@ with tempfile.TemporaryDirectory(prefix='inodune-driver-') as temp:
             assert sum(Path(f['preserved_at']).stat().st_size for f in provider['items'][0]['files'])==77
             click('Voltar à revisão')
             click('Analisar novamente')
-            until(lambda:script("return Array.from(document.querySelectorAll('button')).some(b=>b.textContent.trim()==='Revisar candidatos'&&!b.disabled)"))
-            click('Revisar candidatos')
+            until(lambda:script("return Array.from(document.querySelectorAll('button')).some(b=>b.textContent.trim()==='Abrir a lista completa'&&!b.disabled)"))
+            click('Abrir a lista completa')
             until(lambda:'Metadado de fingerprint Cargo' in script('return document.body.innerText'))
             cargo=run_cleanup('Metadado de fingerprint Cargo',True,'cargo')
             cargo_json=Path(cargo['items'][0]['files'][0]['display_path']);assert not cargo_json.exists()
