@@ -16,7 +16,7 @@
   },
   "dependencies": {
     "@lucide/svelte": "1.66.0",
-    "@tanstack/svelte-virtual": "3.13.50",
+    "@tanstack/svelte-virtual": "3.13.52",
     "@tauri-apps/api": "2.12.4",
     "svelte": "5.57.3"
   },
